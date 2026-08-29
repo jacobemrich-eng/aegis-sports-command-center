@@ -7,7 +7,7 @@ const CFBD_KEY = process.env.CFBD_API_KEY || '';
 const ODDS_BOOKMAKERS = process.env.ODDS_BOOKMAKERS || 'hardrockbet_fl,fanduel,draftkings,bovada,betmgm,espnbet,fanatics';
 const MAX_SCAN_GAMES = Math.max(1, Math.min(40, Number(process.env.MAX_SCAN_GAMES || 15)));
 const TARGET_BOOK = 'hardrockbet_fl';
-const VERSION = '5.3-early-season-integrity';
+const VERSION = '5.3.1-cfbd-mapping-integrity';
 
 const MODELS = [
   ['SB101 AEGIS v1.0','governance','Master release/governance layer for calibrated EV decisions.'],
@@ -110,7 +110,7 @@ function sameTeam(a,b){ return teamSimilarity(a,b)>=0.5; }
 function send(res,status,data,type='application/json'){ res.writeHead(status,{'Content-Type':type,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}); res.end(type.startsWith('application/json')?JSON.stringify(data):data); }
 function readBody(req){ return new Promise((resolve,reject)=>{let s='';req.on('data',d=>{s+=d;if(s.length>5e6)req.destroy();});req.on('end',()=>resolve(s));req.on('error',reject);}); }
 
-async function fetchWithTimeout(url,options={},timeout=9000){ const c=new AbortController(); const t=setTimeout(()=>c.abort(),timeout); try{return await fetch(url,{...options,signal:c.signal,headers:{'User-Agent':'SB101-AEGIS-Zero-Cost/5.3','Accept':'application/json,text/plain,*/*',...(options.headers||{})}});}finally{clearTimeout(t);} }
+async function fetchWithTimeout(url,options={},timeout=9000){ const c=new AbortController(); const t=setTimeout(()=>c.abort(),timeout); try{return await fetch(url,{...options,signal:c.signal,headers:{'User-Agent':'SB101-AEGIS-Zero-Cost/5.3.1','Accept':'application/json,text/plain,*/*',...(options.headers||{})}});}finally{clearTimeout(t);} }
 async function cachedJson(url,ttl=300000,options={}){ const k=`json|${url}|${JSON.stringify(options.headers||{})}`; const hit=CACHE.get(k); if(hit&&hit.exp>now())return hit.data; const r=await fetchWithTimeout(url,options); if(!r.ok)throw new Error(`Data source ${r.status}: ${url}`); const d=await r.json(); CACHE.set(k,{exp:now()+ttl,data:d}); return d; }
 async function cachedText(url,ttl=3600000,options={}){ const k=`text|${url}`; const hit=CACHE.get(k); if(hit&&hit.exp>now())return hit.data; const r=await fetchWithTimeout(url,options,12000); if(!r.ok)throw new Error(`Data source ${r.status}: ${url}`); const d=await r.text(); CACHE.set(k,{exp:now()+ttl,data:d}); return d; }
 
@@ -160,11 +160,32 @@ async function cfbdAll(year){
   ]);
   return {sp,core,elo,priorSp,priorCore,priorElo,year,priorYear:py};
 }
+function ratingTeamSimilarity(a,b){
+  const na=normalizeTeam(a),nb=normalizeTeam(b),A=[...tokens(a)],B=[...tokens(b)];
+  if(!na||!nb||!A.length||!B.length)return 0;
+  if(na===nb)return 1;
+  let inter=0; for(const x of A)if(B.includes(x))inter++;
+  const overlap=inter/Math.max(A.length,B.length);
+  // CFBD names commonly omit mascots ("West Georgia" vs "West Georgia Wolves").
+  // Reward specific containment, but do NOT let a generic token such as "Georgia"
+  // tie the more specific "West Georgia" match.
+  if(na.includes(nb)||nb.includes(na)){
+    const short=Math.min(A.length,B.length),long=Math.max(A.length,B.length);
+    return Math.max(overlap,.75+.20*(short/long));
+  }
+  return overlap;
+}
 function findRatingMatch(rows,team){
   let best=null,bestScore=0,second=0;
-  for(const r of rows||[]){ const q=teamSimilarity(r.team,team); if(q>bestScore){second=bestScore;bestScore=q;best=r;} else if(q>second)second=q; }
-  if(bestScore<.45)return {row:null,score:bestScore,ambiguous:false};
-  const ambiguous=bestScore<.90&&(bestScore-second)<.08;
+  for(const r of rows||[]){
+    const q=ratingTeamSimilarity(r.team,team);
+    if(q>bestScore+1e-9){second=bestScore;bestScore=q;best=r;}
+    else if(q>second)second=q;
+  }
+  // .84 accepts a mascot-omitted two-of-three token match (~.883), while rejecting
+  // underspecified one-token matches such as Georgia -> West Georgia Wolves (~.817).
+  if(bestScore<.84)return {row:null,score:bestScore,ambiguous:false,matched:best?.team||null};
+  const ambiguous=(bestScore-second)<.035;
   return {row:ambiguous?null:best,score:bestScore,ambiguous,matched:best?.team||null};
 }
 function findRating(rows,team){ return findRatingMatch(rows,team).row; }
@@ -173,7 +194,12 @@ function conferenceClass(conf){ const c=normalizeTeam(conf); if(!c)return 'unkno
 function ncaafCurrentWeight(games){ const g=Math.max(0,Number(games)||0); if(g<=1)return .18;if(g===2)return .28;if(g===3)return .42;if(g===4)return .56;if(g===5)return .68;if(g===6)return .78;return .86; }
 function ncaafScheduleWeight(games){ const g=Math.max(0,Number(games)||0); if(g<=0)return 0;if(g===1)return .06;if(g===2)return .12;if(g===3)return .20;if(g===4)return .28;if(g===5)return .36;if(g===6)return .42;return .46; }
 function blendPriorCurrent(current,prior,currentWeight){
-  const c=num(current),p=num(prior); if(c==null&&p==null)return null; if(c==null)return p; if(p==null)return c*Math.max(.30,currentWeight); return currentWeight*c+(1-currentWeight)*p;
+  const c=num(current),p=num(prior); if(c==null&&p==null)return null; if(c==null)return p;
+  // If a valid prior is unavailable (new/reclassified team), do not invent one and do
+  // not give a tiny current-season sample a 30% minimum weight. Shrink it toward neutral
+  // using the same current-season ramp.
+  if(p==null)return c*clamp01(currentWeight);
+  return currentWeight*c+(1-currentWeight)*p;
 }
 
 function parseCsvLine(line){ const out=[]; let cur='',q=false; for(let i=0;i<line.length;i++){const ch=line[i]; if(ch==='"'){ if(q&&line[i+1]==='"'){cur+='"';i++;}else q=!q;} else if(ch===','&&!q){out.push(cur);cur='';} else cur+=ch;} out.push(cur); return out; }
@@ -288,7 +314,7 @@ async function analyzeESPN(event){
   const mods=[]; let ratingMargin=null,advanced=false,ncaafMeta=null;
   if(event.sport_key==='americanfootball_ncaaf'&&cfbd){
     const hmSp=findRatingMatch(cfbd.sp,event.home_team),amSp=findRatingMatch(cfbd.sp,event.away_team),hsp=hmSp.row,asp=amSp.row;
-    const hPrev=findRating(cfbd.priorSp,event.home_team),aPrev=findRating(cfbd.priorSp,event.away_team);
+    const hmPrev=findRatingMatch(cfbd.priorSp,event.home_team),amPrev=findRatingMatch(cfbd.priorSp,event.away_team),hPrev=hmPrev.row,aPrev=amPrev.row;
     const hc=findRating(cfbd.core,event.home_team),ac=findRating(cfbd.core,event.away_team),he=findRating(cfbd.elo,event.home_team),ae=findRating(cfbd.elo,event.away_team);
     const hpCore=findRating(cfbd.priorCore,event.home_team),apCore=findRating(cfbd.priorCore,event.away_team),hpElo=findRating(cfbd.priorElo,event.home_team),apElo=findRating(cfbd.priorElo,event.away_team);
     const minGames=Math.min(hm.games||0,am.games||0),currentWeight=ncaafCurrentWeight(minGames),scheduleWeight=ncaafScheduleWeight(minGames);
@@ -301,9 +327,9 @@ async function analyzeESPN(event){
       let classBaseline=0;
       if(crossClass){ if(homeClass==='fbs'&&awayClass!=='fbs')classBaseline=7; else if(awayClass==='fbs'&&homeClass!=='fbs')classBaseline=-7; blendedSp=.65*blendedSp+.35*classBaseline; }
       ratingMargin=blendedSp+cfg.homeAdv; advanced=true;
-      ncaafMeta={minGames,currentWeight,scheduleWeight,currentDiff,priorDiff,blendedSp,homeClass,awayClass,crossClass,classBaseline,homeMatch:hmSp,awayMatch:amSp};
+      ncaafMeta={minGames,currentWeight,scheduleWeight,currentDiff,priorDiff,blendedSp,homeClass,awayClass,crossClass,classBaseline,homeMatch:hmSp,awayMatch:amSp,homePriorMatch:hmPrev,awayPriorMatch:amPrev,priorMissing:priorDiff==null};
       const dir=blendedSp>=0?'home':'away',homeMatched=hsp?.team||hPrev?.team||event.home_team,awayMatched=asp?.team||aPrev?.team||event.away_team;
-      mods.push(module('SP+ / true strength prior blend',blendedSp/12,dir,`Current SP+ diff ${currentDiff==null?'unavailable':currentDiff.toFixed(1)}; prior-year diff ${priorDiff==null?'unavailable':priorDiff.toFixed(1)}; current-season weight ${(currentWeight*100).toFixed(0)}%. Matched ${homeMatched} vs ${awayMatched}.`,minGames<3?74:88));
+      mods.push(module('SP+ / true strength prior blend',blendedSp/12,dir,`Current SP+ diff ${currentDiff==null?'unavailable':currentDiff.toFixed(1)}; prior-year diff ${priorDiff==null?'unavailable (current rating shrunk toward neutral)':priorDiff.toFixed(1)}; current-season weight ${(currentWeight*100).toFixed(0)}%. Current matches: ${homeMatched} vs ${awayMatched}. Prior matches: ${hPrev?.team||'none'} vs ${aPrev?.team||'none'}.`,minGames<3?74:88));
       if(hsp?.offense&&asp?.offense){const d=num(hsp.offense.rating)-num(asp.offense.rating);mods.push(module('Offense / success / explosiveness',d/18,d>=0?'home':'away',`Current SP+ offense rating ${num(hsp.offense.rating).toFixed(1)} vs ${num(asp.offense.rating).toFixed(1)}; early-season confidence is reduced until sample grows.`,minGames<3?62:82));}
       if(hsp?.defense&&asp?.defense){const d=num(asp.defense.rating)-num(hsp.defense.rating);mods.push(module('Defense / havoc',d/18,d>=0?'home':'away',`Current SP+ defense rating ${num(hsp.defense.rating).toFixed(1)} vs ${num(asp.defense.rating).toFixed(1)}; lower defense rating is treated as better.`,minGames<3?62:82));}
       if(hsp?.specialTeams&&asp?.specialTeams){const d=num(hsp.specialTeams.rating)-num(asp.specialTeams.rating);mods.push(module('Special teams',d/5,d>=0?'home':'away','CFBD SP+ special-teams component; weight remains modest.',70));}
@@ -311,7 +337,8 @@ async function analyzeESPN(event){
     }
     if(hc&&ac){const cur=num(hc.overall)-num(ac.overall),prev=(hpCore&&apCore)?num(hpCore.overall)-num(apCore.overall):null,bd=blendPriorCurrent(cur,prev,currentWeight);mods.push(module('CORE efficiency prior blend',bd/15,bd>=0?'home':'away',`CORE overall diff current ${cur.toFixed(1)}; prior ${prev==null?'unavailable':prev.toFixed(1)}. Early-season CORE is explicitly shrunk because its sample is smaller.`,minGames<3?60:80));}
     if(he&&ae){const cur=num(he.elo)-num(ae.elo),prev=(hpElo&&apElo)?num(hpElo.elo)-num(apElo.elo):null,bd=blendPriorCurrent(cur,prev,currentWeight);mods.push(module('Elo prior blend',bd/250,bd>=0?'home':'away',`Elo diff current ${cur.toFixed(0)}; prior ${prev==null?'unavailable':prev.toFixed(0)}.`,minGames<3?64:74));}
-    if(hmSp.ambiguous||amSp.ambiguous)mods.push(module('CFBD team mapping integrity',0,'neutral','At least one CFBD team-name match was ambiguous, so the uncertain rating match was rejected.',95));
+    if(hmSp.ambiguous||amSp.ambiguous)mods.push(module('CFBD team mapping integrity',0,'neutral','At least one current-year CFBD team-name match was ambiguous, so the uncertain rating match was rejected.',95));
+    if((hmPrev.matched&&!hPrev)||(amPrev.matched&&!aPrev))mods.push(module('CFBD prior mapping integrity',0,'neutral',`A prior-year candidate was rejected as too generic/ambiguous (${hmPrev.matched||'none'} / ${amPrev.matched||'none'}). No false prior is substituted.`,100));
     if(mappingCollision)mods.push(module('CFBD team mapping integrity',0,'neutral','Home and away resolved to the same CFBD team; advanced ratings were discarded for this game.',100));
     sources.push({name:'CollegeFootballData free API',url:'https://api.collegefootballdata.com/'});
   }
@@ -338,9 +365,10 @@ async function analyzeESPN(event){
   dq=Math.min(cap,dq); const injuryPenalty=Math.min(12,(hn.filter(x=>x.critical).length+an.filter(x=>x.critical).length)*3+Math.min(6,hsRisk.injuryHits+asRisk.injuryHits)); dq=Math.max(30,dq-injuryPenalty); const uncertainty=clamp(100-dq+(event.sport_key==='americanfootball_nfl_preseason'?18:0)); const homeProb=clamp01(normCdf(margin/cfg.marginSd)); const agr=agreement(mods),coverage=coverageScore(mods,event.sport_key,event.sport_key==='americanfootball_nfl_preseason'?15:injuryPenalty/2),effAgr=effectiveAgreement(agr,coverage,dq),ec=edgeCount(mods,homeProb>=.5); const risks=[];
   if((hm.games||0)<3||(am.games||0)<3){ if(event.sport_key==='americanfootball_ncaaf')risks.push(`Early-season NCAAF sample: current results are intentionally downweighted (${Math.round((ncaafMeta?.currentWeight??.18)*100)}% current / ${100-Math.round((ncaafMeta?.currentWeight??.18)*100)}% prior when prior ratings exist).`); else risks.push('Small current-season sample in the free schedule feed.'); }
   if(event.sport_key==='americanfootball_ncaaf'&&ncaafMeta?.crossClass)risks.push(`FBS/FCS crossover uncertainty: ${ncaafMeta.homeClass} home vs ${ncaafMeta.awayClass} away; classification shrink and stricter release limits are active.`);
-  if(event.sport_key==='americanfootball_ncaaf'&&(ncaafMeta?.homeMatch?.ambiguous||ncaafMeta?.awayMatch?.ambiguous))risks.push('CFBD team-name mapping was ambiguous for at least one team; the uncertain advanced rating was rejected.');
+  if(event.sport_key==='americanfootball_ncaaf'&&(ncaafMeta?.homeMatch?.ambiguous||ncaafMeta?.awayMatch?.ambiguous))risks.push('CFBD current-year team-name mapping was ambiguous for at least one team; the uncertain advanced rating was rejected.');
+  if(event.sport_key==='americanfootball_ncaaf'&&ncaafMeta?.priorMissing&&ncaafMeta?.minGames<3)risks.push('No valid prior-year SP+ pair was available; current-year SP+ is heavily shrunk toward neutral rather than given a minimum floor.');
   if(injuryPenalty>0)risks.push('Availability-related news exists but the deterministic engine cannot fully interpret every player impact.'); if(event.sport_key==='americanfootball_nfl_preseason')risks.push('Free structured feeds do not reliably confirm full QB2/QB3 snap plans; large-favorite/Core gates are intentionally strict.'); if((event.sport_key==='baseball_kbo'||event.sport_key==='baseball_npb')&&!hm.games)risks.push('Foreign-league structured data coverage is thin; AEGIS will usually PASS instead of anchoring to the market.');
-  return {event_id:event.id,sport:event.sport_key,away_team:event.away_team,home_team:event.home_team,projected_score:{away:+awayScore.toFixed(1),home:+homeScore.toFixed(1)},projected_total:+total.toFixed(1),projected_margin_home:+margin.toFixed(1),home_win_probability:homeProb,data_quality:dq,uncertainty,model_agreement:agr,coverage_score:coverage,effective_agreement:effAgr,independent_edge_count:ec,total_drivers:totalDrivers,modules:mods,risks,weather,ncaaf_integrity:ncaafMeta,notes:[venue.name?`Venue: ${venue.name}`:'Venue unavailable',advanced?'CFBD advanced ratings active with early-season prior blending.':'CFBD advanced ratings not active.',...(ncaafMeta?[`NCAAF current-season weight ${(ncaafMeta.currentWeight*100).toFixed(0)}%; schedule-result weight ${(ncaafMeta.scheduleWeight*100).toFixed(0)}%.`,ncaafMeta.crossClass?`Cross-classification shrink active (${ncaafMeta.homeClass} vs ${ncaafMeta.awayClass}).`:'Same classification / no crossover shrink.']:[])],news:[...hn.map(x=>({team:event.home_team,...x})),...an.map(x=>({team:event.away_team,...x}))].slice(0,10),sources};
+  return {event_id:event.id,sport:event.sport_key,away_team:event.away_team,home_team:event.home_team,projected_score:{away:+awayScore.toFixed(1),home:+homeScore.toFixed(1)},projected_total:+total.toFixed(1),projected_margin_home:+margin.toFixed(1),home_win_probability:homeProb,data_quality:dq,uncertainty,model_agreement:agr,coverage_score:coverage,effective_agreement:effAgr,independent_edge_count:ec,total_drivers:totalDrivers,modules:mods,risks,weather,ncaaf_integrity:ncaafMeta,notes:[venue.name?`Venue: ${venue.name}`:'Venue unavailable',advanced?'CFBD advanced ratings active with strict team mapping + early-season prior blending.':'CFBD advanced ratings not active.',...(ncaafMeta?[`NCAAF current-season weight ${(ncaafMeta.currentWeight*100).toFixed(0)}%; schedule-result weight ${(ncaafMeta.scheduleWeight*100).toFixed(0)}%.`,ncaafMeta.crossClass?`Cross-classification shrink active (${ncaafMeta.homeClass} vs ${ncaafMeta.awayClass}).`:'Same classification / no crossover shrink.']:[])],news:[...hn.map(x=>({team:event.home_team,...x})),...an.map(x=>({team:event.away_team,...x}))].slice(0,10),sources};
 }
 
 async function analyzeEvent(event){ if(event.sport_key==='baseball_mlb')return analyzeMLB(event); return analyzeESPN(event); }
@@ -445,7 +473,7 @@ const HTML = `<!doctype html><html><head><meta name="viewport" content="width=de
 .quickbrief{display:grid;grid-template-columns:1.25fr .75fr;gap:10px;margin:12px 0}.briefbox{background:#071721;border:1px solid #1f3a4e;border-radius:15px;padding:13px}.briefbox .kicker{font-size:10px;color:var(--muted);letter-spacing:.1em;font-weight:900;text-transform:uppercase;margin-bottom:5px}.briefbox .big{font-size:17px;font-weight:850;line-height:1.35}.verdict{border-radius:14px;padding:12px 13px;margin:10px 0;font-size:13px;line-height:1.4}.verdict.firev{background:#0b2b22;border:1px solid #2c765a}.verdict.holdv{background:#0b2234;border:1px solid #315f82}.verdict.cutv{background:#2a1519;border:1px solid #71343b}.verdict b{display:block;margin-bottom:3px}.tab{min-width:0}.tabs{overflow:visible}.copyrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
 @media(max-width:720px){.wrap{padding-left:13px;padding-right:13px}.tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;padding:9px 0}.tab{width:100%;padding:11px 8px;font-size:13px}.healthgrid{grid-template-columns:repeat(2,minmax(0,1fr))}.actionrow{grid-template-columns:1fr}.quickgrid{grid-template-columns:repeat(2,minmax(0,1fr))}.quickbrief{grid-template-columns:1fr}.play{padding:15px}.playhead{display:block}.decisionline{margin-top:8px}.pickline{font-size:25px}.slatehero h2{font-size:32px}.missionmark{display:none}}
 @media(max-width:410px){.hero h1{font-size:40px}.healthchip{padding:8px}.tab{font-size:12px}.quickmetric strong{font-size:16px}}
-</style></head><body><div class="wrap"><header class="hero"><div class="brandline"><div class="eyebrow">SB101 AEGIS</div><div class="versionpill">v5.3 • EARLY-SEASON INTEGRITY</div></div><h1>AEGIS Command Center</h1><p class="tagline"><strong>Research hard. Bet selectively.</strong> One tap turns the slate into a disciplined Core / Secondary / Watch / Pass decision — with the deep math available when you want it.</p><div class="status" id="status">Running system check…</div><div class="healthgrid" id="healthGrid"><div class="healthchip"><b>Odds</b><span>Checking…</span></div><div class="healthchip"><b>Sports data</b><span>Checking…</span></div><div class="healthchip"><b>Weather</b><span>Checking…</span></div><div class="healthchip"><b>NCAAF</b><span>Checking…</span></div></div></header>
+</style></head><body><div class="wrap"><header class="hero"><div class="brandline"><div class="eyebrow">SB101 AEGIS</div><div class="versionpill">v5.3.1 • CFBD MAPPING INTEGRITY</div></div><h1>AEGIS Command Center</h1><p class="tagline"><strong>Research hard. Bet selectively.</strong> One tap turns the slate into a disciplined Core / Secondary / Watch / Pass decision — with the deep math available when you want it.</p><div class="status" id="status">Running system check…</div><div class="healthgrid" id="healthGrid"><div class="healthchip"><b>Odds</b><span>Checking…</span></div><div class="healthchip"><b>Sports data</b><span>Checking…</span></div><div class="healthchip"><b>Weather</b><span>Checking…</span></div><div class="healthchip"><b>NCAAF</b><span>Checking…</span></div></div></header>
 <nav class="tabs"><button class="tab active" data-tab="dashboard">Command</button><button class="tab" data-tab="card">Final Card</button><button class="tab" data-tab="results">Results Lab</button><button class="tab" data-tab="models">Model Registry</button></nav>
 <section id="dashboard"><div class="panel mission"><div class="missiontop"><div><div class="eyebrow">TODAY'S MISSION</div><h2>Find the edge. Make it prove itself.</h2></div><div class="missionmark">AEGIS</div></div><p class="missioncopy">Pick the sport and tap scan. AEGIS handles the research, projection, market challenge and release gates. <b>No sliders. No forced action.</b></p><div class="controls"><div class="control"><label>Sport</label><select id="sport"></select></div><div class="control"><label>Markets</label><select id="markets"><option value="h2h,spreads,totals">ML + Spread + Total</option><option value="h2h">Moneyline only</option><option value="spreads">Spread only</option><option value="totals">Total only</option></select></div></div><div class="actionrow"><button class="btn secondary" id="sync">REFRESH BOARD</button><button class="btn primary" id="scan">RUN FULL AEGIS SCAN</button></div><div class="truthline"><span class="truthchip"><b>Pregame only</b></span><span class="truthchip"><b>49 models</b></span><span class="truthchip"><b>Zero paid AI</b></span><span class="truthchip">PASS is a win when the edge is not proven</span></div><div id="quota" class="muted small" style="margin-top:12px"></div><div id="enhance" class="notice small"></div></div>
 <div class="progress" id="progress"><b id="progressTitle">Scanning…</b><p class="muted" id="progressText"></p><div class="bar"><i id="progressBar"></i></div></div><div id="events"></div></section>
@@ -596,4 +624,4 @@ const server=http.createServer(async(req,res)=>{
     return send(res,404,{error:'Not found'});
   }catch(e){console.error(e);return send(res,500,{error:e.message||'Server error'});}
 });
-server.listen(PORT,'0.0.0.0',()=>console.log(`AEGIS Command UX v5.3 running on ${PORT} • ${MODELS.length} models • OpenAI calls disabled`));
+server.listen(PORT,'0.0.0.0',()=>console.log(`AEGIS Command UX v5.3.1 running on ${PORT} • ${MODELS.length} models • OpenAI calls disabled`));
