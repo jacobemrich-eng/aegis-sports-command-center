@@ -1,12 +1,8 @@
 {
   "name": "aegis-command-center",
-  "version": "5.3.4",
+  "version": "6.0.0",
   "private": true,
-  "description": "SB101 AEGIS v5.3.4 MLB Confirmation Integrity \u2014 zero-cost calibrated sports command center",
-  "scripts": {
-    "start": "node server.js"
-  },
-  "engines": {
-    "node": ">=22 <23"
-  }
+  "description": "SB101 AEGIS v6.0 Intelligence Suite — zero-cost calibrated sports command center with Game Lab, model library and results calibration",
+  "scripts": {"start": "node server.js"},
+  "engines": {"node": ">=22 <23"}
 }
