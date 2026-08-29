@@ -1,8 +1,8 @@
 {
   "name": "aegis-command-center",
-  "version": "5.2.0",
+  "version": "5.2.1",
   "private": true,
-  "description": "SB101 AEGIS v5.2 zero-cost sports command center with mobile command UX, health status, quick cards, deep diagnostics, and results calibration",
+  "description": "SB101 AEGIS v5.2.1 zero-cost sports command center with mobile command UX, health status, quick cards, deep diagnostics, and results calibration",
   "scripts": {
     "start": "node server.js"
   },
