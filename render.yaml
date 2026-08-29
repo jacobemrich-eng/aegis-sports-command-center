@@ -12,13 +12,7 @@ services:
         value: production
       - key: ODDS_API_KEY
         sync: false
-      - key: OPENAI_API_KEY
-        sync: false
-      - key: OPENAI_MODEL
-        value: gpt-5.6
-      - key: OPENAI_REASONING
-        value: high
       - key: ODDS_BOOKMAKERS
         value: hardrockbet_fl,fanduel,draftkings,bovada,betmgm,espnbet,fanatics
       - key: MAX_SCAN_GAMES
-        value: "12"
+        value: "15"

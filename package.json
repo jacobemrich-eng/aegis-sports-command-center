@@ -1,8 +1,8 @@
 {
-  "name": "aegis-auto-research-command-center",
-  "version": "2.0.0",
+  "name": "aegis-zero-cost-command-center",
+  "version": "3.0.0",
   "private": true,
-  "description": "SB101 AEGIS v2 automatic sports research command center",
+  "description": "SB101 AEGIS v3 zero-cost automatic sports research engine",
   "scripts": {"start": "node server.js"},
   "engines": {"node": ">=22 <23"}
 }
