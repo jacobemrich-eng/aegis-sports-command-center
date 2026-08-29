@@ -1,8 +1,8 @@
 {
   "name": "aegis-command-center",
-  "version": "5.3.3",
+  "version": "5.3.4",
   "private": true,
-  "description": "SB101 AEGIS v5.3.3 EV & Cushion Integrity \u2014 zero-cost calibrated sports command center",
+  "description": "SB101 AEGIS v5.3.4 MLB Confirmation Integrity \u2014 zero-cost calibrated sports command center",
   "scripts": {
     "start": "node server.js"
   },
