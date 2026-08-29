@@ -1,6 +1,14 @@
 const http = require('http');
 const { URL } = require('url');
 
+const PORT = Number(process.env.PORT || 3000);
+const ODDS_KEY = process.env.ODDS_API_KEY || '';
+const OPENAI_KEY = process.env.OPENAI_API_KEY || '';
+const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-5.6';
+const OPENAI_REASONING = process.env.OPENAI_REASONING || 'high';
+const ODDS_BOOKMAKERS = process.env.ODDS_BOOKMAKERS || 'hardrockbet_fl,fanduel,draftkings,bovada,betmgm,espnbet,fanatics';
+const MAX_SCAN_GAMES = Math.max(1, Math.min(30, Number(process.env.MAX_SCAN_GAMES || 12)));
+
 const MODELS = [
   ['SB101 AEGIS v1.0','governance','Master release/governance layer for calibrated EV decisions.'],
   ['Precision Mode','execution','Bankroll-protection mode with tight Core/Secondary caps.'],
@@ -53,254 +61,274 @@ const MODELS = [
   ['VantageIQ / SBOS Implementation Layer','platform','Production-facing implementation and display layer.']
 ];
 
-
-function clamp(x, lo=0, hi=100){ return Math.max(lo, Math.min(hi, x)); }
-function americanToProb(price){
-  const p = Number(price);
-  if (!Number.isFinite(p) || p === 0) return null;
-  return p < 0 ? (-p)/((-p)+100) : 100/(p+100);
-}
-function probToAmerican(prob){
-  if (!Number.isFinite(prob) || prob <= 0 || prob >= 1) return null;
-  return prob >= .5 ? Math.round(-100*prob/(1-prob)) : Math.round(100*(1-prob)/prob);
-}
-function devigTwoWay(a,b){
-  const pa = americanToProb(a), pb = americanToProb(b);
-  if (pa == null || pb == null) return null;
-  const s = pa+pb;
-  return {a: pa/s, b: pb/s, hold: s-1};
-}
-function average(xs){ const v=xs.filter(Number.isFinite); return v.length ? v.reduce((a,b)=>a+b,0)/v.length : null; }
-function sd(xs){ const m=average(xs); if(m==null) return null; return Math.sqrt(average(xs.map(x=>(x-m)**2))); }
-
-function extractConsensus(event){
-  const rows = [];
-  for (const book of event.bookmakers || []) {
-    for (const market of book.markets || []) {
-      if (market.key !== 'h2h') continue;
-      const home = market.outcomes.find(o=>o.name===event.home_team);
-      const away = market.outcomes.find(o=>o.name===event.away_team);
-      if (!home || !away) continue;
-      const dv = devigTwoWay(home.price, away.price);
-      if (!dv) continue;
-      rows.push({book:book.title, homePrice:home.price, awayPrice:away.price, homeProb:dv.a, awayProb:dv.b, hold:dv.hold});
-    }
-  }
-  return {
-    rows,
-    homeProb: average(rows.map(r=>r.homeProb)),
-    awayProb: average(rows.map(r=>r.awayProb)),
-    homeDispersion: sd(rows.map(r=>r.homeProb)),
-    hold: average(rows.map(r=>r.hold))
-  };
-}
-
-function defaultFactorSet(){
-  return {
-    talent: 50, offense: 50, defense: 50, starter: 50, bullpen: 50,
-    depth: 50, qbDepth: 50, coaching: 50, role: 50, matchup: 50,
-    environment: 50, availability: 50, specialTeams: 50, recentForm: 50,
-    dataQuality: 40, uncertainty: 60, failureRisk: 50
-  };
-}
-
-function factorWeightForSport(sport){
-  if (sport.includes('baseball')) return {talent:.10, offense:.16, defense:.04, starter:.22, bullpen:.12, matchup:.14, environment:.08, availability:.08, recentForm:.06};
-  if (sport==='americanfootball_nfl_preseason') return {talent:.05, offense:.05, defense:.08, depth:.18, qbDepth:.23, coaching:.14, specialTeams:.07, availability:.10, recentForm:.03, matchup:.07};
-  if (sport.includes('americanfootball')) return {talent:.20, offense:.17, defense:.17, matchup:.14, availability:.12, coaching:.05, specialTeams:.05, recentForm:.10};
-  if (sport==='basketball_wnba') return {talent:.15, offense:.18, defense:.17, matchup:.15, availability:.15, recentForm:.10, role:.05, environment:.05};
-  if (sport.includes('tennis')) return {talent:.24, offense:.20, defense:.20, matchup:.20, recentForm:.10, availability:.06};
-  return {talent:.20, offense:.15, defense:.15, matchup:.15, availability:.15, recentForm:.10, environment:.10};
-}
-
-function weightedScore(factors, weights){
-  let n=0,d=0;
-  for (const [k,w] of Object.entries(weights)) { if (Number.isFinite(+factors[k])) { n += (+factors[k])*w; d+=w; } }
-  return d ? n/d : 50;
-}
-
-function marketSpecificCushion({sport, market='h2h', isFavorite=false, price=null, road=false}){
-  let pct = 0.025;
-  if (market.includes('spreads')) pct = 0.03;
-  if (market.includes('totals')) pct = 0.035;
-  if (market.includes('h1') || market.includes('q1') || market.includes('f5')) pct += 0.01;
-  if (sport.includes('baseball') && market.includes('f5')) pct += 0.008;
-  if (sport==='americanfootball_nfl_preseason' && isFavorite) pct += 0.012;
-  if (road && isFavorite) pct += 0.008;
-  if (price && price <= -220) pct += 0.012;
-  return pct;
-}
-
-function runAegis({event, factors={}, selection='home', market='h2h', offeredPrice=null, road=false, bankroll=100}){
-  const f = {...defaultFactorSet(), ...factors};
-  const consensus = extractConsensus(event);
-  const weights = factorWeightForSport(event.sport_key || '');
-  const thesisScore = weightedScore(f, weights);
-  const thesisProb = clamp(50 + (thesisScore-50)*0.9, 2, 98)/100;
-  const selectedThesisProb = selection==='home' ? thesisProb : 1-thesisProb;
-  const marketProb = selection==='home' ? consensus.homeProb : consensus.awayProb;
-  const priceProb = americanToProb(offeredPrice);
-  const challengerProb = marketProb ?? priceProb ?? .5;
-
-  const relevantFactorValues = Object.keys(weights).map(k=>+f[k]).filter(Number.isFinite);
-  const disagreement = sd(relevantFactorValues) || 0;
-  const agreement = clamp(100 - disagreement*2.1);
-  const independentEdges = relevantFactorValues.filter(x=>x>=58).length;
-  const dataQuality = clamp(+f.dataQuality);
-  const uncertainty = clamp(+f.uncertainty);
-  const failureRisk = clamp(+f.failureRisk);
-  const favorite = (offeredPrice ?? probToAmerican(challengerProb)) < 0;
-  const cushion = marketSpecificCushion({sport:event.sport_key||'',market,isFavorite:favorite,price:offeredPrice,road});
-  const rawEdge = selectedThesisProb - challengerProb;
-  const uncertaintyPenalty = ((100-dataQuality)*0.00022) + (uncertainty*0.00012) + (failureRisk*0.00008);
-  const adjustedEdge = rawEdge - uncertaintyPenalty;
-  const fairPrice = probToAmerican(selectedThesisProb);
-  const ev = offeredPrice == null ? null : (()=>{
-    const decimal = offeredPrice < 0 ? 1 + 100/Math.abs(offeredPrice) : 1 + offeredPrice/100;
-    return selectedThesisProb*decimal - 1;
-  })();
-
-  const gates = {
-    independentThesis: thesisScore >= 54,
-    agreement: agreement >= 68,
-    twoIndependentEdges: independentEdges >= 2,
-    marketCushion: adjustedEdge >= cushion,
-    dataQuality: dataQuality >= 65,
-    uncertainty: uncertainty <= 45,
-    mistakeFirewall: failureRisk <= 58,
-    priceEV: ev == null ? true : ev >= 0.015
-  };
-  const passCount = Object.values(gates).filter(Boolean).length;
-  let tier = 'PASS';
-  if (Object.values(gates).every(Boolean) && thesisScore>=61 && agreement>=75) tier='CORE';
-  else if (passCount>=6 && adjustedEdge>0) tier='SECONDARY';
-  else if (passCount>=5 && adjustedEdge>0.01) tier='WATCH';
-
-  const baseUnit = Math.max(1, bankroll*0.03);
-  const stake = tier==='CORE' ? baseUnit : tier==='SECONDARY' ? baseUnit*.5 : 0;
-  const timing = dataQuality<70 || uncertainty>35 ? 'WAIT' : (adjustedEdge >= cushion*1.35 ? 'BET NOW' : 'WAIT');
-
-  const sportChecks = [];
-  if ((event.sport_key||'').includes('baseball')) {
-    sportChecks.push({name:'Offensive Support Filter',pass:f.offense>=52 || f.starter<62});
-    sportChecks.push({name:'F5 Tie-Risk / Fragile Total Guard',pass: market.includes('f5') ? f.offense>=55 : true});
-  }
-  if (event.sport_key==='americanfootball_nfl_preseason') {
-    sportChecks.push({name:'QB Depth Gate',pass:f.qbDepth>=55});
-    sportChecks.push({name:'Rotation Depth Gate',pass:f.depth>=55});
-    sportChecks.push({name:'Large Favorite Gate',pass:!(favorite && offeredPrice && offeredPrice<-180) || (f.qbDepth>=62 && f.depth>=62)});
-  }
-  if (event.sport_key==='basketball_wnba') sportChecks.push({name:'Minutes / Availability Gate',pass:f.availability>=60});
-
-  if (sportChecks.some(x=>!x.pass) && tier==='CORE') tier='SECONDARY';
-
-  return {
-    tier, timing, selection, market, offeredPrice, fairPrice,
-    thesisScore:+thesisScore.toFixed(1), thesisProb:+selectedThesisProb.toFixed(4),
-    marketProb:+challengerProb.toFixed(4), rawEdge:+rawEdge.toFixed(4), adjustedEdge:+adjustedEdge.toFixed(4),
-    requiredCushion:+cushion.toFixed(4), agreement:+agreement.toFixed(1), independentEdges,
-    dataQuality, uncertainty, failureRisk,
-    ev: ev==null ? null : +ev.toFixed(4), stake:+stake.toFixed(2),
-    consensus, gates, sportChecks,
-    scoreProjection: {
-      home: +(50 + (thesisScore-50)*0.42).toFixed(1),
-      away: +(50 - (thesisScore-50)*0.42).toFixed(1),
-      note: 'Normalized model score, not literal game points unless sport-specific enrichment is supplied.'
-    },
-    modelsExecuted: MODELS.map(([name,category,purpose])=>({name,category,purpose,status:'evaluated-or-gated'}))
-  };
-}
-
-
-const STATIC_ASSETS = {
-  "/": { type: "text/html; charset=utf-8", body: Buffer.from("PCFkb2N0eXBlIGh0bWw+CjxodG1sIGxhbmc9ImVuIj4KPGhlYWQ+CiAgPG1ldGEgY2hhcnNldD0idXRmLTgiIC8+CiAgPG1ldGEgbmFtZT0idmlld3BvcnQiIGNvbnRlbnQ9IndpZHRoPWRldmljZS13aWR0aCxpbml0aWFsLXNjYWxlPTEiIC8+CiAgPHRpdGxlPkFFR0lTIFNwb3J0cyBDb21tYW5kIENlbnRlcjwvdGl0bGU+CiAgPGxpbmsgcmVsPSJzdHlsZXNoZWV0IiBocmVmPSJzdHlsZXMuY3NzIiAvPgo8L2hlYWQ+Cjxib2R5PgogIDxoZWFkZXI+CiAgICA8ZGl2PgogICAgICA8ZGl2IGNsYXNzPSJleWVicm93Ij5TQjEwMSBBRUdJUyB2MS4wPC9kaXY+CiAgICAgIDxoMT5TcG9ydHMgQ29tbWFuZCBDZW50ZXI8L2gxPgogICAgICA8cD5MaXZlIG1hcmtldCBpbmdlc3Rpb24g4oaSIGluZGVwZW5kZW50IHRoZXNpcyDihpIgY2hhbGxlbmdlciBtYXJrZXQg4oaSIHJlbGVhc2UgZ2F0ZXMg4oaSIGRpc2NpcGxpbmVkIGZpbmFsIGNhcmQuPC9wPgogICAgPC9kaXY+CiAgICA8ZGl2IGlkPSJoZWFsdGgiIGNsYXNzPSJzdGF0dXMiPkNoZWNraW5nIGRhdGEgbGF5ZXLigKY8L2Rpdj4KICA8L2hlYWRlcj4KCiAgPG5hdj4KICAgIDxidXR0b24gZGF0YS10YWI9ImRhc2hib2FyZCIgY2xhc3M9ImFjdGl2ZSI+RGFzaGJvYXJkPC9idXR0b24+CiAgICA8YnV0dG9uIGRhdGEtdGFiPSJhbmFseXplciI+QW5hbHl6ZXI8L2J1dHRvbj4KICAgIDxidXR0b24gZGF0YS10YWI9Im1vZGVscyI+TW9kZWwgUmVnaXN0cnk8L2J1dHRvbj4KICAgIDxidXR0b24gZGF0YS10YWI9IndlYXRoZXIiPldlYXRoZXI8L2J1dHRvbj4KICA8L25hdj4KCiAgPG1haW4+CiAgICA8c2VjdGlvbiBpZD0iZGFzaGJvYXJkIiBjbGFzcz0idGFiIGFjdGl2ZSI+CiAgICAgIDxkaXYgY2xhc3M9InRvb2xiYXIgcGFuZWwiPgogICAgICAgIDxsYWJlbD5TcG9ydDxzZWxlY3QgaWQ9InNwb3J0Ij48L3NlbGVjdD48L2xhYmVsPgogICAgICAgIDxsYWJlbD5NYXJrZXRzPHNlbGVjdCBpZD0ibWFya2V0cyI+PG9wdGlvbiB2YWx1ZT0iaDJoLHNwcmVhZHMsdG90YWxzIj5NTCArIFNwcmVhZCArIFRvdGFsPC9vcHRpb24+PG9wdGlvbiB2YWx1ZT0iaDJoIj5Nb25leWxpbmUgb25seTwvb3B0aW9uPjxvcHRpb24gdmFsdWU9InNwcmVhZHMiPlNwcmVhZCBvbmx5PC9vcHRpb24+PG9wdGlvbiB2YWx1ZT0idG90YWxzIj5Ub3RhbHMgb25seTwvb3B0aW9uPjwvc2VsZWN0PjwvbGFiZWw+CiAgICAgICAgPGJ1dHRvbiBpZD0ibG9hZE9kZHMiIGNsYXNzPSJwcmltYXJ5Ij5TeW5jIExpdmUgQm9hcmQ8L2J1dHRvbj4KICAgICAgPC9kaXY+CiAgICAgIDxkaXYgaWQ9InF1b3RhIiBjbGFzcz0ic3VidGxlIj48L2Rpdj4KICAgICAgPGRpdiBpZD0iZXZlbnRzIiBjbGFzcz0iZ3JpZCI+PC9kaXY+CiAgICA8L3NlY3Rpb24+CgogICAgPHNlY3Rpb24gaWQ9ImFuYWx5emVyIiBjbGFzcz0idGFiIj4KICAgICAgPGRpdiBjbGFzcz0icGFuZWwiPgogICAgICAgIDxoMj5BRUdJUyBBbmFseXplcjwvaDI+CiAgICAgICAgPHAgY2xhc3M9InN1YnRsZSI+U2VsZWN0IGEgZ2FtZSBmcm9tIHRoZSBsaXZlIGJvYXJkLCB0aGVuIGFkZCBpbmRlcGVuZGVudCBpbmZvcm1hdGlvbi4gTWlzc2luZyBpbnB1dHMgbG93ZXIgRGF0YSBRdWFsaXR5IGFuZCBjYW4gZm9yY2UgUEFTUy48L3A+CiAgICAgICAgPGRpdiBpZD0ic2VsZWN0ZWRHYW1lIiBjbGFzcz0ic2VsZWN0ZWQiPk5vIGdhbWUgc2VsZWN0ZWQuPC9kaXY+CiAgICAgIDwvZGl2PgogICAgICA8ZGl2IGNsYXNzPSJhbmFseXplci1sYXlvdXQiPgogICAgICAgIDxmb3JtIGlkPSJhbmFseXNpc0Zvcm0iIGNsYXNzPSJwYW5lbCBmYWN0b3ItZm9ybSI+CiAgICAgICAgICA8ZGl2IGNsYXNzPSJyb3ciPjxsYWJlbD5TZWxlY3Rpb248c2VsZWN0IGlkPSJzZWxlY3Rpb24iPjxvcHRpb24gdmFsdWU9ImhvbWUiPkhvbWU8L29wdGlvbj48b3B0aW9uIHZhbHVlPSJhd2F5Ij5Bd2F5PC9vcHRpb24+PC9zZWxlY3Q+PC9sYWJlbD48bGFiZWw+T2ZmZXJlZCBBbWVyaWNhbiBwcmljZTxpbnB1dCBpZD0icHJpY2UiIHR5cGU9Im51bWJlciIgcGxhY2Vob2xkZXI9Ii0xMTAiIC8+PC9sYWJlbD48bGFiZWw+QmFua3JvbGw8aW5wdXQgaWQ9ImJhbmtyb2xsIiB0eXBlPSJudW1iZXIiIHZhbHVlPSIxMDAiIG1pbj0iMSIgc3RlcD0iMC4wMSIgLz48L2xhYmVsPjwvZGl2PgogICAgICAgICAgPGRpdiBpZD0iZmFjdG9ycyI+PC9kaXY+CiAgICAgICAgICA8YnV0dG9uIGNsYXNzPSJwcmltYXJ5IiB0eXBlPSJzdWJtaXQiPlJ1biBGdWxsIEFFR0lTIFZlcmlmaWNhdGlvbjwvYnV0dG9uPgogICAgICAgIDwvZm9ybT4KICAgICAgICA8ZGl2IGlkPSJhbmFseXNpc1Jlc3VsdCIgY2xhc3M9InBhbmVsIHJlc3VsdCI+PGgzPkRlY2lzaW9uIG91dHB1dDwvaDM+PHAgY2xhc3M9InN1YnRsZSI+Tm8gYW5hbHlzaXMgeWV0LjwvcD48L2Rpdj4KICAgICAgPC9kaXY+CiAgICA8L3NlY3Rpb24+CgogICAgPHNlY3Rpb24gaWQ9Im1vZGVscyIgY2xhc3M9InRhYiI+PGRpdiBjbGFzcz0icGFuZWwiPjxoMj5Nb2RlbCAmIFN5c3RlbSBSZWdpc3RyeTwvaDI+PGRpdiBpZD0ibW9kZWxMaXN0IiBjbGFzcz0ibW9kZWwtbGlzdCI+PC9kaXY+PC9kaXY+PC9zZWN0aW9uPgoKICAgIDxzZWN0aW9uIGlkPSJ3ZWF0aGVyIiBjbGFzcz0idGFiIj4KICAgICAgPGRpdiBjbGFzcz0icGFuZWwiPgogICAgICAgIDxoMj5OV1MgV2VhdGhlciBFbnJpY2htZW50PC9oMj4KICAgICAgICA8cCBjbGFzcz0ic3VidGxlIj5GcmVlIFUuUy4gTmF0aW9uYWwgV2VhdGhlciBTZXJ2aWNlIGZlZWQuIEVudGVyIHZlbnVlIGNvb3JkaW5hdGVzIHRvIGFkZCByZWFsIGZvcmVjYXN0IGNvbnRleHQgdG8gZW52aXJvbm1lbnQgbW9kZWxzLjwvcD4KICAgICAgICA8ZGl2IGNsYXNzPSJyb3ciPjxsYWJlbD5MYXRpdHVkZTxpbnB1dCBpZD0ibGF0IiB2YWx1ZT0iMjcuMjczIiAvPjwvbGFiZWw+PGxhYmVsPkxvbmdpdHVkZTxpbnB1dCBpZD0ibG9uIiB2YWx1ZT0iLTgwLjM1OCIgLz48L2xhYmVsPjxidXR0b24gaWQ9ImxvYWRXZWF0aGVyIiBjbGFzcz0icHJpbWFyeSI+R2V0IEZvcmVjYXN0PC9idXR0b24+PC9kaXY+CiAgICAgICAgPGRpdiBpZD0iZm9yZWNhc3QiPjwvZGl2PgogICAgICA8L2Rpdj4KICAgIDwvc2VjdGlvbj4KICA8L21haW4+CjxzY3JpcHQgc3JjPSJhcHAuanMiPjwvc2NyaXB0Pgo8L2JvZHk+CjwvaHRtbD4K", 'base64') },
-  "/index.html": { type: "text/html; charset=utf-8", body: Buffer.from("PCFkb2N0eXBlIGh0bWw+CjxodG1sIGxhbmc9ImVuIj4KPGhlYWQ+CiAgPG1ldGEgY2hhcnNldD0idXRmLTgiIC8+CiAgPG1ldGEgbmFtZT0idmlld3BvcnQiIGNvbnRlbnQ9IndpZHRoPWRldmljZS13aWR0aCxpbml0aWFsLXNjYWxlPTEiIC8+CiAgPHRpdGxlPkFFR0lTIFNwb3J0cyBDb21tYW5kIENlbnRlcjwvdGl0bGU+CiAgPGxpbmsgcmVsPSJzdHlsZXNoZWV0IiBocmVmPSJzdHlsZXMuY3NzIiAvPgo8L2hlYWQ+Cjxib2R5PgogIDxoZWFkZXI+CiAgICA8ZGl2PgogICAgICA8ZGl2IGNsYXNzPSJleWVicm93Ij5TQjEwMSBBRUdJUyB2MS4wPC9kaXY+CiAgICAgIDxoMT5TcG9ydHMgQ29tbWFuZCBDZW50ZXI8L2gxPgogICAgICA8cD5MaXZlIG1hcmtldCBpbmdlc3Rpb24g4oaSIGluZGVwZW5kZW50IHRoZXNpcyDihpIgY2hhbGxlbmdlciBtYXJrZXQg4oaSIHJlbGVhc2UgZ2F0ZXMg4oaSIGRpc2NpcGxpbmVkIGZpbmFsIGNhcmQuPC9wPgogICAgPC9kaXY+CiAgICA8ZGl2IGlkPSJoZWFsdGgiIGNsYXNzPSJzdGF0dXMiPkNoZWNraW5nIGRhdGEgbGF5ZXLigKY8L2Rpdj4KICA8L2hlYWRlcj4KCiAgPG5hdj4KICAgIDxidXR0b24gZGF0YS10YWI9ImRhc2hib2FyZCIgY2xhc3M9ImFjdGl2ZSI+RGFzaGJvYXJkPC9idXR0b24+CiAgICA8YnV0dG9uIGRhdGEtdGFiPSJhbmFseXplciI+QW5hbHl6ZXI8L2J1dHRvbj4KICAgIDxidXR0b24gZGF0YS10YWI9Im1vZGVscyI+TW9kZWwgUmVnaXN0cnk8L2J1dHRvbj4KICAgIDxidXR0b24gZGF0YS10YWI9IndlYXRoZXIiPldlYXRoZXI8L2J1dHRvbj4KICA8L25hdj4KCiAgPG1haW4+CiAgICA8c2VjdGlvbiBpZD0iZGFzaGJvYXJkIiBjbGFzcz0idGFiIGFjdGl2ZSI+CiAgICAgIDxkaXYgY2xhc3M9InRvb2xiYXIgcGFuZWwiPgogICAgICAgIDxsYWJlbD5TcG9ydDxzZWxlY3QgaWQ9InNwb3J0Ij48L3NlbGVjdD48L2xhYmVsPgogICAgICAgIDxsYWJlbD5NYXJrZXRzPHNlbGVjdCBpZD0ibWFya2V0cyI+PG9wdGlvbiB2YWx1ZT0iaDJoLHNwcmVhZHMsdG90YWxzIj5NTCArIFNwcmVhZCArIFRvdGFsPC9vcHRpb24+PG9wdGlvbiB2YWx1ZT0iaDJoIj5Nb25leWxpbmUgb25seTwvb3B0aW9uPjxvcHRpb24gdmFsdWU9InNwcmVhZHMiPlNwcmVhZCBvbmx5PC9vcHRpb24+PG9wdGlvbiB2YWx1ZT0idG90YWxzIj5Ub3RhbHMgb25seTwvb3B0aW9uPjwvc2VsZWN0PjwvbGFiZWw+CiAgICAgICAgPGJ1dHRvbiBpZD0ibG9hZE9kZHMiIGNsYXNzPSJwcmltYXJ5Ij5TeW5jIExpdmUgQm9hcmQ8L2J1dHRvbj4KICAgICAgPC9kaXY+CiAgICAgIDxkaXYgaWQ9InF1b3RhIiBjbGFzcz0ic3VidGxlIj48L2Rpdj4KICAgICAgPGRpdiBpZD0iZXZlbnRzIiBjbGFzcz0iZ3JpZCI+PC9kaXY+CiAgICA8L3NlY3Rpb24+CgogICAgPHNlY3Rpb24gaWQ9ImFuYWx5emVyIiBjbGFzcz0idGFiIj4KICAgICAgPGRpdiBjbGFzcz0icGFuZWwiPgogICAgICAgIDxoMj5BRUdJUyBBbmFseXplcjwvaDI+CiAgICAgICAgPHAgY2xhc3M9InN1YnRsZSI+U2VsZWN0IGEgZ2FtZSBmcm9tIHRoZSBsaXZlIGJvYXJkLCB0aGVuIGFkZCBpbmRlcGVuZGVudCBpbmZvcm1hdGlvbi4gTWlzc2luZyBpbnB1dHMgbG93ZXIgRGF0YSBRdWFsaXR5IGFuZCBjYW4gZm9yY2UgUEFTUy48L3A+CiAgICAgICAgPGRpdiBpZD0ic2VsZWN0ZWRHYW1lIiBjbGFzcz0ic2VsZWN0ZWQiPk5vIGdhbWUgc2VsZWN0ZWQuPC9kaXY+CiAgICAgIDwvZGl2PgogICAgICA8ZGl2IGNsYXNzPSJhbmFseXplci1sYXlvdXQiPgogICAgICAgIDxmb3JtIGlkPSJhbmFseXNpc0Zvcm0iIGNsYXNzPSJwYW5lbCBmYWN0b3ItZm9ybSI+CiAgICAgICAgICA8ZGl2IGNsYXNzPSJyb3ciPjxsYWJlbD5TZWxlY3Rpb248c2VsZWN0IGlkPSJzZWxlY3Rpb24iPjxvcHRpb24gdmFsdWU9ImhvbWUiPkhvbWU8L29wdGlvbj48b3B0aW9uIHZhbHVlPSJhd2F5Ij5Bd2F5PC9vcHRpb24+PC9zZWxlY3Q+PC9sYWJlbD48bGFiZWw+T2ZmZXJlZCBBbWVyaWNhbiBwcmljZTxpbnB1dCBpZD0icHJpY2UiIHR5cGU9Im51bWJlciIgcGxhY2Vob2xkZXI9Ii0xMTAiIC8+PC9sYWJlbD48bGFiZWw+QmFua3JvbGw8aW5wdXQgaWQ9ImJhbmtyb2xsIiB0eXBlPSJudW1iZXIiIHZhbHVlPSIxMDAiIG1pbj0iMSIgc3RlcD0iMC4wMSIgLz48L2xhYmVsPjwvZGl2PgogICAgICAgICAgPGRpdiBpZD0iZmFjdG9ycyI+PC9kaXY+CiAgICAgICAgICA8YnV0dG9uIGNsYXNzPSJwcmltYXJ5IiB0eXBlPSJzdWJtaXQiPlJ1biBGdWxsIEFFR0lTIFZlcmlmaWNhdGlvbjwvYnV0dG9uPgogICAgICAgIDwvZm9ybT4KICAgICAgICA8ZGl2IGlkPSJhbmFseXNpc1Jlc3VsdCIgY2xhc3M9InBhbmVsIHJlc3VsdCI+PGgzPkRlY2lzaW9uIG91dHB1dDwvaDM+PHAgY2xhc3M9InN1YnRsZSI+Tm8gYW5hbHlzaXMgeWV0LjwvcD48L2Rpdj4KICAgICAgPC9kaXY+CiAgICA8L3NlY3Rpb24+CgogICAgPHNlY3Rpb24gaWQ9Im1vZGVscyIgY2xhc3M9InRhYiI+PGRpdiBjbGFzcz0icGFuZWwiPjxoMj5Nb2RlbCAmIFN5c3RlbSBSZWdpc3RyeTwvaDI+PGRpdiBpZD0ibW9kZWxMaXN0IiBjbGFzcz0ibW9kZWwtbGlzdCI+PC9kaXY+PC9kaXY+PC9zZWN0aW9uPgoKICAgIDxzZWN0aW9uIGlkPSJ3ZWF0aGVyIiBjbGFzcz0idGFiIj4KICAgICAgPGRpdiBjbGFzcz0icGFuZWwiPgogICAgICAgIDxoMj5OV1MgV2VhdGhlciBFbnJpY2htZW50PC9oMj4KICAgICAgICA8cCBjbGFzcz0ic3VidGxlIj5GcmVlIFUuUy4gTmF0aW9uYWwgV2VhdGhlciBTZXJ2aWNlIGZlZWQuIEVudGVyIHZlbnVlIGNvb3JkaW5hdGVzIHRvIGFkZCByZWFsIGZvcmVjYXN0IGNvbnRleHQgdG8gZW52aXJvbm1lbnQgbW9kZWxzLjwvcD4KICAgICAgICA8ZGl2IGNsYXNzPSJyb3ciPjxsYWJlbD5MYXRpdHVkZTxpbnB1dCBpZD0ibGF0IiB2YWx1ZT0iMjcuMjczIiAvPjwvbGFiZWw+PGxhYmVsPkxvbmdpdHVkZTxpbnB1dCBpZD0ibG9uIiB2YWx1ZT0iLTgwLjM1OCIgLz48L2xhYmVsPjxidXR0b24gaWQ9ImxvYWRXZWF0aGVyIiBjbGFzcz0icHJpbWFyeSI+R2V0IEZvcmVjYXN0PC9idXR0b24+PC9kaXY+CiAgICAgICAgPGRpdiBpZD0iZm9yZWNhc3QiPjwvZGl2PgogICAgICA8L2Rpdj4KICAgIDwvc2VjdGlvbj4KICA8L21haW4+CjxzY3JpcHQgc3JjPSJhcHAuanMiPjwvc2NyaXB0Pgo8L2JvZHk+CjwvaHRtbD4K", 'base64') },
-  "/styles.css": { type: "text/css; charset=utf-8", body: Buffer.from("OnJvb3R7LS1iZzojMDcxMDE5Oy0tcGFuZWw6IzBkMTgyMzstLXBhbmVsMjojMTMyMTJlOy0tdGV4dDojZWFmMmY4Oy0tbXV0ZWQ6IzkxYTRiNDstLWxpbmU6IzIwMzI0MzstLWFjY2VudDojNjVmMmI1Oy0td2FybjojZjZjNTZiOy0tYmFkOiNmZjdjN2M7LS1nb29kOiM3MmU3OWZ9Cip7Ym94LXNpemluZzpib3JkZXItYm94fSBib2R5e21hcmdpbjowO2JhY2tncm91bmQ6cmFkaWFsLWdyYWRpZW50KGNpcmNsZSBhdCAyMCUgMCUsIzEwMjUzNiAwLCMwNzEwMTkgNDIlKTtjb2xvcjp2YXIoLS10ZXh0KTtmb250OjE0cHgvMS40NSBJbnRlcix1aS1zYW5zLXNlcmlmLHN5c3RlbS11aSwtYXBwbGUtc3lzdGVtLFNlZ29lIFVJLHNhbnMtc2VyaWZ9aGVhZGVye2Rpc3BsYXk6ZmxleDtqdXN0aWZ5LWNvbnRlbnQ6c3BhY2UtYmV0d2VlbjtnYXA6MjRweDtwYWRkaW5nOjI4cHggNXZ3IDE4cHg7Ym9yZGVyLWJvdHRvbToxcHggc29saWQgdmFyKC0tbGluZSl9aDF7Zm9udC1zaXplOjM0cHg7bGluZS1oZWlnaHQ6MTttYXJnaW46NXB4IDAgOHB4fWgyLGgze21hcmdpbi10b3A6MH0uZXllYnJvd3tjb2xvcjp2YXIoLS1hY2NlbnQpO2ZvbnQtd2VpZ2h0OjgwMDtsZXR0ZXItc3BhY2luZzouMTJlbX0uc3RhdHVze2FsaWduLXNlbGY6Y2VudGVyO3BhZGRpbmc6OXB4IDEycHg7Ym9yZGVyOjFweCBzb2xpZCB2YXIoLS1saW5lKTtib3JkZXItcmFkaXVzOjk5OXB4O2JhY2tncm91bmQ6IzA5MTQxZX0uc3VidGxle2NvbG9yOnZhcigtLW11dGVkKX1uYXZ7ZGlzcGxheTpmbGV4O2dhcDo4cHg7cGFkZGluZzoxMnB4IDV2dztwb3NpdGlvbjpzdGlja3k7dG9wOjA7YmFja2dyb3VuZDpyZ2JhKDcsMTYsMjUsLjk0KTtiYWNrZHJvcC1maWx0ZXI6Ymx1cigxMnB4KTt6LWluZGV4OjM7Ym9yZGVyLWJvdHRvbToxcHggc29saWQgdmFyKC0tbGluZSl9YnV0dG9uLHNlbGVjdCxpbnB1dHtmb250OmluaGVyaXR9YnV0dG9ue2JvcmRlcjoxcHggc29saWQgdmFyKC0tbGluZSk7YmFja2dyb3VuZDp2YXIoLS1wYW5lbCk7Y29sb3I6dmFyKC0tdGV4dCk7cGFkZGluZzo5cHggMTNweDtib3JkZXItcmFkaXVzOjlweDtjdXJzb3I6cG9pbnRlcn1idXR0b246aG92ZXIsbmF2IGJ1dHRvbi5hY3RpdmV7Ym9yZGVyLWNvbG9yOnZhcigtLWFjY2VudCl9YnV0dG9uLnByaW1hcnl7YmFja2dyb3VuZDp2YXIoLS1hY2NlbnQpO2NvbG9yOiMwNjIyMTk7Ym9yZGVyLWNvbG9yOnZhcigtLWFjY2VudCk7Zm9udC13ZWlnaHQ6ODAwfW1haW57cGFkZGluZzoyMnB4IDV2dyA2MHB4fS50YWJ7ZGlzcGxheTpub25lfS50YWIuYWN0aXZle2Rpc3BsYXk6YmxvY2t9LnBhbmVse2JhY2tncm91bmQ6bGluZWFyLWdyYWRpZW50KDE4MGRlZyx2YXIoLS1wYW5lbCksIzBhMTUxZik7Ym9yZGVyOjFweCBzb2xpZCB2YXIoLS1saW5lKTtib3JkZXItcmFkaXVzOjE2cHg7cGFkZGluZzoxOHB4O2JveC1zaGFkb3c6MCAxNHB4IDQwcHggcmdiYSgwLDAsMCwuMTUpfS50b29sYmFyLC5yb3d7ZGlzcGxheTpmbGV4O2dhcDoxMnB4O2FsaWduLWl0ZW1zOmVuZDtmbGV4LXdyYXA6d3JhcH1sYWJlbHtkaXNwbGF5OmdyaWQ7Z2FwOjZweDtjb2xvcjp2YXIoLS1tdXRlZCk7bWluLXdpZHRoOjE1MHB4fXNlbGVjdCxpbnB1dHtiYWNrZ3JvdW5kOiMwNzEyMWM7Y29sb3I6dmFyKC0tdGV4dCk7Ym9yZGVyOjFweCBzb2xpZCB2YXIoLS1saW5lKTtib3JkZXItcmFkaXVzOjhweDtwYWRkaW5nOjlweCAxMHB4O21pbi1oZWlnaHQ6NDBweH0uZ3JpZHtkaXNwbGF5OmdyaWQ7Z3JpZC10ZW1wbGF0ZS1jb2x1bW5zOnJlcGVhdChhdXRvLWZpdCxtaW5tYXgoMzAwcHgsMWZyKSk7Z2FwOjE0cHg7bWFyZ2luLXRvcDoxNHB4fS5nYW1le3BhZGRpbmc6MTZweDtib3JkZXI6MXB4IHNvbGlkIHZhcigtLWxpbmUpO2JvcmRlci1yYWRpdXM6MTRweDtiYWNrZ3JvdW5kOnZhcigtLXBhbmVsKX0uZ2FtZSBoM3tmb250LXNpemU6MTZweDttYXJnaW46MCAwIDZweH0uYm9vay1ncmlke2Rpc3BsYXk6Z3JpZDtncmlkLXRlbXBsYXRlLWNvbHVtbnM6cmVwZWF0KDMsMWZyKTtnYXA6OHB4O21hcmdpbi10b3A6MTJweH0ubWFya2V0e2JhY2tncm91bmQ6IzA4MTMxZDtib3JkZXI6MXB4IHNvbGlkICMxYTJkM2U7Ym9yZGVyLXJhZGl1czo5cHg7cGFkZGluZzo4cHh9Lm1hcmtldCBie2Rpc3BsYXk6YmxvY2s7Zm9udC1zaXplOjEycHg7Y29sb3I6dmFyKC0tbXV0ZWQpO21hcmdpbi1ib3R0b206NHB4fS5tYXJrZXQgc3BhbntkaXNwbGF5OmJsb2NrfS5nYW1lIGJ1dHRvbnt3aWR0aDoxMDAlO21hcmdpbi10b3A6MTJweH0uc2VsZWN0ZWR7cGFkZGluZzoxMnB4O2JvcmRlcjoxcHggZGFzaGVkIHZhcigtLWxpbmUpO2JvcmRlci1yYWRpdXM6MTBweDtiYWNrZ3JvdW5kOiMwNzEyMWN9LmFuYWx5emVyLWxheW91dHtkaXNwbGF5OmdyaWQ7Z3JpZC10ZW1wbGF0ZS1jb2x1bW5zOm1pbm1heCgwLDEuMjVmcikgbWlubWF4KDMyMHB4LC43NWZyKTtnYXA6MTRweDttYXJnaW4tdG9wOjE0cHh9LmZhY3Rvci1mb3JtICNmYWN0b3Jze2Rpc3BsYXk6Z3JpZDtncmlkLXRlbXBsYXRlLWNvbHVtbnM6cmVwZWF0KDIsbWlubWF4KDAsMWZyKSk7Z2FwOjEwcHg7bWFyZ2luOjE4cHggMH0uZmFjdG9ye2Rpc3BsYXk6Z3JpZDtncmlkLXRlbXBsYXRlLWNvbHVtbnM6MWZyIDcwcHg7Z2FwOjEwcHg7YWxpZ24taXRlbXM6Y2VudGVyO3BhZGRpbmc6OXB4IDEwcHg7Ym9yZGVyOjFweCBzb2xpZCB2YXIoLS1saW5lKTtib3JkZXItcmFkaXVzOjlweH0uZmFjdG9yIGlucHV0e3dpZHRoOjcwcHh9LmRlY2lzaW9ue2ZvbnQtc2l6ZTozMHB4O2ZvbnQtd2VpZ2h0OjkwMDttYXJnaW46NHB4IDB9LkNPUkV7Y29sb3I6dmFyKC0tZ29vZCl9LlNFQ09OREFSWXtjb2xvcjp2YXIoLS13YXJuKX0uV0FUQ0h7Y29sb3I6IzhjYmNmZn0uUEFTU3tjb2xvcjp2YXIoLS1iYWQpfS5tZXRyaWMtZ3JpZHtkaXNwbGF5OmdyaWQ7Z3JpZC10ZW1wbGF0ZS1jb2x1bW5zOnJlcGVhdCgyLDFmcik7Z2FwOjhweH0ubWV0cmlje3BhZGRpbmc6OXB4O2JhY2tncm91bmQ6IzA3MTIxYztib3JkZXI6MXB4IHNvbGlkIHZhcigtLWxpbmUpO2JvcmRlci1yYWRpdXM6OXB4fS5tZXRyaWMgYntkaXNwbGF5OmJsb2NrO2ZvbnQtc2l6ZToxMXB4O2NvbG9yOnZhcigtLW11dGVkKX0uZ2F0ZXtkaXNwbGF5OmZsZXg7anVzdGlmeS1jb250ZW50OnNwYWNlLWJldHdlZW47cGFkZGluZzo3cHggMDtib3JkZXItYm90dG9tOjFweCBzb2xpZCAjMTcyODM4fS5wYXNze2NvbG9yOnZhcigtLWdvb2QpfS5mYWlse2NvbG9yOnZhcigtLWJhZCl9Lm1vZGVsLWxpc3R7ZGlzcGxheTpncmlkO2dyaWQtdGVtcGxhdGUtY29sdW1uczpyZXBlYXQoYXV0by1maXQsbWlubWF4KDI4MHB4LDFmcikpO2dhcDo5cHh9Lm1vZGVsLWl0ZW17Ym9yZGVyOjFweCBzb2xpZCB2YXIoLS1saW5lKTtib3JkZXItcmFkaXVzOjEwcHg7cGFkZGluZzoxMXB4O2JhY2tncm91bmQ6IzA4MTMxZH0ubW9kZWwtaXRlbSBie2Rpc3BsYXk6YmxvY2t9LmJhZGdle2Rpc3BsYXk6aW5saW5lLWJsb2NrO21hcmdpbi10b3A6NnB4O3BhZGRpbmc6M3B4IDdweDtib3JkZXI6MXB4IHNvbGlkIHZhcigtLWxpbmUpO2JvcmRlci1yYWRpdXM6OTk5cHg7Y29sb3I6dmFyKC0tYWNjZW50KTtmb250LXNpemU6MTFweDt0ZXh0LXRyYW5zZm9ybTp1cHBlcmNhc2V9LmZvcmVjYXN0LWl0ZW17cGFkZGluZzoxMHB4IDA7Ym9yZGVyLWJvdHRvbToxcHggc29saWQgdmFyKC0tbGluZSl9QG1lZGlhKG1heC13aWR0aDo4NTBweCl7aGVhZGVye2Rpc3BsYXk6YmxvY2t9LnN0YXR1c3tkaXNwbGF5OmlubGluZS1ibG9jazttYXJnaW4tdG9wOjEycHh9LmFuYWx5emVyLWxheW91dHtncmlkLXRlbXBsYXRlLWNvbHVtbnM6MWZyfS5mYWN0b3ItZm9ybSAjZmFjdG9yc3tncmlkLXRlbXBsYXRlLWNvbHVtbnM6MWZyfS5ib29rLWdyaWR7Z3JpZC10ZW1wbGF0ZS1jb2x1bW5zOjFmciAxZnIgMWZyfX0K", 'base64') },
-  "/app.js": { type: "application/javascript; charset=utf-8", body: Buffer.from("bGV0IHNlbGVjdGVkRXZlbnQgPSBudWxsOwpjb25zdCAkPXM9PmRvY3VtZW50LnF1ZXJ5U2VsZWN0b3Iocyk7CmNvbnN0IGVzYz1zPT5TdHJpbmcocz8/JycpLnJlcGxhY2UoL1smPD4iJ10vZyxtPT4oeycmJzonJmFtcDsnLCc8JzonJmx0OycsJz4nOicmZ3Q7JywnIic6JyZxdW90OycsIiciOicmIzM5Oyd9W21dKSk7Cgpjb25zdCBmYWN0b3JOYW1lcyA9IHsKICB0YWxlbnQ6J092ZXJhbGwgdGFsZW50IC8gdHJ1ZSBzdHJlbmd0aCcsIG9mZmVuc2U6J09mZmVuc2UnLCBkZWZlbnNlOidEZWZlbnNlIC8gcnVuIHByZXZlbnRpb24nLCBzdGFydGVyOidTdGFydGluZyBwaXRjaGVyIC8gcHJpbWFyeSBzdGFydGVyJywgYnVsbHBlbjonQnVsbHBlbicsCiAgZGVwdGg6J1Jlc2VydmUgLyByb3N0ZXIgZGVwdGgnLCBxYkRlcHRoOidRQjIgLyBRQjMgZGVwdGgnLCBjb2FjaGluZzonQ29hY2hpbmcgdXNhZ2UgLyBpbnRlbnQnLCByb2xlOidQbGF5ZXIgcm9sZSAvIG1pbnV0ZXMnLCBtYXRjaHVwOidNYXRjaHVwIC8gc2NoZW1lIC8gcGxhdG9vbicsCiAgZW52aXJvbm1lbnQ6J1BhcmsgLyB3ZWF0aGVyIC8gY291cnQgZW52aXJvbm1lbnQnLCBhdmFpbGFiaWxpdHk6J0xpbmV1cCAvIGluanVyeSBhdmFpbGFiaWxpdHknLCBzcGVjaWFsVGVhbXM6J1NwZWNpYWwgdGVhbXMgLyBoaWRkZW4geWFyZHMnLCByZWNlbnRGb3JtOidDdXJyZW50IGZvcm0gKGNhcHBlZCknLAogIGRhdGFRdWFsaXR5OidEYXRhIHF1YWxpdHkgLyBjb25maXJtYXRpb24nLCB1bmNlcnRhaW50eTonVW5jZXJ0YWludHkgKGxvd2VyIGlzIGJldHRlciknLCBmYWlsdXJlUmlzazonSG93LWRvZXMtdGhpcy1sb3NlIHJpc2sgKGxvd2VyIGlzIGJldHRlciknCn07CgpmdW5jdGlvbiB0YWIobmFtZSl7ZG9jdW1lbnQucXVlcnlTZWxlY3RvckFsbCgnLnRhYicpLmZvckVhY2goeD0+eC5jbGFzc0xpc3QudG9nZ2xlKCdhY3RpdmUnLHguaWQ9PT1uYW1lKSk7ZG9jdW1lbnQucXVlcnlTZWxlY3RvckFsbCgnbmF2IGJ1dHRvbicpLmZvckVhY2goeD0+eC5jbGFzc0xpc3QudG9nZ2xlKCdhY3RpdmUnLHguZGF0YXNldC50YWI9PT1uYW1lKSk7fQpkb2N1bWVudC5xdWVyeVNlbGVjdG9yQWxsKCduYXYgYnV0dG9uJykuZm9yRWFjaChiPT5iLm9uY2xpY2s9KCk9PnRhYihiLmRhdGFzZXQudGFiKSk7Cgphc3luYyBmdW5jdGlvbiBhcGkodXJsLG9wdHMpe2NvbnN0IHI9YXdhaXQgZmV0Y2godXJsLG9wdHMpO2NvbnN0IGo9YXdhaXQgci5qc29uKCk7aWYoIXIub2spdGhyb3cgbmV3IEVycm9yKGouZXJyb3J8fHIuc3RhdHVzVGV4dCk7cmV0dXJuIGo7fQphc3luYyBmdW5jdGlvbiBpbml0KCl7CiAgdHJ5e2NvbnN0IGg9YXdhaXQgYXBpKCcvYXBpL2hlYWx0aCcpOyAkKCcjaGVhbHRoJykudGV4dENvbnRlbnQ9aC5vZGRzQ29uZmlndXJlZD9gTElWRSBEQVRBIFJFQURZIOKAoiAke2gubW9kZWxzfSBtb2RlbHNgOmBTRVRVUCBORUVERUQg4oCiICR7aC5tb2RlbHN9IG1vZGVsc2A7ICQoJyNoZWFsdGgnKS5zdHlsZS5ib3JkZXJDb2xvcj1oLm9kZHNDb25maWd1cmVkPyd2YXIoLS1hY2NlbnQpJzondmFyKC0td2FybiknO31jYXRjaChlKXskKCcjaGVhbHRoJykudGV4dENvbnRlbnQ9ZS5tZXNzYWdlfQogIGNvbnN0IHNwb3J0cz1hd2FpdCBhcGkoJy9hcGkvc3BvcnRzJyk7ICQoJyNzcG9ydCcpLmlubmVySFRNTD1zcG9ydHMuc3BvcnRzLmZpbHRlcihzPT5bJ2Jhc2ViYWxsX21sYicsJ2Jhc2ViYWxsX2tibycsJ2Jhc2ViYWxsX25wYicsJ2FtZXJpY2FuZm9vdGJhbGxfbmZsX3ByZXNlYXNvbicsJ2FtZXJpY2FuZm9vdGJhbGxfbmZsJywnYW1lcmljYW5mb290YmFsbF9uY2FhZicsJ2Jhc2tldGJhbGxfd25iYSddLmluY2x1ZGVzKHMua2V5KSkubWFwKHM9PmA8b3B0aW9uIHZhbHVlPSIke2VzYyhzLmtleSl9Ij4ke2VzYyhzLnRpdGxlKX08L29wdGlvbj5gKS5qb2luKCcnKTsKICBjb25zdCBtb2RlbHM9YXdhaXQgYXBpKCcvYXBpL21vZGVscycpOyAkKCcjbW9kZWxMaXN0JykuaW5uZXJIVE1MPW1vZGVscy5tb2RlbHMubWFwKG09PmA8ZGl2IGNsYXNzPSJtb2RlbC1pdGVtIj48Yj4ke20uaWR9LiAke2VzYyhtLm5hbWUpfTwvYj48c3Bhbj4ke2VzYyhtLnB1cnBvc2UpfTwvc3Bhbj48ZGl2IGNsYXNzPSJiYWRnZSI+JHtlc2MobS5jYXRlZ29yeSl9PC9kaXY+PC9kaXY+YCkuam9pbignJyk7CiAgJCgnI2ZhY3RvcnMnKS5pbm5lckhUTUw9T2JqZWN0LmVudHJpZXMoZmFjdG9yTmFtZXMpLm1hcCgoW2ssbl0pPT5gPGxhYmVsIGNsYXNzPSJmYWN0b3IiPjxzcGFuPiR7bn08L3NwYW4+PGlucHV0IGRhdGEtZmFjdG9yPSIke2t9IiB0eXBlPSJudW1iZXIiIG1pbj0iMCIgbWF4PSIxMDAiIHZhbHVlPSIke2s9PT0nZGF0YVF1YWxpdHknPzQwOms9PT0ndW5jZXJ0YWludHknPzYwOjUwfSI+PC9sYWJlbD5gKS5qb2luKCcnKTsKfQoKZnVuY3Rpb24gbWFya2V0VGV4dChldmVudCl7CiAgY29uc3QgYm9va3M9KGV2ZW50LmJvb2ttYWtlcnN8fFtdKS5zbGljZSgwLDMpOwogIHJldHVybiBib29rcy5tYXAoYm9vaz0+ewogICAgY29uc3QgaXRlbXM9W107IGZvcihjb25zdCBtIG9mIGJvb2subWFya2V0c3x8W10pewogICAgICBpZihtLmtleT09PSdoMmgnKXtjb25zdCBhPW0ub3V0Y29tZXMuZmluZChvPT5vLm5hbWU9PT1ldmVudC5hd2F5X3RlYW0pLGg9bS5vdXRjb21lcy5maW5kKG89Pm8ubmFtZT09PWV2ZW50LmhvbWVfdGVhbSk7aXRlbXMucHVzaChgPGRpdiBjbGFzcz0ibWFya2V0Ij48Yj4ke2VzYyhib29rLnRpdGxlKX0gTUw8L2I+PHNwYW4+JHtlc2MoZXZlbnQuYXdheV90ZWFtKX0gJHthP2VzYyhhLnByaWNlKTon4oCUJ308L3NwYW4+PHNwYW4+JHtlc2MoZXZlbnQuaG9tZV90ZWFtKX0gJHtoP2VzYyhoLnByaWNlKTon4oCUJ308L3NwYW4+PC9kaXY+YCl9CiAgICAgIGlmKG0ua2V5PT09J3NwcmVhZHMnKXtjb25zdCBhPW0ub3V0Y29tZXMuZmluZChvPT5vLm5hbWU9PT1ldmVudC5hd2F5X3RlYW0pLGg9bS5vdXRjb21lcy5maW5kKG89Pm8ubmFtZT09PWV2ZW50LmhvbWVfdGVhbSk7aXRlbXMucHVzaChgPGRpdiBjbGFzcz0ibWFya2V0Ij48Yj4ke2VzYyhib29rLnRpdGxlKX0gU3ByZWFkPC9iPjxzcGFuPiR7ZXNjKGV2ZW50LmF3YXlfdGVhbSl9ICR7YT9gJHtlc2MoYS5wb2ludCl9ICgke2VzYyhhLnByaWNlKX0pYDon4oCUJ308L3NwYW4+PHNwYW4+JHtlc2MoZXZlbnQuaG9tZV90ZWFtKX0gJHtoP2Ake2VzYyhoLnBvaW50KX0gKCR7ZXNjKGgucHJpY2UpfSlgOifigJQnfTwvc3Bhbj48L2Rpdj5gKX0KICAgICAgaWYobS5rZXk9PT0ndG90YWxzJyl7Y29uc3Qgbz1tLm91dGNvbWVzLmZpbmQobz0+by5uYW1lPT09J092ZXInKSx1PW0ub3V0Y29tZXMuZmluZChvPT5vLm5hbWU9PT0nVW5kZXInKTtpdGVtcy5wdXNoKGA8ZGl2IGNsYXNzPSJtYXJrZXQiPjxiPiR7ZXNjKGJvb2sudGl0bGUpfSBUb3RhbDwvYj48c3Bhbj5PICR7bz9gJHtlc2Moby5wb2ludCl9ICgke2VzYyhvLnByaWNlKX0pYDon4oCUJ308L3NwYW4+PHNwYW4+VSAke3U/YCR7ZXNjKHUucG9pbnQpfSAoJHtlc2ModS5wcmljZSl9KWA6J+KAlCd9PC9zcGFuPjwvZGl2PmApfQogICAgfSByZXR1cm4gaXRlbXMuam9pbignJyk7CiAgfSkuam9pbignJyk7Cn0KCmFzeW5jIGZ1bmN0aW9uIGxvYWRPZGRzKCl7CiAgJCgnI2V2ZW50cycpLmlubmVySFRNTD0nPGRpdiBjbGFzcz0icGFuZWwiPlN5bmNpbmcgbGl2ZSBib2FyZOKApjwvZGl2Pic7CiAgdHJ5e2NvbnN0IGQ9YXdhaXQgYXBpKGAvYXBpL29kZHM/c3BvcnQ9JHtlbmNvZGVVUklDb21wb25lbnQoJCgnI3Nwb3J0JykudmFsdWUpfSZtYXJrZXRzPSR7ZW5jb2RlVVJJQ29tcG9uZW50KCQoJyNtYXJrZXRzJykudmFsdWUpfWApOyAkKCcjcXVvdGEnKS50ZXh0Q29udGVudD1kLnF1b3RhP2BPZGRzIEFQSSBxdW90YSDigKIgcmVtYWluaW5nICR7ZC5xdW90YS5yZW1haW5pbmc/PyfigJQnfSDigKIgdXNlZCAke2QucXVvdGEudXNlZD8/J+KAlCd9YDonJzsKICAkKCcjZXZlbnRzJykuaW5uZXJIVE1MPShkLmV2ZW50c3x8W10pLm1hcCgoZSxpKT0+YDxhcnRpY2xlIGNsYXNzPSJnYW1lIj48ZGl2IGNsYXNzPSJzdWJ0bGUiPiR7bmV3IERhdGUoZS5jb21tZW5jZV90aW1lKS50b0xvY2FsZVN0cmluZygpfTwvZGl2PjxoMz4ke2VzYyhlLmF3YXlfdGVhbSl9IEAgJHtlc2MoZS5ob21lX3RlYW0pfTwvaDM+PGRpdiBjbGFzcz0iYm9vay1ncmlkIj4ke21hcmtldFRleHQoZSl8fCc8c3BhbiBjbGFzcz0ic3VidGxlIj5ObyByZXF1ZXN0ZWQgbWFya2V0cyByZXR1cm5lZC48L3NwYW4+J308L2Rpdj48YnV0dG9uIGRhdGEtZ2FtZT0iJHtpfSI+QW5hbHl6ZSB3aXRoIEFFR0lTPC9idXR0b24+PC9hcnRpY2xlPmApLmpvaW4oJycpfHwnPGRpdiBjbGFzcz0icGFuZWwiPk5vIGV2ZW50cyByZXR1cm5lZCBmb3IgdGhpcyBzcG9ydC9tYXJrZXQuPC9kaXY+JzsKICBkb2N1bWVudC5xdWVyeVNlbGVjdG9yQWxsKCdbZGF0YS1nYW1lXScpLmZvckVhY2goYj0+Yi5vbmNsaWNrPSgpPT5zZWxlY3RHYW1lKGQuZXZlbnRzWytiLmRhdGFzZXQuZ2FtZV0pKTsKICB9Y2F0Y2goZSl7JCgnI2V2ZW50cycpLmlubmVySFRNTD1gPGRpdiBjbGFzcz0icGFuZWwiPjxiPkxpdmUgc3luYyB1bmF2YWlsYWJsZS48L2I+PHAgY2xhc3M9InN1YnRsZSI+JHtlc2MoZS5tZXNzYWdlKX08L3A+PHA+Q29uZmlndXJlIDxjb2RlPk9ERFNfQVBJX0tFWTwvY29kZT4gaW4gYSBsb2NhbCA8Y29kZT4uZW52PC9jb2RlPiBmaWxlLjwvcD48L2Rpdj5gfQp9CiQoJyNsb2FkT2RkcycpLm9uY2xpY2s9bG9hZE9kZHM7CgpmdW5jdGlvbiBzZWxlY3RHYW1lKGUpe3NlbGVjdGVkRXZlbnQ9ZTsgJCgnI3NlbGVjdGVkR2FtZScpLmlubmVySFRNTD1gPGI+JHtlc2MoZS5hd2F5X3RlYW0pfSBAICR7ZXNjKGUuaG9tZV90ZWFtKX08L2I+PGJyPjxzcGFuIGNsYXNzPSJzdWJ0bGUiPiR7ZXNjKGUuc3BvcnRfdGl0bGV8fGUuc3BvcnRfa2V5KX0g4oCiICR7bmV3IERhdGUoZS5jb21tZW5jZV90aW1lKS50b0xvY2FsZVN0cmluZygpfTwvc3Bhbj5gOyBjb25zdCBtPShlLmJvb2ttYWtlcnN8fFtdKS5mbGF0TWFwKGI9PmIubWFya2V0c3x8W10pLmZpbmQobT0+bS5rZXk9PT0naDJoJyk7IGNvbnN0IGhvbWU9bT8ub3V0Y29tZXM/LmZpbmQobz0+by5uYW1lPT09ZS5ob21lX3RlYW0pOyBpZihob21lKSQoJyNwcmljZScpLnZhbHVlPWhvbWUucHJpY2U7IHRhYignYW5hbHl6ZXInKTt9CgokKCcjYW5hbHlzaXNGb3JtJykub25zdWJtaXQ9YXN5bmMgZXY9PnsKICBldi5wcmV2ZW50RGVmYXVsdCgpOyBpZighc2VsZWN0ZWRFdmVudCl7JCgnI2FuYWx5c2lzUmVzdWx0JykuaW5uZXJIVE1MPSc8aDM+Tm8gZ2FtZSBzZWxlY3RlZDwvaDM+JztyZXR1cm47fQogIGNvbnN0IGZhY3RvcnM9e307IGRvY3VtZW50LnF1ZXJ5U2VsZWN0b3JBbGwoJ1tkYXRhLWZhY3Rvcl0nKS5mb3JFYWNoKGk9PmZhY3RvcnNbaS5kYXRhc2V0LmZhY3Rvcl09K2kudmFsdWUpOwogICQoJyNhbmFseXNpc1Jlc3VsdCcpLmlubmVySFRNTD0nPGgzPlJ1bm5pbmcgQUVHSVMgZ2F0ZXPigKY8L2gzPic7CiAgdHJ5e2NvbnN0IHI9YXdhaXQgYXBpKCcvYXBpL2FuYWx5emUnLHttZXRob2Q6J1BPU1QnLGhlYWRlcnM6eydDb250ZW50LVR5cGUnOidhcHBsaWNhdGlvbi9qc29uJ30sYm9keTpKU09OLnN0cmluZ2lmeSh7ZXZlbnQ6c2VsZWN0ZWRFdmVudCxmYWN0b3JzLHNlbGVjdGlvbjokKCcjc2VsZWN0aW9uJykudmFsdWUsbWFya2V0OidoMmgnLG9mZmVyZWRQcmljZTokKCcjcHJpY2UnKS52YWx1ZT8rJCgnI3ByaWNlJykudmFsdWU6bnVsbCxiYW5rcm9sbDorJCgnI2Jhbmtyb2xsJykudmFsdWV9KX0pOyByZW5kZXJSZXN1bHQocik7fWNhdGNoKGUpeyQoJyNhbmFseXNpc1Jlc3VsdCcpLmlubmVySFRNTD1gPGgzPkVycm9yPC9oMz48cD4ke2VzYyhlLm1lc3NhZ2UpfTwvcD5gfQp9OwpmdW5jdGlvbiBwY3QoeCl7cmV0dXJuIGAkeyh4KjEwMCkudG9GaXhlZCgxKX0lYH0KZnVuY3Rpb24gcmVuZGVyUmVzdWx0KHIpewogIGNvbnN0IGdhdGVzPXsuLi5yLmdhdGVzfTsgY29uc3Qgc3BvcnQ9ci5zcG9ydENoZWNrc3x8W107CiAgJCgnI2FuYWx5c2lzUmVzdWx0JykuaW5uZXJIVE1MPWA8ZGl2IGNsYXNzPSJzdWJ0bGUiPkFFR0lTIFJFTEVBU0U8L2Rpdj48ZGl2IGNsYXNzPSJkZWNpc2lvbiAke3IudGllcn0iPiR7ci50aWVyfTwvZGl2PjxiPiR7ZXNjKHIudGltaW5nKX08L2I+CiAgPGRpdiBjbGFzcz0ibWV0cmljLWdyaWQiIHN0eWxlPSJtYXJnaW4tdG9wOjE0cHgiPgogICAgPGRpdiBjbGFzcz0ibWV0cmljIj48Yj5JbmRlcGVuZGVudCB0aGVzaXM8L2I+JHtyLnRoZXNpc1Njb3JlfS8xMDA8L2Rpdj48ZGl2IGNsYXNzPSJtZXRyaWMiPjxiPk1vZGVsIGFncmVlbWVudDwvYj4ke3IuYWdyZWVtZW50fS8xMDA8L2Rpdj4KICAgIDxkaXYgY2xhc3M9Im1ldHJpYyI+PGI+TW9kZWwgcHJvYmFiaWxpdHk8L2I+JHtwY3Qoci50aGVzaXNQcm9iKX08L2Rpdj48ZGl2IGNsYXNzPSJtZXRyaWMiPjxiPk1hcmtldCBjaGFsbGVuZ2VyPC9iPiR7cGN0KHIubWFya2V0UHJvYil9PC9kaXY+CiAgICA8ZGl2IGNsYXNzPSJtZXRyaWMiPjxiPkFkanVzdGVkIGVkZ2U8L2I+JHtwY3Qoci5hZGp1c3RlZEVkZ2UpfTwvZGl2PjxkaXYgY2xhc3M9Im1ldHJpYyI+PGI+UmVxdWlyZWQgY3VzaGlvbjwvYj4ke3BjdChyLnJlcXVpcmVkQ3VzaGlvbil9PC9kaXY+CiAgICA8ZGl2IGNsYXNzPSJtZXRyaWMiPjxiPkZhaXIgcHJpY2U8L2I+JHtyLmZhaXJQcmljZT8/J+KAlCd9PC9kaXY+PGRpdiBjbGFzcz0ibWV0cmljIj48Yj5Fc3RpbWF0ZWQgRVY8L2I+JHtyLmV2PT1udWxsPyfigJQnOnBjdChyLmV2KX08L2Rpdj4KICAgIDxkaXYgY2xhc3M9Im1ldHJpYyI+PGI+SW5kZXBlbmRlbnQgZWRnZXM8L2I+JHtyLmluZGVwZW5kZW50RWRnZXN9PC9kaXY+PGRpdiBjbGFzcz0ibWV0cmljIj48Yj5TdWdnZXN0ZWQgc3Rha2U8L2I+JCR7ci5zdGFrZS50b0ZpeGVkKDIpfTwvZGl2PgogIDwvZGl2PjxoMyBzdHlsZT0ibWFyZ2luLXRvcDoxOHB4Ij5SZWxlYXNlIGdhdGVzPC9oMz4ke09iamVjdC5lbnRyaWVzKGdhdGVzKS5tYXAoKFtrLHZdKT0+YDxkaXYgY2xhc3M9ImdhdGUiPjxzcGFuPiR7ZXNjKGspfTwvc3Bhbj48YiBjbGFzcz0iJHt2PydwYXNzJzonZmFpbCd9Ij4ke3Y/J1BBU1MnOidGQUlMJ308L2I+PC9kaXY+YCkuam9pbignJyl9CiAgJHtzcG9ydC5sZW5ndGg/YDxoMyBzdHlsZT0ibWFyZ2luLXRvcDoxOHB4Ij5TcG9ydC1zcGVjaWZpYyBnYXRlczwvaDM+JHtzcG9ydC5tYXAoZz0+YDxkaXYgY2xhc3M9ImdhdGUiPjxzcGFuPiR7ZXNjKGcubmFtZSl9PC9zcGFuPjxiIGNsYXNzPSIke2cucGFzcz8ncGFzcyc6J2ZhaWwnfSI+JHtnLnBhc3M/J1BBU1MnOidGQUlMJ308L2I+PC9kaXY+YCkuam9pbignJyl9YDonJ30KICA8cCBjbGFzcz0ic3VidGxlIiBzdHlsZT0ibWFyZ2luLXRvcDoxNHB4Ij5UaGUgbm9ybWFsaXplZCBzY29yZSBwcm9qZWN0aW9uIGlzIGludGVudGlvbmFsbHkgbm90IHNob3duIGFzIGxpdGVyYWwgZ2FtZSBwb2ludHMgdW50aWwgYSBzcG9ydC1zcGVjaWZpYyBzdGF0cy9yb3RhdGlvbiBmZWVkIGlzIHN1cHBsaWVkLiBUaGUgRGF0YSBRdWFsaXR5IEdhdGUgcHJldmVudHMgdGhhdCBtaXNzaW5nIGVucmljaG1lbnQgZnJvbSBtYXNxdWVyYWRpbmcgYXMgY29uZmlkZW5jZS48L3A+YDsKfQoKJCgnI2xvYWRXZWF0aGVyJykub25jbGljaz1hc3luYygpPT57dHJ5e2NvbnN0IGQ9YXdhaXQgYXBpKGAvYXBpL3dlYXRoZXI/bGF0PSR7ZW5jb2RlVVJJQ29tcG9uZW50KCQoJyNsYXQnKS52YWx1ZSl9Jmxvbj0ke2VuY29kZVVSSUNvbXBvbmVudCgkKCcjbG9uJykudmFsdWUpfWApO2NvbnN0IHBlcmlvZHM9ZC5mb3JlY2FzdD8ucHJvcGVydGllcz8ucGVyaW9kc3x8W107JCgnI2ZvcmVjYXN0JykuaW5uZXJIVE1MPXBlcmlvZHMuc2xpY2UoMCw4KS5tYXAocD0+YDxkaXYgY2xhc3M9ImZvcmVjYXN0LWl0ZW0iPjxiPiR7ZXNjKHAubmFtZSl9PC9iPiDigKIgJHtlc2MocC50ZW1wZXJhdHVyZSl9wrAke2VzYyhwLnRlbXBlcmF0dXJlVW5pdCl9IOKAoiB3aW5kICR7ZXNjKHAud2luZFNwZWVkKX0gJHtlc2MocC53aW5kRGlyZWN0aW9uKX08YnI+PHNwYW4gY2xhc3M9InN1YnRsZSI+JHtlc2MocC5zaG9ydEZvcmVjYXN0KX08L3NwYW4+PC9kaXY+YCkuam9pbignJyl9Y2F0Y2goZSl7JCgnI2ZvcmVjYXN0JykuaW5uZXJIVE1MPWA8cCBjbGFzcz0iZmFpbCI+JHtlc2MoZS5tZXNzYWdlKX08L3A+YH19Owppbml0KCk7Cg==", 'base64') }
-};
-
-const PORT = Number(process.env.PORT || 3000);
-const ODDS_KEY = process.env.ODDS_API_KEY || '';
-const REGION = process.env.ODDS_REGION || 'us';
-
-const sportsFallback = [
-  {key:'baseball_mlb',title:'MLB',group:'Baseball'},
-  {key:'baseball_kbo',title:'KBO League',group:'Baseball'},
-  {key:'baseball_npb',title:'NPB',group:'Baseball'},
-  {key:'americanfootball_nfl_preseason',title:'NFL Preseason',group:'American Football'},
-  {key:'americanfootball_nfl',title:'NFL',group:'American Football'},
-  {key:'americanfootball_ncaaf',title:'NCAAF',group:'American Football'},
-  {key:'basketball_wnba',title:'WNBA',group:'Basketball'}
+const SPORTS = [
+  {key:'baseball_mlb',title:'MLB'},
+  {key:'baseball_kbo',title:'KBO'},
+  {key:'baseball_npb',title:'NPB'},
+  {key:'americanfootball_nfl_preseason',title:'NFL Preseason'},
+  {key:'americanfootball_nfl',title:'NFL'},
+  {key:'americanfootball_ncaaf',title:'NCAAF'},
+  {key:'basketball_wnba',title:'WNBA'}
 ];
 
-function send(res,status,data,type='application/json'){
-  res.writeHead(status, {'Content-Type':type, 'Cache-Control':'no-store'});
-  res.end(type==='application/json' ? JSON.stringify(data) : data);
-}
-async function readBody(req){
-  return await new Promise((resolve,reject)=>{
-    let s=''; req.on('data',d=>{s+=d;if(s.length>1e6)req.destroy();}); req.on('end',()=>resolve(s)); req.on('error',reject);
-  });
-}
+const SPORT_MODULES = {
+  baseball_mlb: [
+    'starting pitcher true talent and current arsenal','expected starter workload / pitch count / times-through-order risk',
+    'offense vs handedness and pitch mix','bullpen quality, leverage availability and recent workload','lineup/injury confirmation',
+    'platoon and pitch-type matchup','park/weather/run environment','defense/baserunning','recent form with capped weight',
+    'offensive support filter','road favorite filter when applicable','F5 tie risk','fragile total guard','NRFI/YRFI first-inning context',
+    'player-prop opportunity context','HR101 power/pitch-type environment when relevant'
+  ],
+  baseball_kbo: [
+    'starting pitcher quality/reliability','foreign starter edge where relevant','offense and platoon fit','bullpen quality/volatility',
+    'lineup availability','league run environment','defense/base-running','recent form capped','market liquidity/data quality',
+    'KBO structural edge gate: do not elevate a 55-57% side without a clear starter/bullpen/offense driver'
+  ],
+  baseball_npb: [
+    'starting pitcher quality/workload','offense and platoon fit','bullpen leverage availability','lineup availability',
+    'park/weather','late-inning run-prevention profile','recent form capped','low-total variance guard especially totals <= 6.5'
+  ],
+  americanfootball_nfl_preseason: [
+    'QB1 expected usage','QB2 quality','QB3/deep QB quality','starter 1Q edge','2Q rotation edge','second-half/deep reserve edge',
+    'reserve OL/DL quality','RB/WR depth','defensive depth','coaching usage/intent','joint-practice workload adjustment',
+    'special teams','penalty/turnover volatility','injuries/availability','large-favorite release gate','1Q/1H vs full-game market fit'
+  ],
+  americanfootball_nfl: [
+    'QB and passing efficiency','offensive line','run game','skill-position availability','defensive front','coverage/secondary',
+    'success rate/EPA-style efficiency','explosive plays','red zone','turnovers with regression','special teams','coaching/scheme',
+    'rest/travel','weather','injuries','recent form capped'
+  ],
+  americanfootball_ncaaf: [
+    'overall talent/true strength','QB quality and continuity','offensive line','passing offense','rushing offense','defensive front',
+    'secondary/pass defense','success rate / down-to-down efficiency','explosive plays','havoc / pressure / sack creation','red zone',
+    'turnovers with regression','special teams/hidden yards','injuries/availability','coaching/scheme','pace','rest/travel',
+    'weather/environment','returning production/roster continuity where relevant','current form capped'
+  ],
+  basketball_wnba: [
+    'offensive efficiency','defensive efficiency','pace','projected starting lineup','injuries/availability','projected minutes',
+    'usage/role','paint matchup','perimeter/3-point profile','rebounding chances','assist creation','turnover pressure','bench depth',
+    'rest/travel','blowout risk','recent form capped','player-prop role context'
+  ]
+};
+
+function modulesForSport(sport){ return SPORT_MODULES[sport] || ['true strength','offense','defense','matchup','availability','environment','recent form capped']; }
+function clamp(x,lo=0,hi=100){ return Math.max(lo, Math.min(hi, Number(x)||0)); }
+function americanToProb(price){ const p=Number(price); if(!Number.isFinite(p)||p===0)return null; return p<0?(-p)/((-p)+100):100/(p+100); }
+function probToAmerican(prob){ if(!Number.isFinite(prob)||prob<=0||prob>=1)return null; return prob>=.5?Math.round(-100*prob/(1-prob)):Math.round(100*(1-prob)/prob); }
+function evFromAmerican(prob, price){ const p=Number(price); if(!Number.isFinite(prob)||!Number.isFinite(p))return null; const profit=p>0?p/100:100/(-p); return prob*profit-(1-prob); }
+function formatAmerican(p){ p=Number(p); return Number.isFinite(p)?(p>0?`+${p}`:`${p}`):'—'; }
+function send(res,status,data,type='application/json'){ res.writeHead(status,{'Content-Type':type,'Cache-Control':'no-store'}); res.end(type==='application/json'?JSON.stringify(data):data); }
+function readBody(req){ return new Promise((resolve,reject)=>{ let s=''; req.on('data',d=>{s+=d;if(s.length>5e6)req.destroy();}); req.on('end',()=>resolve(s)); req.on('error',reject); }); }
+function sanitizeEvent(e){ return {id:e.id,sport_key:e.sport_key,sport_title:e.sport_title,commence_time:e.commence_time,home_team:e.home_team,away_team:e.away_team}; }
+function isHardRock(book){ return ['hardrockbet','hardrockbet_fl','hardrockbet_az','hardrockbet_oh'].includes(book.key); }
+
 async function oddsFetch(endpoint){
-  if(!ODDS_KEY) throw new Error('ODDS_API_KEY is not configured in Render. Add it under Environment and redeploy.');
-  const join = endpoint.includes('?') ? '&' : '?';
-  const url = `https://api.the-odds-api.com/v4/${endpoint}${join}apiKey=${encodeURIComponent(ODDS_KEY)}`;
-  const r = await fetch(url, {headers:{'User-Agent':'AEGIS-Sports-Command-Center/1.1'}});
-  const text = await r.text();
-  let data; try{data=JSON.parse(text)}catch{data={raw:text}};
-  if(!r.ok) throw new Error(data.message || data.error || `Odds API ${r.status}`);
-  return {data, meta:{remaining:r.headers.get('x-requests-remaining'),used:r.headers.get('x-requests-used'),last:r.headers.get('x-requests-last')}};
+  if(!ODDS_KEY) throw new Error('ODDS_API_KEY is not configured.');
+  const join=endpoint.includes('?')?'&':'?';
+  const url=`https://api.the-odds-api.com/v4/${endpoint}${join}apiKey=${encodeURIComponent(ODDS_KEY)}`;
+  const r=await fetch(url,{headers:{'User-Agent':'AEGIS-Auto-Research/2.0'}});
+  const text=await r.text(); let data; try{data=JSON.parse(text)}catch{data={raw:text}};
+  if(!r.ok) throw new Error(data.message||data.error||`Odds API ${r.status}`);
+  return {data,meta:{remaining:r.headers.get('x-requests-remaining'),used:r.headers.get('x-requests-used'),last:r.headers.get('x-requests-last')}};
 }
 
-async function weatherFetch(lat,lon){
-  const headers={'User-Agent':'AEGIS-Sports-Command-Center/1.1','Accept':'application/geo+json'};
-  const p = await fetch(`https://api.weather.gov/points/${lat},${lon}`,{headers});
-  if(!p.ok) throw new Error(`NWS points ${p.status}`);
-  const pj = await p.json();
-  const u = pj?.properties?.forecastHourly || pj?.properties?.forecast;
-  if(!u) throw new Error('No forecast URL returned by NWS.');
-  const fr = await fetch(u,{headers}); if(!fr.ok) throw new Error(`NWS forecast ${fr.status}`);
-  return await fr.json();
+function buildQuotes(events){
+  const out=[];
+  for(const e of events||[]){
+    for(const b of e.bookmakers||[]){
+      for(const m of b.markets||[]){
+        for(let i=0;i<(m.outcomes||[]).length;i++){
+          const o=m.outcomes[i];
+          out.push({
+            quote_id:`${e.id}|${b.key}|${m.key}|${i}`,
+            event_id:e.id, book_key:b.key, book:b.title, hard_rock:isHardRock(b), market_key:m.key,
+            selection:o.name, price:o.price, point:o.point??null, last_update:m.last_update||b.last_update||null
+          });
+        }
+      }
+    }
+  }
+  return out;
 }
 
-const server = http.createServer(async (req,res)=>{
+function compactBoard(events){
+  return (events||[]).map(e=>({
+    ...sanitizeEvent(e),
+    quotes:buildQuotes([e])
+  }));
+}
+
+function blindSchema(){
+  return {
+    type:'object', additionalProperties:false,
+    properties:{
+      sport:{type:'string'}, scan_summary:{type:'string'},
+      games:{type:'array',items:{type:'object',additionalProperties:false,properties:{
+        event_id:{type:'string'}, away_team:{type:'string'}, home_team:{type:'string'},
+        projected_winner:{type:'string'}, home_win_probability:{type:'number'},
+        projected_score:{type:'object',additionalProperties:false,properties:{away:{type:['number','null']},home:{type:['number','null']}},required:['away','home']},
+        projected_total:{type:['number','null']}, projected_margin_home:{type:['number','null']},
+        data_quality:{type:'number'}, uncertainty:{type:'number'}, model_agreement:{type:'number'},
+        research_summary:{type:'string'},
+        modules:{type:'array',items:{type:'object',additionalProperties:false,properties:{
+          name:{type:'string'}, edge:{type:'string'}, confidence:{type:'number'}, evidence:{type:'string'}
+        },required:['name','edge','confidence','evidence']}},
+        independent_edges:{type:'array',items:{type:'object',additionalProperties:false,properties:{name:{type:'string'},side:{type:'string'},strength:{type:'number'},evidence:{type:'string'}},required:['name','side','strength','evidence']}},
+        risks:{type:'array',items:{type:'string'}}, preferred_market_types:{type:'array',items:{type:'string'}}
+      },required:['event_id','away_team','home_team','projected_winner','home_win_probability','projected_score','projected_total','projected_margin_home','data_quality','uncertainty','model_agreement','research_summary','modules','independent_edges','risks','preferred_market_types']}}
+    },required:['sport','scan_summary','games']
+  };
+}
+
+function finalSchema(){
+  return {
+    type:'object',additionalProperties:false,
+    properties:{
+      slate_grade:{type:'string'}, final_summary:{type:'string'},
+      plays:{type:'array',items:{type:'object',additionalProperties:false,properties:{
+        event_id:{type:'string'}, quote_id:{type:'string'}, fair_probability:{type:'number'}, confidence:{type:'number'},
+        tier:{type:'string'}, units:{type:'number'}, bet_now_wait:{type:'string'}, why:{type:'string'},
+        risks:{type:'array',items:{type:'string'}}, market_challenger_probability:{type:'number'},
+        adjusted_edge:{type:'number'}, data_quality:{type:'number'}, model_agreement:{type:'number'}, independent_edge_count:{type:'integer'},
+        final_verification:{type:'string'}
+      },required:['event_id','quote_id','fair_probability','confidence','tier','units','bet_now_wait','why','risks','market_challenger_probability','adjusted_edge','data_quality','model_agreement','independent_edge_count','final_verification']}},
+      passes:{type:'array',items:{type:'object',additionalProperties:false,properties:{event_id:{type:'string'},reason:{type:'string'}},required:['event_id','reason']}},
+      parlay:{type:['object','null'],additionalProperties:false,properties:{quote_ids:{type:'array',items:{type:'string'}},units:{type:'number'},rationale:{type:'string'}},required:['quote_ids','units','rationale']}
+    },required:['slate_grade','final_summary','plays','passes','parlay']
+  };
+}
+
+function extractText(resp){
+  if(typeof resp.output_text==='string') return resp.output_text;
+  for(const item of resp.output||[]){ if(item.type==='message'){ for(const c of item.content||[]){ if(c.type==='output_text'&&typeof c.text==='string') return c.text; } } }
+  return '';
+}
+function extractSources(resp){
+  const map=new Map();
+  for(const item of resp.output||[]){
+    if(item.type==='web_search_call' && item.action && Array.isArray(item.action.sources)){
+      for(const s of item.action.sources){ const url=s.url||s.link; if(url) map.set(url,{title:s.title||s.name||url,url}); }
+    }
+    if(item.type==='message') for(const c of item.content||[]) for(const a of c.annotations||[]){
+      if(a.type==='url_citation'&&a.url) map.set(a.url,{title:a.title||a.url,url:a.url});
+    }
+  }
+  return [...map.values()].slice(0,60);
+}
+
+async function openAIResearch({system,user,schema,name}){
+  if(!OPENAI_KEY) throw new Error('OPENAI_API_KEY is not configured in Render. Add it under Environment, then redeploy.');
+  const payload={
+    model:OPENAI_MODEL,
+    reasoning:{effort:OPENAI_REASONING},
+    tools:[{type:'web_search',search_context_size:'high'}],
+    tool_choice:'auto',
+    include:['web_search_call.action.sources'],
+    input:[{role:'system',content:system},{role:'user',content:user}],
+    text:{format:{type:'json_schema',name,strict:true,schema}},
+    max_output_tokens:24000
+  };
+  const r=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${OPENAI_KEY}`},body:JSON.stringify(payload)});
+  const raw=await r.text(); let data; try{data=JSON.parse(raw)}catch{throw new Error(`OpenAI returned non-JSON (${r.status}).`)};
+  if(!r.ok) throw new Error(data.error?.message||`OpenAI API ${r.status}`);
+  const text=extractText(data); if(!text) throw new Error('OpenAI returned no structured research output.');
+  let parsed; try{parsed=JSON.parse(text)}catch{throw new Error('Research response could not be parsed as JSON.');}
+  return {result:parsed,sources:extractSources(data),usage:data.usage||null,response_id:data.id||null};
+}
+
+function blindSystem(sport){
+  return `You are the automatic research engine for SB101 AEGIS. Perform a deep current sports scan using web search. This is STAGE 1: BLIND INDEPENDENT PROJECTION. You must NOT use sportsbook prices, betting lines, consensus odds, picks pages, or market-implied probabilities to decide the sports direction. Research real-world team/player information only. Prioritize official league/team sources, trusted beat reporting, reputable statistics sites, weather authorities, and primary injury/availability reporting. Verify dates and expected availability. Do not invent unavailable data. If evidence is incomplete, lower data_quality and increase uncertainty. PASS-quality uncertainty is a valid outcome.
+
+Sport: ${sport}.
+Relevant modules to research independently: ${modulesForSport(sport).join('; ')}.
+
+AEGIS principles: blind sports thesis first; component-level forecasting; Model Agreement Score; Two-Independent-Edges requirement for Core consideration; Data Quality/Uncertainty Gate; How-Does-This-Lose risk analysis; score projection; current form capped so one recent result cannot dominate. For NFL preseason, model by quarter/rotation and heavily weight QB2/QB3/deep reserves. For MLB, separate starter/offense/bullpen/platoon/environment and consider run support/F5 tie risk. For WNBA, emphasize minutes/usage/availability/pace/matchup. For KBO/NPB apply league-specific volatility guards. Return calibrated probabilities, not certainty.`;
+}
+
+function finalSystem(sport){
+  return `You are STAGE 2 of SB101 AEGIS: MARKET CHALLENGER + FINAL VERIFICATION. You are given blind independent research completed without sportsbook prices, plus a CURRENT quote board. Now compare the independent projection to the market. You may use web search again only to verify late-breaking injuries, lineups, rotations, weather, starter/QB usage, or other material changes. Do not let price reverse the underlying sports thesis; an overpriced preferred side should be reduced or passed, not flipped just for value.
+
+Hard rules: only select a bet by returning an exact quote_id supplied in the current board. Never invent a line, price, book, player, or market. PASS is successful. Core requires at least two independent edges, reasonable model agreement, sufficient data quality, a market-specific cushion after uncertainty, and a credible reason the model differs from the market. Respect one thesis = one primary exposure per game. Precision Mode: maximum 2 Core plays on a slate, limited Secondary, no forced parlay. Parlays require each leg to qualify independently. Apply road-favorite, favorite-tax, fragile-total and sport-specific gates. Use the CURRENT quote, with Hard Rock Florida preferred when its price is competitive because it is the target execution book; otherwise identify the better quoted book but never fabricate Hard Rock availability. For each play provide a fair win probability and a market challenger probability as decimals from 0 to 1, plus adjusted_edge as fair probability minus market challenger after uncertainty. Tiers must be CORE, SECONDARY, WATCH, or PASS. Units: CORE typically 1.0, SECONDARY 0.5, WATCH/PASS 0.0, parlay 0.25 unless exceptional. If no play clears gates, return no plays.`;
+}
+
+function hydrateFinal(final, events){
+  const quotes=buildQuotes(events); const qmap=new Map(quotes.map(q=>[q.quote_id,q])); const eventMap=new Map(events.map(e=>[e.id,e]));
+  const valid=[]; const seen=new Set();
+  for(const p of final.plays||[]){
+    const q=qmap.get(p.quote_id); if(!q||q.event_id!==p.event_id||seen.has(p.event_id)) continue;
+    seen.add(p.event_id);
+    let tier=String(p.tier||'PASS').toUpperCase();
+    if(!['CORE','SECONDARY','WATCH','PASS'].includes(tier)) tier='WATCH';
+    if(p.data_quality<68 || p.model_agreement<62 || p.independent_edge_count<2){ if(tier==='CORE') tier='SECONDARY'; }
+    if(p.adjusted_edge<0.015 && tier==='CORE') tier='SECONDARY';
+    if(p.adjusted_edge<=0 && ['CORE','SECONDARY'].includes(tier)) tier='WATCH';
+    const fair=Number(p.fair_probability); const ev=evFromAmerican(fair,q.price); const e=eventMap.get(q.event_id);
+    valid.push({...p,tier,units:tier==='CORE'?Math.min(1,Number(p.units)||1):tier==='SECONDARY'?Math.min(.5,Number(p.units)||.5):0,
+      event:e?sanitizeEvent(e):null,quote:q,implied_probability:americanToProb(q.price),fair_price:probToAmerican(fair),estimated_ev:ev});
+  }
+  valid.sort((a,b)=>(b.tier==='CORE'?2:b.tier==='SECONDARY'?1:0)-(a.tier==='CORE'?2:a.tier==='SECONDARY'?1:0) || (b.adjusted_edge||0)-(a.adjusted_edge||0));
+  let coreCount=0; for(const p of valid){ if(p.tier==='CORE'){ coreCount++; if(coreCount>2){p.tier='SECONDARY';p.units=.5;} } }
+  const parlay=final.parlay && Array.isArray(final.parlay.quote_ids) ? (()=>{ const legs=final.parlay.quote_ids.map(id=>qmap.get(id)).filter(Boolean); if(legs.length<2)return null; const eligible=new Set(valid.filter(p=>['CORE','SECONDARY'].includes(p.tier)).map(p=>p.quote_id)); if(!legs.every(l=>eligible.has(l.quote_id)))return null; const distinct=new Set(legs.map(l=>l.event_id)); if(distinct.size!==legs.length)return null; let dec=1; for(const l of legs){const p=l.price>0?1+l.price/100:1+100/(-l.price); dec*=p;} const american=dec>=2?Math.round((dec-1)*100):Math.round(-100/(dec-1)); return {legs,units:.25,rationale:final.parlay.rationale,approx_american:american}; })() : null;
+  return {...final,plays:valid,parlay};
+}
+
+const HTML = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#06131d"><title>SB101 AEGIS Auto Research</title><style>
+:root{--bg:#06131d;--panel:#0b1b28;--panel2:#0e2232;--line:#244055;--text:#eef5fb;--muted:#98adbd;--mint:#5ef0b7;--red:#ff6b76;--gold:#ffd36b;--blue:#7ab8ff}*{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#071825,#06131d);color:var(--text);font-family:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.wrap{max-width:1050px;margin:auto;padding:24px 18px 80px}.hero{padding:20px 0 8px}.eyebrow{color:var(--mint);font-weight:800;letter-spacing:.14em}.hero h1{font-size:clamp(34px,7vw,60px);line-height:1;margin:10px 0}.muted{color:var(--muted)}.status{display:inline-flex;gap:10px;align-items:center;border:1px solid var(--mint);border-radius:999px;padding:11px 16px;margin:10px 0;font-size:14px}.tabs{display:flex;gap:10px;overflow:auto;padding:14px 0;position:sticky;top:0;background:#06131df2;z-index:5}.tab,.btn,select{border:1px solid var(--line);background:#0b1b28;color:var(--text);border-radius:14px;padding:14px 16px;font-size:16px}.tab.active{border-color:var(--mint)}.btn{cursor:pointer;font-weight:800}.btn.primary{background:var(--mint);color:#052018;border-color:var(--mint)}.btn.secondary{border-color:var(--blue)}.btn:disabled{opacity:.5}.panel,.game,.result{background:rgba(11,27,40,.9);border:1px solid var(--line);border-radius:22px;padding:18px;margin:16px 0}.controls{display:flex;gap:12px;flex-wrap:wrap;align-items:end}.control label{display:block;color:var(--muted);font-size:13px;margin:0 0 7px}.game h3{font-size:20px;margin:6px 0 12px}.quotes{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.quote{background:#081823;border:1px solid #203a4e;border-radius:14px;padding:12px;font-size:14px}.quote.hardrock{border-color:var(--mint)}.quote b{display:block;color:var(--muted);margin-bottom:5px}.progress{display:none;background:#0e2232;border:1px solid var(--blue);border-radius:18px;padding:18px;margin:16px 0}.progress.show{display:block}.bar{height:8px;background:#173247;border-radius:999px;overflow:hidden;margin-top:10px}.bar i{display:block;height:100%;background:var(--mint);width:15%;transition:.3s}.badge{display:inline-block;border-radius:999px;padding:7px 10px;font-size:12px;font-weight:900;margin-right:6px}.CORE{background:#174d3b;color:#7dffd0}.SECONDARY{background:#3e3415;color:#ffe38a}.WATCH{background:#173650;color:#a9d5ff}.PASS{background:#49242a;color:#ffb1b8}.metricgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.metric{background:#081823;border:1px solid #203a4e;border-radius:14px;padding:12px}.metric b{display:block;color:var(--muted);font-size:12px}.play{border-left:4px solid var(--mint);padding-left:14px;margin:18px 0}.risk{color:#ffc0c5}.sources a{color:#8ec8ff;display:block;margin:8px 0;overflow-wrap:anywhere}.models{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}.model{background:#081823;border:1px solid #203a4e;border-radius:14px;padding:12px}.hidden{display:none}.notice{border:1px solid #45596b;background:#0b1b28;border-radius:14px;padding:12px}.small{font-size:12px}.hr{height:1px;background:var(--line);margin:16px 0}@media(max-width:600px){.wrap{padding:16px 12px 70px}.controls>*{width:100%}.controls select,.controls button{width:100%}.quotes{grid-template-columns:1fr 1fr}.tab{padding:12px 14px}.game{padding:14px}}
+</style></head><body><div class="wrap"><div class="hero"><div class="eyebrow">SB101 AEGIS v2 • AUTO RESEARCH</div><h1>Sports Command Center</h1><p class="muted">One tap: live odds → blind web research → sport-specific models → market challenger → final verification → disciplined card.</p><div id="status" class="status">Checking data engines…</div></div>
+<div class="tabs"><button class="tab active" data-tab="dashboard">Dashboard</button><button class="tab" data-tab="card">Final Card</button><button class="tab" data-tab="models">Model Registry</button></div>
+<section id="dashboard"><div class="panel"><div class="controls"><div class="control"><label>Sport</label><select id="sport"></select></div><div class="control"><label>Markets</label><select id="markets"><option value="h2h,spreads,totals">ML + Spread + Total</option><option value="h2h">Moneyline only</option></select></div><button class="btn secondary" id="sync">Sync Live Board</button><button class="btn primary" id="scan" disabled>RUN FULL AUTOMATIC SLATE SCAN</button></div><p id="quota" class="muted small"></p><p class="muted small">No model sliders. AEGIS researches the matchup automatically. The slate scan is capped by the server's MAX_SCAN_GAMES setting to control API cost.</p></div><div id="progress" class="progress"><b id="progressTitle">Starting…</b><div id="progressText" class="muted">Preparing research.</div><div class="bar"><i id="progressBar"></i></div></div><div id="events"></div></section>
+<section id="card" class="hidden"><div id="cardContent" class="panel"><h2>No automatic scan yet</h2><p class="muted">Sync a board and run the full automatic slate scan.</p></div></section>
+<section id="models" class="hidden"><div class="panel"><h2>49-model AEGIS registry</h2><p class="muted">The automatic research engine activates only the modules relevant to the selected sport, while the governance/execution layers run on every final decision.</p><div id="modelGrid" class="models"></div></div></section>
+</div><script>
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)]; let EVENTS=[]; let LAST=null;
+const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+const fmtA=p=>Number(p)>0?'+'+p:String(p??'—'); const pct=x=>Number.isFinite(Number(x))?(Number(x)*100).toFixed(1)+'%':'—';
+async function api(url,opt){const r=await fetch(url,opt);const t=await r.text();let d;try{d=JSON.parse(t)}catch{d={error:t}};if(!r.ok)throw new Error(d.error||d.message||('HTTP '+r.status));return d}
+function tab(name){$$('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));['dashboard','card','models'].forEach(x=>$('#'+x).classList.toggle('hidden',x!==name))}
+$$('.tab').forEach(b=>b.onclick=()=>tab(b.dataset.tab));
+async function init(){const h=await api('/api/health');$('#status').textContent=(h.odds_ready?'ODDS READY':'ODDS KEY NEEDED')+' • '+(h.research_ready?'AUTO RESEARCH READY':'OPENAI KEY NEEDED')+' • '+h.models+' models'; const s=await api('/api/sports');$('#sport').innerHTML=s.sports.map(x=>'<option value="'+esc(x.key)+'">'+esc(x.title)+'</option>').join(''); const m=await api('/api/models');$('#modelGrid').innerHTML=m.models.map(x=>'<div class="model"><b>'+esc(x[0])+'</b><div class="muted small">'+esc(x[1])+'</div><p>'+esc(x[2])+'</p></div>').join('')}
+function renderQuotes(e){let books=[...(e.bookmakers||[])].sort((a,b)=>(b.key.includes('hardrock')?1:0)-(a.key.includes('hardrock')?1:0));return books.flatMap(b=>(b.markets||[]).map(m=>{let txt=(m.outcomes||[]).map(o=>esc(o.name)+(o.point!=null?' '+esc(o.point):'')+' '+fmtA(o.price)).join('<br>');return '<div class="quote '+(b.key.includes('hardrock')?'hardrock':'')+'"><b>'+esc(b.title)+' • '+esc(m.key)+(b.key.includes('hardrock')?' • TARGET BOOK':'')+'</b>'+txt+'</div>'})).join('')}
+function renderEvents(){ $('#events').innerHTML=EVENTS.length?EVENTS.map((e,i)=>'<article class="game"><div class="muted small">'+new Date(e.commence_time).toLocaleString()+'</div><h3>'+esc(e.away_team)+' @ '+esc(e.home_team)+'</h3><div class="quotes">'+renderQuotes(e)+'</div><button class="btn secondary" data-game="'+i+'" style="margin-top:12px">AUTO DEEP SCAN THIS GAME</button></article>').join(''):'<div class="panel">No events returned.</div>'; $$('[data-game]').forEach(b=>b.onclick=()=>runScan([EVENTS[+b.dataset.game]],true)); }
+$('#sync').onclick=async()=>{try{$('#events').innerHTML='<div class="panel">Syncing live board…</div>';const d=await api('/api/odds?sport='+encodeURIComponent($('#sport').value)+'&markets='+encodeURIComponent($('#markets').value));EVENTS=d.events||[];$('#quota').textContent=d.quota?'Odds API quota • remaining '+(d.quota.remaining??'—')+' • used '+(d.quota.used??'—')+' • last '+(d.quota.last??'—'):'';renderEvents();$('#scan').disabled=!EVENTS.length}catch(e){$('#events').innerHTML='<div class="panel"><b>Live sync error</b><p>'+esc(e.message)+'</p></div>'}}
+function progress(p,title,text){$('#progress').classList.add('show');$('#progressBar').style.width=p+'%';$('#progressTitle').textContent=title;$('#progressText').textContent=text;window.scrollTo({top:$('#progress').offsetTop-80,behavior:'smooth'})}
+async function runScan(events,single=false){try{const cap=Number((await api('/api/health')).max_scan_games||12);events=events.slice(0,cap);progress(12,'Stage 1 of 4 • Blind independent research','Searching current team/player information without sportsbook prices.');$('#scan').disabled=true;const blind=await api('/api/scan/blind',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sport:$('#sport').value,events:events.map(e=>({id:e.id,sport_key:e.sport_key,sport_title:e.sport_title,commence_time:e.commence_time,home_team:e.home_team,away_team:e.away_team}))})});progress(48,'Stage 2 of 4 • Component agreement','Independent projections complete. Measuring agreement, uncertainty and failure paths.');await new Promise(r=>setTimeout(r,250));progress(62,'Stage 3 of 4 • Market challenger','Comparing blind projections to current sportsbook quotes and Hard Rock Florida when available.');const fin=await api('/api/scan/final',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sport:$('#sport').value,events,blind:blind.result,blind_sources:blind.sources})});progress(92,'Stage 4 of 4 • Final verification','Running release gates, exposure guard, Core cap and parlay validation.');LAST={blind,final:fin};renderCard(LAST);progress(100,'Automatic AEGIS scan complete','Final card is ready. PASS is allowed when the release gates are not met.');setTimeout(()=>tab('card'),400)}catch(e){progress(100,'Scan stopped',e.message);$('#progressBar').style.background='var(--red)'}finally{$('#scan').disabled=!EVENTS.length}}
+$('#scan').onclick=()=>runScan(EVENTS,false);
+function renderCard(data){const f=data.final.result;const plays=f.plays||[];const passes=f.passes||[];let h='<div class="muted small">SLATE GRADE</div><h2>'+esc(f.slate_grade||'—')+'</h2><p>'+esc(f.final_summary||'')+'</p>';
+if(!plays.length)h+='<div class="notice"><b>NO QUALIFIED BETS</b><p class="muted">AEGIS did not release a play. That is a successful system outcome when the gates are not met.</p></div>';
+for(const p of plays){const q=p.quote||{};h+='<div class="play"><span class="badge '+esc(p.tier)+'">'+esc(p.tier)+'</span><b>'+esc(p.event?.away_team||'')+' @ '+esc(p.event?.home_team||'')+'</b><h3>'+esc(q.selection||'')+(q.point!=null?' '+esc(q.point):'')+' '+fmtA(q.price)+' • '+esc(q.book||'')+'</h3><div class="metricgrid"><div class="metric"><b>Fair probability</b>'+pct(p.fair_probability)+'</div><div class="metric"><b>Fair price</b>'+fmtA(p.fair_price)+'</div><div class="metric"><b>Adjusted edge</b>'+pct(p.adjusted_edge)+'</div><div class="metric"><b>Estimated EV</b>'+pct(p.estimated_ev)+'</div><div class="metric"><b>Model agreement</b>'+Number(p.model_agreement).toFixed(0)+'/100</div><div class="metric"><b>Data quality</b>'+Number(p.data_quality).toFixed(0)+'/100</div><div class="metric"><b>Stake</b>'+p.units+'u</div><div class="metric"><b>Timing</b>'+esc(p.bet_now_wait)+'</div></div><p><b>Why:</b> '+esc(p.why)+'</p><p class="risk"><b>How it loses:</b> '+esc((p.risks||[]).join(' • '))+'</p><p class="muted"><b>Final verification:</b> '+esc(p.final_verification)+'</p></div>'}
+if(f.parlay){h+='<div class="panel"><h3>Qualified parlay • '+f.parlay.units+'u • approx '+fmtA(f.parlay.approx_american)+'</h3>'+f.parlay.legs.map(l=>'<div>'+esc(l.selection)+(l.point!=null?' '+esc(l.point):'')+' '+fmtA(l.price)+' • '+esc(l.book)+'</div>').join('')+'<p>'+esc(f.parlay.rationale)+'</p></div>'}
+if(passes.length){h+='<div class="hr"></div><h3>Pass / Cut</h3>'+passes.map(p=>'<p class="muted"><b>'+esc((EVENTS.find(e=>e.id===p.event_id)||{}).away_team||p.event_id)+'</b> — '+esc(p.reason)+'</p>').join('')}
+const sources=[...(data.blind.sources||[]),...(data.final.sources||[])];const unique=[...new Map(sources.map(s=>[s.url,s])).values()].slice(0,35);if(unique.length)h+='<div class="hr"></div><h3>Research sources</h3><div class="sources">'+unique.map(s=>'<a href="'+esc(s.url)+'" target="_blank" rel="noopener">'+esc(s.title||s.url)+'</a>').join('')+'</div>';
+$('#cardContent').innerHTML=h}
+init().catch(e=>{$('#status').textContent='Setup error: '+e.message});
+</script></body></html>`;
+
+const server=http.createServer(async(req,res)=>{
   try{
-    const u = new URL(req.url,`http://${req.headers.host}`);
-    if(u.pathname==='/api/health') return send(res,200,{ok:true,oddsConfigured:!!ODDS_KEY,region:REGION,models:MODELS.length,time:new Date().toISOString()});
-    if(u.pathname==='/api/models') return send(res,200,{models:MODELS.map(([name,category,purpose],id)=>({id:id+1,name,category,purpose}))});
-    if(u.pathname==='/api/sports'){
-      if(!ODDS_KEY) return send(res,200,{live:false,sports:sportsFallback,notice:'Configure ODDS_API_KEY in Render for live in-season discovery.'});
-      const x=await oddsFetch('sports?all=true'); return send(res,200,{live:true,sports:x.data,quota:x.meta});
+    const u=new URL(req.url,`http://${req.headers.host||'localhost'}`);
+    if(req.method==='GET'&&u.pathname==='/') return send(res,200,HTML,'text/html; charset=utf-8');
+    if(req.method==='GET'&&u.pathname==='/api/health') return send(res,200,{ok:true,version:'2.0.0',models:MODELS.length,odds_ready:!!ODDS_KEY,research_ready:!!OPENAI_KEY,openai_model:OPENAI_MODEL,max_scan_games:MAX_SCAN_GAMES,target_book:'Hard Rock Bet Florida'});
+    if(req.method==='GET'&&u.pathname==='/api/models') return send(res,200,{models:MODELS});
+    if(req.method==='GET'&&u.pathname==='/api/sports') return send(res,200,{sports:SPORTS});
+    if(req.method==='GET'&&u.pathname==='/api/odds'){
+      const sport=u.searchParams.get('sport')||'baseball_mlb'; const markets=u.searchParams.get('markets')||'h2h,spreads,totals';
+      const endpoint=`sports/${encodeURIComponent(sport)}/odds?bookmakers=${encodeURIComponent(ODDS_BOOKMAKERS)}&markets=${encodeURIComponent(markets)}&oddsFormat=american&dateFormat=iso`;
+      const r=await oddsFetch(endpoint); return send(res,200,{events:r.data,quota:r.meta,bookmakers:ODDS_BOOKMAKERS.split(',')});
     }
-    if(u.pathname==='/api/odds'){
-      const sport=u.searchParams.get('sport')||'upcoming';
-      const markets=u.searchParams.get('markets')||'h2h,spreads,totals';
-      const bookmakers=u.searchParams.get('bookmakers');
-      const scope = bookmakers ? `bookmakers=${encodeURIComponent(bookmakers)}` : `regions=${encodeURIComponent(REGION)}`;
-      const x=await oddsFetch(`sports/${encodeURIComponent(sport)}/odds?${scope}&markets=${encodeURIComponent(markets)}&oddsFormat=american&dateFormat=iso`);
-      return send(res,200,{live:true,events:x.data,quota:x.meta});
+    if(req.method==='POST'&&u.pathname==='/api/scan/blind'){
+      const body=JSON.parse(await readBody(req)||'{}'); const sport=body.sport; const events=(body.events||[]).slice(0,MAX_SCAN_GAMES);
+      if(!sport||!events.length) return send(res,400,{error:'sport and events are required'});
+      const user=`Current UTC time: ${new Date().toISOString()}\nResearch these scheduled games. Do not use betting odds in this stage. Verify that each event is current and identify late news.\n\n${JSON.stringify(events,null,2)}`;
+      const r=await openAIResearch({system:blindSystem(sport),user,schema:blindSchema(),name:'aegis_blind_scan'}); return send(res,200,r);
     }
-    if(u.pathname==='/api/scores'){
-      const sport=u.searchParams.get('sport')||'americanfootball_nfl';
-      const days=Math.max(1,Math.min(3,Number(u.searchParams.get('daysFrom')||1)));
-      const x=await oddsFetch(`sports/${encodeURIComponent(sport)}/scores?daysFrom=${days}&dateFormat=iso`);
-      return send(res,200,{live:true,scores:x.data,quota:x.meta});
+    if(req.method==='POST'&&u.pathname==='/api/scan/final'){
+      const body=JSON.parse(await readBody(req)||'{}'); const sport=body.sport; const events=(body.events||[]).slice(0,MAX_SCAN_GAMES); const blind=body.blind;
+      if(!sport||!events.length||!blind) return send(res,400,{error:'sport, events, and blind research are required'});
+      const board=compactBoard(events);
+      const user=`Current UTC time: ${new Date().toISOString()}\nBelow is the blind research from Stage 1 and the current sportsbook quote board. Use exact quote_id values only. Hard Rock Florida quotes are marked hard_rock=true. Perform final verification and release only bets that clear AEGIS.\n\nBLIND RESEARCH:\n${JSON.stringify(blind)}\n\nCURRENT QUOTES:\n${JSON.stringify(board)}`;
+      const r=await openAIResearch({system:finalSystem(sport),user,schema:finalSchema(),name:'aegis_final_card'}); r.result=hydrateFinal(r.result,events); return send(res,200,r);
     }
-    if(u.pathname==='/api/weather'){
-      const lat=u.searchParams.get('lat'), lon=u.searchParams.get('lon');
-      if(!lat||!lon) return send(res,400,{error:'lat and lon are required'});
-      return send(res,200,{live:true,forecast:await weatherFetch(lat,lon)});
-    }
-    if(u.pathname==='/api/analyze' && req.method==='POST'){
-      const body=JSON.parse(await readBody(req)||'{}');
-      if(!body.event) return send(res,400,{error:'event is required'});
-      return send(res,200,runAegis(body));
-    }
-
-    const asset=STATIC_ASSETS[u.pathname];
-    if(asset) return send(res,200,asset.body,asset.type);
     return send(res,404,{error:'Not found'});
-  }catch(err){ send(res,500,{error:err.message||String(err)}); }
+  }catch(e){console.error(e);return send(res,500,{error:e.message||'Server error'});}
 });
-server.listen(PORT,'0.0.0.0',()=>console.log(`AEGIS Sports Command Center running on port ${PORT}`));
+server.listen(PORT,'0.0.0.0',()=>console.log(`AEGIS Auto Research v2 running on ${PORT} • ${MODELS.length} models • OpenAI ${OPENAI_MODEL}`));
