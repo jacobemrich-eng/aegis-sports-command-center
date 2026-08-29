@@ -12,7 +12,11 @@ services:
         value: production
       - key: ODDS_API_KEY
         sync: false
+      - key: CFBD_API_KEY
+        sync: false
       - key: ODDS_BOOKMAKERS
         value: hardrockbet_fl,fanduel,draftkings,bovada,betmgm,espnbet,fanatics
       - key: MAX_SCAN_GAMES
         value: "15"
+      - key: MAX_DEEP_MARKET_GAMES
+        value: "3"

@@ -1,8 +1,8 @@
 {
   "name": "aegis-command-center",
-  "version": "6.0.1",
+  "version": "6.1.0",
   "private": true,
-  "description": "SB101 AEGIS v6.0.1 Bootstrap Hotfix — zero-cost calibrated sports command center with Game Lab, model library and results calibration",
+  "description": "SB101 AEGIS v6.1 Daily Research Parity — zero-cost command center with automatic MLB F5 market discovery, Game Lab and Results Lab",
   "scripts": {"start": "node server.js"},
   "engines": {"node": ">=22 <23"}
 }
