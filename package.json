@@ -1,8 +1,8 @@
 {
   "name": "aegis-calibrated-zero-cost-command-center",
-  "version": "4.0.0",
+  "version": "4.1.0",
   "private": true,
-  "description": "SB101 AEGIS v4 calibrated zero-cost automatic sports research engine",
+  "description": "SB101 AEGIS v4.1 calibration-integrity zero-cost automatic sports research engine",
   "scripts": {"start": "node server.js"},
   "engines": {"node": ">=22 <23"}
 }
