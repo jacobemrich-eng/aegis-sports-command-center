@@ -1,8 +1,13 @@
 {
   "name": "aegis-command-center",
-  "version": "6.1.0",
+  "version": "7.0.0",
   "private": true,
-  "description": "SB101 AEGIS v6.1 Daily Research Parity — zero-cost command center with automatic MLB F5 market discovery, Game Lab and Results Lab",
-  "scripts": {"start": "node server.js"},
-  "engines": {"node": ">=22 <23"}
+  "description": "SB101 AEGIS v7 Production Intelligence \u2014 flat iPhone/Render deployment bundle",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --check server.js"
+  },
+  "engines": {
+    "node": ">=22 <23"
+  }
 }
