@@ -1,8 +1,8 @@
 {
   "name": "aegis-command-center",
-  "version": "7.0.0",
+  "version": "7.0.2",
   "private": true,
-  "description": "SB101 AEGIS v7 Production Intelligence \u2014 flat iPhone/Render deployment bundle",
+  "description": "SB101 AEGIS v7.0.2 Cross-Class & Period Integrity — flat iPhone/Render deployment bundle",
   "scripts": {
     "start": "node server.js",
     "test": "node --check server.js"
