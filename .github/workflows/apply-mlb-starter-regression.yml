@@ -111,10 +111,10 @@ jobs:
           )
 
           replace_once(
-              "+(hBull.verified&&aBull.verified?0:5); const rawAgr=",
-              "+(hBull.verified&&aBull.verified?0:5)+(starterSamplePenalty?4:0); const rawAgr=",
-              'starter uncertainty penalty'
-          )
+    "+(hBull.verified&&aBull.verified?0:5)); const rawAgr=",
+    "+(hBull.verified&&aBull.verified?0:5)+(starterSamplePenalty?4:0)); const rawAgr=",
+    'starter uncertainty penalty'
+)
 
           replace_once(
               "  const risks=[]; if(!hp||!ap)",
