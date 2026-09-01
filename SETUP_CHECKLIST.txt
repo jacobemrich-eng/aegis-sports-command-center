@@ -1,0 +1,22 @@
+AEGIS v8 — ONE-TIME SETUP CHECKLIST
+
+1. Upload the COMPLETE v8 bundle to the GitHub repo and commit to main.
+2. Supabase -> SQL Editor -> run sql/supabase.sql.
+3. Supabase -> copy Project URL and server Secret key (sb_secret_...).
+4. Render secrets:
+   ODDS_API_KEY
+   CFBD_API_KEY
+   AEGIS_ACCESS_PIN
+   AEGIS_SESSION_SECRET
+   AEGIS_AUTOPILOT_SECRET
+   SUPABASE_URL
+   SUPABASE_SECRET_KEY
+5. GitHub repo -> Settings -> Secrets and variables -> Actions:
+   create AEGIS_AUTOPILOT_SECRET with the EXACT same value as Render.
+6. Let Render deploy v8.
+7. GitHub -> Actions -> AEGIS Autopilot -> Run workflow once.
+8. Open the site, enter PIN, confirm AUTOPILOT READY + Persistent cloud.
+9. Run VERIFY NOW once on MLB and NCAAF for final validation.
+10. After validation: normal MLB/NCAAF daily research is hands-off.
+
+Full instructions: ONE_TIME_SETUP.md
