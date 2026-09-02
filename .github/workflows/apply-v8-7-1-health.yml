@@ -1,0 +1,743 @@
+name: Apply AEGIS v8.7.1 Health Contract
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  upgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Apply v8.7.1 deployment identity patch
+        shell: bash
+        run: |
+          python <<'PY'
+          from pathlib import Path
+          import json
+
+          root = Path('.')
+
+          # Platform release version + syntax gate for the new module.
+          pkg_path = root / 'package.json'
+          pkg = json.loads(pkg_path.read_text(encoding='utf-8'))
+          pkg['version'] = '8.7.1'
+
+          check = pkg.get('scripts', {}).get('check', '')
+          if 'node --check src/release.js' not in check:
+              check = check.replace(
+                  'node --check src/store.js',
+                  'node --check src/store.js && node --check src/release.js'
+              )
+              pkg['scripts']['check'] = check
+
+          pkg_path.write_text(
+              json.dumps(pkg, indent=2, ensure_ascii=False) + '\n',
+              encoding='utf-8'
+          )
+
+          # Keep platform-release identity separate from betting/model version history.
+          release_js = r'''const pkg = require('../package.json');
+
+          const APP_VERSION = String(pkg.version || 'unknown');
+          const PLATFORM_NAME = 'AEGIS Sports Command Center';
+          const GOVERNANCE_VERSION = 'SB101 AEGIS v1.1 — September Daily-Use Freeze';
+
+          function env(name){
+            const value = String(process.env[name] || '').trim();
+            return value || null;
+          }
+
+          function deployment(){
+            const render = env('RENDER') === 'true';
+
+            return {
+              provider: render ? 'render' : 'local',
+              render,
+              environment: env('NODE_ENV') || 'development',
+              git_commit: env('RENDER_GIT_COMMIT'),
+              git_branch: env('RENDER_GIT_BRANCH'),
+              repo_slug: env('RENDER_GIT_REPO_SLUG'),
+              service_id: env('RENDER_SERVICE_ID'),
+              instance_id: env('RENDER_INSTANCE_ID'),
+              external_url: env('RENDER_EXTERNAL_URL'),
+              external_hostname: env('RENDER_EXTERNAL_HOSTNAME')
+            };
+          }
+
+          function evaluateHealth({
+            storage={},
+            auto={},
+            oddsReady=false,
+            cfbdReady=false,
+            autopilotSecretReady=false,
+            releaseSports=[],
+            deploy=deployment()
+          }={}){
+            const failures = [];
+            const warnings = [];
+            const production = deploy.environment === 'production';
+
+            if(!storage.ok)
+              failures.push('storage_unhealthy');
+
+            if(production && !storage.persistent)
+              failures.push('persistent_storage_required');
+
+            if(production && auto.enabled && !autopilotSecretReady)
+              failures.push('autopilot_secret_missing');
+
+            if(!oddsReady)
+              warnings.push('sportsbook_feed_not_ready');
+
+            if(
+              releaseSports.includes('americanfootball_ncaaf') &&
+              !cfbdReady
+            )
+              warnings.push('cfbd_feed_not_ready');
+
+            if(auto.last_error)
+              warnings.push('autopilot_last_run_error');
+
+            if(deploy.render && !deploy.git_commit)
+              warnings.push('render_commit_unknown');
+
+            const status =
+              failures.length
+                ? 'RED'
+                : warnings.length
+                  ? 'DEGRADED'
+                  : 'GREEN';
+
+            return {
+              status,
+              ok: status !== 'RED',
+              failures,
+              warnings
+            };
+          }
+
+          function buildHealth({
+            storage={},
+            auto={},
+            oddsReady=false,
+            cfbdReady=false,
+            autopilotSecretReady=false,
+            releaseSports=[],
+            engineVersion='unknown'
+          }={}){
+            const deploy = deployment();
+
+            const gate = evaluateHealth({
+              storage,
+              auto,
+              oddsReady,
+              cfbdReady,
+              autopilotSecretReady,
+              releaseSports,
+              deploy
+            });
+
+            return {
+              ok: gate.ok,
+              status: gate.status,
+
+              platform: PLATFORM_NAME,
+
+              release_version: APP_VERSION,
+              engine_version: engineVersion,
+              governance_version: GOVERNANCE_VERSION,
+
+              generated_at: new Date().toISOString(),
+
+              deploy,
+
+              failures: gate.failures,
+              warnings: gate.warnings
+            };
+          }
+
+          module.exports = {
+            APP_VERSION,
+            PLATFORM_NAME,
+            GOVERNANCE_VERSION,
+            deployment,
+            evaluateHealth,
+            buildHealth
+          };
+          '''
+
+          release_js = '\n'.join(
+              line[10:] if line.startswith('          ') else line
+              for line in release_js.splitlines()
+          ) + '\n'
+
+          (root / 'src' / 'release.js').write_text(
+              release_js,
+              encoding='utf-8'
+          )
+
+          # Upgrade /api/health without touching betting-model logic.
+          server_path = root / 'server.js'
+          server = server_path.read_text(encoding='utf-8')
+
+          import_anchor = "const store = require('./src/store');\n"
+
+          if "require('./src/release')" not in server:
+              if import_anchor not in server:
+                  raise SystemExit(
+                      'server.js import anchor not found; refusing unsafe patch'
+                  )
+
+              server = server.replace(
+                  import_anchor,
+                  import_anchor + "const release = require('./src/release');\n",
+                  1
+              )
+
+          health_start = (
+              "    if(req.method==='GET'&&u.pathname==='/api/health'){\n"
+          )
+
+          login_start = (
+              "    if(req.method==='POST'&&u.pathname==='/api/login'){\n"
+          )
+
+          i = server.find(health_start)
+          j = server.find(login_start, i + 1)
+
+          if i < 0 or j < 0:
+              raise SystemExit(
+                  'server.js health route anchors not found; refusing unsafe patch'
+              )
+
+          health_block = r'''    if(req.method==='GET'&&u.pathname==='/api/health'){
+              const c=engine.config(),
+                    storage=await store.health(),
+                    auto=await safeStatus();
+
+              const health=release.buildHealth({
+                storage,
+                auto,
+                oddsReady:c.oddsReady,
+                cfbdReady:c.cfbdReady,
+                autopilotSecretReady:!!AUTOPILOT_SECRET,
+                releaseSports:autopilot.config.RELEASE_SPORTS,
+                engineVersion:engine.VERSION
+              });
+
+              return send(res,200,{
+                ...health,
+
+                version:release.APP_VERSION,
+
+                models:engine.MODELS.length,
+
+                odds_ready:c.oddsReady,
+                cfbd_ready:c.cfbdReady,
+
+                max_scan_games:c.maxScanGames,
+                max_deep_market_games:c.maxDeepMarketGames,
+                max_deep_market_credits:c.maxDeepMarketCredits,
+
+                odds_cache_ttl_ms:c.oddsCacheTtlMs,
+                min_odds_refresh_ms:c.minOddsRefreshMs,
+                odds_quota_reserve:c.oddsQuotaReserve,
+
+                auth_required:!!ACCESS_PIN,
+                authenticated:validSession(req),
+
+                autopilot_enabled:auto.enabled,
+                autopilot_secret_ready:!!AUTOPILOT_SECRET,
+
+                persistent_storage:storage.persistent,
+                storage_backend:storage.backend,
+                storage_key_mode:storage.key_mode||'none',
+                storage_ok:storage.ok,
+
+                last_autopilot_success:auto.last_success_at||null,
+                last_autopilot_error:auto.last_error||null,
+
+                openai_used:false,
+
+                cost_layer:
+                  'No paid AI calls. Public/free data + quota-governed sportsbook API.',
+
+                autopilot_sports:autopilot.config.AUTO_SPORTS,
+                release_sports:autopilot.config.RELEASE_SPORTS,
+
+                daily_odds_budget:autopilot.config.DAILY_BUDGET,
+                monthly_odds_budget:autopilot.config.MONTHLY_BUDGET,
+                auto_deep_credit_cap:
+                  autopilot.config.AUTO_DEEP_CREDIT_CAP
+              });
+            }
+          '''
+
+          health_block = '\n'.join(
+              line[10:] if line.startswith('          ') else line
+              for line in health_block.splitlines()
+          ) + '\n'
+
+          server = server[:i] + health_block + server[j:]
+
+          # Preserve backward compatibility while adding explicit identities.
+          old_export = (
+              "const state=await store.load();"
+              "return send(res,200,{exported_at:new Date().toISOString(),"
+              "version:engine.VERSION,state});"
+          )
+
+          new_export = (
+              "const state=await store.load();"
+              "return send(res,200,{"
+              "exported_at:new Date().toISOString(),"
+              "version:release.APP_VERSION,"
+              "release_version:release.APP_VERSION,"
+              "engine_version:engine.VERSION,"
+              "state});"
+          )
+
+          if old_export in server:
+              server = server.replace(
+                  old_export,
+                  new_export,
+                  1
+              )
+
+          # Repair remaining server-log mojibake.
+          server = server.replace('â€¢', '•')
+
+          old_listen_prefix = (
+              "server.listen(PORT,'0.0.0.0',"
+              "()=>console.log(`AEGIS ${engine.VERSION} running on ${PORT}"
+          )
+
+          if old_listen_prefix in server:
+              server = server.replace(
+                  old_listen_prefix,
+                  "server.listen(PORT,'0.0.0.0',"
+                  "()=>console.log(`AEGIS release ${release.APP_VERSION} "
+                  "• engine ${engine.VERSION} running on ${PORT}",
+                  1
+              )
+
+          server_path.write_text(
+              server,
+              encoding='utf-8'
+          )
+
+          # Deployment identity regression tests.
+          tests = r'''const test = require('node:test');
+          const assert = require('node:assert/strict');
+          const fs = require('node:fs');
+          const path = require('node:path');
+
+          const ROOT = path.join(__dirname, '..');
+          const release = require('../src/release');
+          const pkg = require('../package.json');
+
+          function greenInput(){
+            return {
+              storage:{
+                ok:true,
+                persistent:true
+              },
+
+              auto:{
+                enabled:true,
+                last_error:null
+              },
+
+              oddsReady:true,
+              cfbdReady:true,
+              autopilotSecretReady:true,
+
+              releaseSports:[
+                'baseball_mlb',
+                'americanfootball_ncaaf'
+              ],
+
+              deploy:{
+                environment:'production',
+                render:true,
+                git_commit:'abc123'
+              }
+            };
+          }
+
+          test(
+            'platform release version is v8.7.1 and separate from engine history',
+            () => {
+              assert.equal(pkg.version, '8.7.1');
+              assert.equal(release.APP_VERSION, '8.7.1');
+
+              const engine = require('../src/engine');
+
+              assert.notEqual(
+                release.APP_VERSION,
+                engine.VERSION
+              );
+            }
+          );
+
+          test(
+            'production health is GREEN when critical services are ready',
+            () => {
+              const health =
+                release.evaluateHealth(greenInput());
+
+              assert.equal(
+                health.status,
+                'GREEN'
+              );
+
+              assert.equal(
+                health.ok,
+                true
+              );
+
+              assert.deepEqual(
+                health.failures,
+                []
+              );
+
+              assert.deepEqual(
+                health.warnings,
+                []
+              );
+            }
+          );
+
+          test(
+            'missing sportsbook readiness degrades without faking outage',
+            () => {
+              const input = greenInput();
+
+              input.oddsReady = false;
+
+              const health =
+                release.evaluateHealth(input);
+
+              assert.equal(
+                health.status,
+                'DEGRADED'
+              );
+
+              assert.equal(
+                health.ok,
+                true
+              );
+
+              assert.ok(
+                health.warnings.includes(
+                  'sportsbook_feed_not_ready'
+                )
+              );
+            }
+          );
+
+          test(
+            'production persistence failure is RED',
+            () => {
+              const input = greenInput();
+
+              input.storage = {
+                ok:false,
+                persistent:true
+              };
+
+              const health =
+                release.evaluateHealth(input);
+
+              assert.equal(
+                health.status,
+                'RED'
+              );
+
+              assert.equal(
+                health.ok,
+                false
+              );
+
+              assert.ok(
+                health.failures.includes(
+                  'storage_unhealthy'
+                )
+              );
+            }
+          );
+
+          test(
+            'production ephemeral storage is RED',
+            () => {
+              const input = greenInput();
+
+              input.storage = {
+                ok:true,
+                persistent:false
+              };
+
+              const health =
+                release.evaluateHealth(input);
+
+              assert.equal(
+                health.status,
+                'RED'
+              );
+
+              assert.ok(
+                health.failures.includes(
+                  'persistent_storage_required'
+                )
+              );
+            }
+          );
+
+          test(
+            'health route exposes release, engine and Render identity',
+            () => {
+              const server =
+                fs.readFileSync(
+                  path.join(ROOT, 'server.js'),
+                  'utf8'
+                );
+
+              assert.match(
+                server,
+                /release\.buildHealth/
+              );
+
+              assert.match(
+                server,
+                /version:release\.APP_VERSION/
+              );
+
+              assert.match(
+                server,
+                /engineVersion:engine\.VERSION/
+              );
+
+              assert.match(
+                server,
+                /release_version:release\.APP_VERSION/
+              );
+            }
+          );
+
+          test(
+            'server source contains no old bullet mojibake',
+            () => {
+              const server =
+                fs.readFileSync(
+                  path.join(ROOT, 'server.js'),
+                  'utf8'
+                );
+
+              assert.equal(
+                server.includes('â€¢'),
+                false
+              );
+            }
+          );
+          '''
+
+          tests = '\n'.join(
+              line[10:] if line.startswith('          ') else line
+              for line in tests.splitlines()
+          ) + '\n'
+
+          (root / 'tests' / 'health-contract.test.js').write_text(
+              tests,
+              encoding='utf-8'
+          )
+
+          # Clarify platform vs betting-governance versions.
+          readme_path = root / 'README.md'
+          readme = readme_path.read_text(encoding='utf-8')
+
+          old_heading = (
+              '# SB101 AEGIS v8.0 — Autopilot & Daily Operations'
+          )
+
+          new_heading = (
+              '# AEGIS Sports Command Center v8.7.1 '
+              '— Autopilot & Daily Operations'
+          )
+
+          if old_heading in readme:
+              readme = readme.replace(
+                  old_heading,
+                  new_heading,
+                  1
+              )
+
+          marker = (
+              'AEGIS is a free-tier-first sports research operating system '
+              'built around the SB101 AEGIS decision framework.'
+          )
+
+          note = (
+              '\n\n**Version taxonomy:** platform release **v8.7.1**; '
+              'canonical betting governance **SB101 AEGIS v1.1 — '
+              'September Daily-Use Freeze**. Platform releases do not '
+              'silently rewrite historical model versions.'
+          )
+
+          if marker in readme and '**Version taxonomy:**' not in readme:
+              readme = readme.replace(
+                  marker,
+                  marker + note,
+                  1
+              )
+
+          readme_path.write_text(
+              readme,
+              encoding='utf-8'
+          )
+
+          print(
+              'AEGIS v8.7.1 Deployment Identity & Health Contract staged.'
+          )
+          PY
+
+          git add \
+            package.json \
+            server.js \
+            src/release.js \
+            tests/health-contract.test.js \
+            README.md
+
+      - name: Run full AEGIS validation
+        run: npm run check
+
+      - name: Commit tested v8.7.1 changes
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git diff --cached --check
+
+          if git diff --cached --quiet; then
+            echo "No changes needed."
+          else
+            git commit \
+              -m "Apply AEGIS v8.7.1 deployment identity and health contract"
+
+            git push origin HEAD:main
+          fi
+
+      - name: Verify live Render deployment identity
+        shell: bash
+        env:
+          HEALTH_URL: https://aegis-sports-command-center.onrender.com/api/health
+
+        run: |
+          EXPECTED_SHA="$(git rev-parse HEAD)"
+          EXPECTED_VERSION="$(node -p "require('./package.json').version")"
+
+          echo "Expected release: ${EXPECTED_VERSION}"
+          echo "Expected commit: ${EXPECTED_SHA}"
+
+          for attempt in $(seq 1 24); do
+
+            BODY="$(
+              curl -fsS \
+                --max-time 20 \
+                "$HEALTH_URL" \
+                || true
+            )"
+
+            if [ -n "$BODY" ]; then
+
+              LIVE_SHA="$(
+                printf '%s' "$BODY" |
+                node -e "
+                  let s='';
+                  process.stdin.on('data',d=>s+=d)
+                  .on('end',()=>{
+                    try{
+                      console.log(
+                        JSON.parse(s).deploy?.git_commit || ''
+                      )
+                    }catch{
+                      console.log('')
+                    }
+                  })
+                "
+              )"
+
+              LIVE_VERSION="$(
+                printf '%s' "$BODY" |
+                node -e "
+                  let s='';
+                  process.stdin.on('data',d=>s+=d)
+                  .on('end',()=>{
+                    try{
+                      console.log(
+                        JSON.parse(s).release_version || ''
+                      )
+                    }catch{
+                      console.log('')
+                    }
+                  })
+                "
+              )"
+
+              LIVE_STATUS="$(
+                printf '%s' "$BODY" |
+                node -e "
+                  let s='';
+                  process.stdin.on('data',d=>s+=d)
+                  .on('end',()=>{
+                    try{
+                      console.log(
+                        JSON.parse(s).status || ''
+                      )
+                    }catch{
+                      console.log('')
+                    }
+                  })
+                "
+              )"
+
+              echo \
+                "Attempt ${attempt}: release=${LIVE_VERSION:-unknown} status=${LIVE_STATUS:-unknown} commit=${LIVE_SHA:-unknown}"
+
+              if \
+                [ "$LIVE_SHA" = "$EXPECTED_SHA" ] && \
+                [ "$LIVE_VERSION" = "$EXPECTED_VERSION" ] && \
+                [ "$LIVE_STATUS" != "RED" ] && \
+                [ -n "$LIVE_STATUS" ]
+              then
+                echo "AEGIS production identity verified."
+                exit 0
+              fi
+
+            else
+              echo \
+                "Attempt ${attempt}: health endpoint not ready yet."
+            fi
+
+            sleep 15
+          done
+
+          echo \
+            "Production did not prove the expected release identity."
+
+          exit 1
