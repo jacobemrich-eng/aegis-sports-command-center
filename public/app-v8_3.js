@@ -280,6 +280,9 @@
     if(tier==="CORE"){head="EDGE SURVIVED";sub="Core distinction held through every release gate."}
     else if(tier==="SECONDARY"){head="QUALIFIED â€” REDUCED EXPOSURE";sub="Playable, but not strong enough for Core sizing."}
     else if(tier==="WATCH"){head="HOLD THE LINE";sub="Do not turn a Watch candidate into a bet early."}
+    var voiceKey=tier+"|"+head+"|"+sub;
+    if(voice.dataset.v83Key===voiceKey)return;
+    voice.dataset.v83Key=voiceKey;
     voice.className="v83-cardvoice "+cls;
     voice.innerHTML="<strong>"+esc(head)+"</strong><span>"+esc(sub)+"</span>";
   }
@@ -305,7 +308,7 @@
   function start(){
     document.documentElement.classList.add("aegis-v83");
     refresh();
-    setInterval(refresh,1600);
+    setInterval(refresh,30000);
     var labSelect=q("#labGame");
     if(labSelect)labSelect.addEventListener("change",function(){lastKey="";setTimeout(renderIntel,40)});
     var sport=q("#sport");

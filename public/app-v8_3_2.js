@@ -18,16 +18,23 @@
     document.documentElement.classList.add("aegis-v832");
     stabilizeCardVoice();
 
+    var card=q("#card");
+    if(!card)return;
+
+    var queued=false;
     var observer=new MutationObserver(function(){
-      stabilizeCardVoice();
+      if(queued)return;
+      queued=true;
+      queueMicrotask(function(){
+        queued=false;
+        stabilizeCardVoice();
+      });
     });
 
-    observer.observe(document.body,{
+    observer.observe(card,{
       childList:true,
       subtree:true
     });
-
-    setInterval(stabilizeCardVoice,500);
   }
 
   if(document.readyState==="loading"){

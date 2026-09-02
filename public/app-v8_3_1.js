@@ -97,10 +97,11 @@
       polish();
     });
 
-    observer.observe(document.body,{
-      childList:true,
-      subtree:true,
-      characterData:true
+    [q("#lab"),q("#card")].filter(Boolean).forEach(function(root){
+      observer.observe(root,{
+        childList:true,
+        subtree:true
+      });
     });
   }
 

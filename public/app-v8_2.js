@@ -2,6 +2,8 @@
 (function(){
   "use strict";
 
+  var uiKeyLast=null;
+
   var tabs = [
     ["command","&#9889;","Command"],
     ["board","&#9673;","Board"],
@@ -217,16 +219,54 @@
       if(original)original.scrollIntoView({behavior:"smooth"});
     };
   }
-  function refresh(){
+  function uiKey(){
+    var c=card(),p=best(c),sportSelect=q("#sport");
+    return [
+      c&&c.generated_at||"",
+      p&&p.event_id||"",
+      p&&p.tier||"",
+      p&&p.market||"",
+      p&&p.selection||"",
+      p&&p.point!=null?p.point:"",
+      p&&p.price!=null?p.price:"",
+      sportSelect&&sportSelect.value||""
+    ].join("|");
+  }
+  function refresh(force){
     shell();
-    overview();
-    quick();
+    var key=uiKey();
+    if(force||key!==uiKeyLast){
+      uiKeyLast=key;
+      overview();
+      quick();
+    }
     syncNav();
   }
   function start(){
-    refresh();
-    window.setInterval(refresh,2000);
     document.documentElement.classList.add("aegis-v82");
+    refresh(true);
+
+    var cardContent=q("#cardContent");
+    if(cardContent){
+      var queued=false;
+      var observer=new MutationObserver(function(){
+        if(queued)return;
+        queued=true;
+        queueMicrotask(function(){
+          queued=false;
+          refresh(false);
+        });
+      });
+      observer.observe(cardContent,{childList:true,subtree:true});
+    }
+
+    var sportSelect=q("#sport");
+    if(sportSelect)sportSelect.addEventListener("change",function(){refresh(true);});
+    qa(".navbtn").forEach(function(b){
+      b.addEventListener("click",function(){queueMicrotask(syncNav);});
+    });
+
+    window.setInterval(function(){refresh(false);},30000);
   }
 
   if(document.readyState==="loading"){
