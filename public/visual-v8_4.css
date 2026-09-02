@@ -1,0 +1,397 @@
+
+/* =========================================================
+   SB101 AEGIS v8.4 â€” TEAM IDENTITY & VISUAL MATCHUPS
+   Presentation-only. No engine/release logic changes.
+   ========================================================= */
+
+:root{
+  --v84-away:#58e7bd;
+  --v84-away2:#174d44;
+  --v84-home:#52dfff;
+  --v84-home2:#123e50;
+}
+
+.aegis-v84 .v83-matchup{
+  display:none!important;
+}
+
+.v84-matchup-hero{
+  position:relative;
+  overflow:hidden;
+  min-height:250px;
+  border-bottom:1px solid rgba(103,183,214,.16);
+  background:
+    radial-gradient(circle at 10% 22%,color-mix(in srgb,var(--v84-away) 22%,transparent),transparent 31%),
+    radial-gradient(circle at 90% 22%,color-mix(in srgb,var(--v84-home) 22%,transparent),transparent 31%),
+    linear-gradient(180deg,#061c29,#04131d);
+}
+
+.v84-matchup-hero:before{
+  content:"";
+  position:absolute;
+  width:220px;
+  height:220px;
+  left:50%;
+  bottom:-150px;
+  transform:translateX(-50%) rotate(45deg);
+  border:1px solid rgba(136,210,230,.12);
+  box-shadow:
+    0 0 0 28px rgba(103,245,191,.018),
+    0 0 0 58px rgba(82,223,255,.012);
+}
+
+.v84-matchup-hero:after{
+  content:"";
+  position:absolute;
+  left:50%;
+  top:31px;
+  bottom:31px;
+  width:1px;
+  background:linear-gradient(transparent,rgba(141,203,223,.16),transparent);
+}
+
+.v84-identity-row{
+  position:relative;
+  z-index:2;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) 92px minmax(0,1fr);
+  align-items:start;
+  gap:10px;
+  padding:22px 18px 12px;
+}
+
+.v84-team{
+  min-width:0;
+}
+.v84-team.home{text-align:right}
+
+.v84-team-badge{
+  position:relative;
+  width:76px;
+  height:76px;
+  display:grid;
+  place-items:center;
+  border-radius:23px;
+  border:1px solid color-mix(in srgb,var(--team) 52%,#24495a);
+  background:
+    radial-gradient(circle at 32% 22%,rgba(255,255,255,.12),transparent 24%),
+    linear-gradient(145deg,color-mix(in srgb,var(--team) 34%,#071a24),#03131b 68%);
+  box-shadow:
+    0 12px 32px rgba(0,0,0,.28),
+    0 0 30px color-mix(in srgb,var(--team) 13%,transparent);
+  color:#f6fbfd;
+  font-family:Georgia,serif;
+  font-size:27px;
+  font-weight:900;
+  letter-spacing:-.04em;
+}
+
+.v84-team.home .v84-team-badge{
+  margin-left:auto;
+}
+
+.v84-team-role{
+  display:block;
+  margin-top:10px;
+  color:#849dab;
+  font-size:8px;
+  font-weight:950;
+  letter-spacing:.15em;
+  text-transform:uppercase;
+}
+
+.v84-team-name{
+  display:block;
+  margin-top:4px;
+  color:#eef7fa;
+  font-size:16px;
+  line-height:1.2;
+  font-weight:900;
+}
+
+.v84-starter{
+  display:block;
+  margin-top:6px;
+  color:#9eb4bf;
+  font-size:10px;
+  line-height:1.35;
+}
+
+.v84-center{
+  position:relative;
+  z-index:3;
+  padding-top:2px;
+  text-align:center;
+}
+
+.v84-center small{
+  display:block;
+  color:#8ba4b2;
+  font-size:7px;
+  font-weight:950;
+  letter-spacing:.14em;
+}
+
+.v84-center .v84-score{
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  gap:8px;
+  margin:10px 0 5px;
+}
+
+.v84-center .v84-score b{
+  font-size:31px;
+  line-height:1;
+  color:#f2fbfe;
+}
+
+.v84-center .v84-score span{
+  color:#708b9a;
+  font-size:17px;
+}
+
+.v84-center strong{
+  display:block;
+  color:var(--v83-accent,#67f5bf);
+  font-size:9px;
+  line-height:1.35;
+}
+
+.v84-center em{
+  display:block;
+  margin-top:5px;
+  color:#8299a7;
+  font-size:8px;
+  font-style:normal;
+}
+
+.v84-status-strip{
+  position:relative;
+  z-index:3;
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:7px;
+  padding:7px 18px 18px;
+}
+
+.v84-status{
+  min-width:0;
+  border:1px solid rgba(92,166,196,.18);
+  border-radius:12px;
+  padding:9px;
+  background:rgba(2,14,22,.72);
+}
+
+.v84-status small{
+  display:block;
+  margin-bottom:4px;
+  color:#7f98a7;
+  font-size:6.5px;
+  font-weight:950;
+  letter-spacing:.1em;
+  text-transform:uppercase;
+}
+
+.v84-status b{
+  display:block;
+  color:#dbe8ed;
+  font-size:8.5px;
+  line-height:1.35;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+.v84-status.good{
+  border-color:rgba(103,245,191,.27);
+}
+.v84-status.good b{color:#8fffd7}
+
+.v84-status.warn{
+  border-color:rgba(255,214,110,.28);
+}
+.v84-status.warn b{color:#ffe18f}
+
+/* Matchup Edge Board */
+.v84-edgeboard{
+  margin:13px 0 0;
+  padding:13px;
+  border:1px solid rgba(94,168,198,.18);
+  border-radius:16px;
+  background:
+    linear-gradient(180deg,rgba(3,18,27,.76),rgba(3,15,23,.68));
+}
+
+.v84-edgehead{
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:11px;
+}
+
+.v84-edgehead div small{
+  display:block;
+  color:#829aa8;
+  font-size:7px;
+  font-weight:950;
+  letter-spacing:.1em;
+  text-transform:uppercase;
+}
+
+.v84-edgehead div b{
+  display:block;
+  margin-top:3px;
+  font-size:13px;
+}
+
+.v84-edgehead > span{
+  color:#7f96a4;
+  font-size:7px;
+  text-align:right;
+}
+
+.v84-edge-row{
+  display:grid;
+  grid-template-columns:102px 1fr 56px;
+  align-items:center;
+  gap:8px;
+  padding:9px 0;
+  border-top:1px solid rgba(93,162,190,.11);
+}
+
+.v84-edge-row:first-of-type{
+  border-top:0;
+}
+
+.v84-edge-label b{
+  display:block;
+  color:#dde9ee;
+  font-size:9px;
+  line-height:1.25;
+}
+
+.v84-edge-label span{
+  display:block;
+  margin-top:2px;
+  color:#788f9d;
+  font-size:6.5px;
+}
+
+.v84-edge-track{
+  position:relative;
+  height:9px;
+  border-radius:999px;
+  background:
+    linear-gradient(90deg,
+      color-mix(in srgb,var(--v84-away) 18%,#0d2b3a),
+      #112f3f 48%,
+      #112f3f 52%,
+      color-mix(in srgb,var(--v84-home) 18%,#0d2b3a)
+    );
+}
+
+.v84-edge-track:after{
+  content:"";
+  position:absolute;
+  left:50%;
+  top:-4px;
+  width:1px;
+  height:17px;
+  background:rgba(202,229,238,.26);
+}
+
+.v84-edge-marker{
+  position:absolute;
+  top:50%;
+  width:14px;
+  height:14px;
+  border-radius:50%;
+  transform:translate(-50%,-50%);
+  background:var(--marker);
+  box-shadow:0 0 12px color-mix(in srgb,var(--marker) 42%,transparent);
+  border:2px solid rgba(3,15,23,.9);
+}
+
+.v84-edge-side{
+  text-align:right;
+}
+
+.v84-edge-side b{
+  display:block;
+  font-size:8px;
+  color:#cfe0e7;
+}
+
+.v84-edge-side span{
+  display:block;
+  margin-top:2px;
+  font-size:6.5px;
+  color:#778e9b;
+}
+
+/* Compact game environment */
+.v84-environment{
+  margin-top:11px;
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:7px;
+}
+
+.v84-env-card{
+  border:1px solid rgba(94,167,197,.17);
+  border-radius:13px;
+  background:rgba(3,16,24,.65);
+  padding:10px;
+}
+
+.v84-env-card small{
+  display:block;
+  color:#8199a7;
+  font-size:7px;
+  letter-spacing:.09em;
+  font-weight:950;
+  text-transform:uppercase;
+}
+
+.v84-env-card b{
+  display:block;
+  margin-top:4px;
+  color:#e1edf1;
+  font-size:9px;
+  line-height:1.35;
+}
+
+/* Final Card team-color cue */
+.aegis-v84 #v82QuickOrders .v82-order{
+  position:relative;
+  overflow:hidden;
+}
+.aegis-v84 #v82QuickOrders .v82-order:before{
+  content:"";
+  position:absolute;
+  left:0;
+  right:0;
+  top:0;
+  height:2px;
+  background:linear-gradient(90deg,var(--v84-away),var(--v84-home));
+  opacity:.75;
+}
+
+@media(max-width:760px){
+  .v84-identity-row{
+    grid-template-columns:minmax(0,1fr) 76px minmax(0,1fr);
+    padding:18px 14px 10px;
+  }
+  .v84-team-badge{
+    width:60px;
+    height:60px;
+    border-radius:19px;
+    font-size:23px;
+  }
+  .v84-team-name{font-size:12px}
+  .v84-starter{font-size:8px}
+  .v84-center .v84-score b{font-size:25px}
+  .v84-status-strip{padding:6px 14px 14px}
+  .v84-edge-row{grid-template-columns:91px 1fr 51px}
+}
