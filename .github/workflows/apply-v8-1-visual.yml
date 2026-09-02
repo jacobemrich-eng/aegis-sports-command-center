@@ -1,4 +1,4 @@
-name: Apply AEGIS v8.6.1 Encoding Cleanup
+name: Apply AEGIS v8.7 Stability Pass
 
 on:
   workflow_dispatch:
@@ -7,55 +7,38 @@ permissions:
   contents: write
 
 jobs:
-  cleanup:
+  stability:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
-      - name: Checkout
+      - name: Checkout main
         uses: actions/checkout@v4
         with:
           ref: main
 
-      - name: Set up Node
+      - name: Set up Node 22
         uses: actions/setup-node@v4
         with:
           node-version: "22"
 
-      - name: Apply encoding-safe patch
+      - name: Apply v8.7 stability patch
         run: python scripts/apply-v8-1-visual.py
 
-      - name: Syntax check v8.6 readiness
-        run: node --check public/app-v8_6.js
-
-      - name: Verify mojibake is gone
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          s = Path("public/app-v8_6.js").read_text(encoding="utf-8")
-          bad = ["Ã¢â‚¬Â¢","Ã¢â€°Â¥","Ã¢â€°Â¤","Ãƒâ€”","Ã¢Å“â€œ","Ã¢â€ â€™","Ã¢â€ â€œ","Ã¢â‚¬â€","Ã¢â‚¬â€œ","Ã¢â‚¬Â¦"]
-          found = [x for x in bad if x in s]
-          if found:
-              raise SystemExit(f"Mojibake still present: {found}")
-          required = [r"\u2022", r"\u2265"]
-          missing = [x for x in required if x not in s]
-          if missing:
-              raise SystemExit(f"Expected safe escapes missing: {missing}")
-          print("Encoding verification passed.")
-          PY
-
-      - name: Run full AEGIS checks
+      - name: Run full AEGIS validation
         run: npm run check
 
-      - name: Commit tested cleanup
+      - name: Commit tested v8.7 changes
+        shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add public/app-v8_6.js public/index.html
+
           git diff --cached --check
+
           if git diff --cached --quiet; then
             echo "No changes needed."
           else
-            git commit -m "Fix AEGIS v8.6 release-readiness encoding"
+            git commit -m "Apply AEGIS v8.7 stability and integrity pass"
             git push origin HEAD:main
           fi
