@@ -13,11 +13,11 @@
   }
   function pct(v){
     var x=Number(v);
-    return Number.isFinite(x)?(x*100).toFixed(1)+"%":"â€”";
+    return Number.isFinite(x)?(x*100).toFixed(1)+"%":"—";
   }
   function am(v){
     var x=Number(v);
-    if(!Number.isFinite(x))return "â€”";
+    if(!Number.isFinite(x))return "—";
     return (x>0?"+":"")+Math.round(x);
   }
   function card(){
@@ -65,7 +65,7 @@
     var cushion=Math.max(0.0001,num(p.cushion,0));
     var ev=num(p.estimated_ev,-99);
     var divergence=num(p.independent_disagreement,0);
-    var freshness=String(p.data_quality_grade||"â€”").toUpperCase();
+    var freshness=String(p.data_quality_grade||"—").toUpperCase();
     var hardRock=!!p.hard_rock;
     var inside=!!p.market_inside_fair_range;
     var supportSecondary=mlb?60:42;
@@ -81,29 +81,29 @@
     var downgrade=num(p.downgrade_at,NaN);
 
     var gates=[
-      gate("Data quality",Math.round(dq)+"/100","â‰¥66","â‰¥80",dq>=66,dq>=80,8),
-      gate("Market coverage",Math.round(cov)+"/100","â‰¥60","â‰¥76",cov>=60,cov>=76,9),
-      gate("Effective agreement",Math.round(eff)+"/100","â‰¥59","â‰¥69",eff>=59,eff>=69,12),
-      gate("Raw agreement",Math.round(raw)+"/100","â‰¥56","â‰¥64",raw>=56,raw>=64,18),
-      gate("Independent edges",Math.round(edges),"â‰¥2","â‰¥2",edges>=2,edges>=2,4),
-      gate("Support strength",Math.round(support)+"/100","â‰¥"+supportSecondary,"â‰¥"+supportCore,support>=supportSecondary,support>=supportCore,2,
+      gate("Data quality",Math.round(dq)+"/100","≥66","≥80",dq>=66,dq>=80,8),
+      gate("Market coverage",Math.round(cov)+"/100","≥60","≥76",cov>=60,cov>=76,9),
+      gate("Effective agreement",Math.round(eff)+"/100","≥59","≥69",eff>=59,eff>=69,12),
+      gate("Raw agreement",Math.round(raw)+"/100","≥56","≥64",raw>=56,raw>=64,18),
+      gate("Independent edges",Math.round(edges),"≥2","≥2",edges>=2,edges>=2,4),
+      gate("Support strength",Math.round(support)+"/100","≥"+supportSecondary,"≥"+supportCore,support>=supportSecondary,support>=supportCore,2,
         mlb?"MLB release support thresholds":"Market-specific support threshold"),
-      gate("Adjusted edge",pct(edge),"â‰¥ "+pct(cushion*.72),"â‰¥ "+pct(cushion),edge>=cushion*.72,edge>=cushion,3),
-      gate("Estimated EV",pct(ev),"â‰¥0.5%","â‰¥2.0%",ev>=.005,ev>=.02,7),
+      gate("Adjusted edge",pct(edge),"≥ "+pct(cushion*.72),"≥ "+pct(cushion),edge>=cushion*.72,edge>=cushion,3),
+      gate("Estimated EV",pct(ev),"≥0.5%","≥2.0%",ev>=.005,ev>=.02,7),
       gate("Freshness grade",freshness,"A/B","A/B",freshness!=="C",freshness!=="C",1,
         freshness==="C"?"C-level information quality blocks release":"Source freshness gate"),
-      gate("Target book",hardRock?"Hard Rock âœ“":(p.book||"Not verified"),"Hard Rock","Hard Rock",hardRock,hardRock,1,
+      gate("Target book",hardRock?"Hard Rock ✓":(p.book||"Not verified"),"Hard Rock","Hard Rock",hardRock,hardRock,1,
         hardRock?"Target-book quote verified":"Hard Rock Florida price must be verified before release"),
       gate("Market disagreement",(divergence*100).toFixed(1)+" pts","<12 pts","<8 pts",divergence<.12,divergence<.08,5,
         divergence>=.12?"Extreme disagreement caps the candidate at WATCH":divergence>=.08?"Core is blocked unless disagreement improves":"Market/model gap is inside the preferred range"),
       gate("Uncertainty band",inside?"Market inside fair range":"Separated",
-        "Outside, or edge â‰¥1.25Ã— cushion","Outside fair range",
+        "Outside, or edge ≥1.25× cushion","Outside fair range",
         !inside || edge>=cushion*1.25,!inside,6,
         inside?"Market challenger still overlaps the calibrated fair-probability range":"Market is outside the calibrated fair range")
     ];
 
     if(Number.isFinite(price)&&Number.isFinite(downgrade)&&Number.isFinite(playTo)){
-      gates.push(gate("Execution price",am(price),"â‰¥ "+am(downgrade),"â‰¥ "+am(playTo),
+      gates.push(gate("Execution price",am(price),"≥ "+am(downgrade),"≥ "+am(playTo),
         price>=downgrade,price>=playTo,10,
         "Current price vs executable downgrade/play-to bands"));
     }
@@ -119,7 +119,7 @@
         lineups,lineups,0,
         lineups?"Batting orders confirmed":"Inside four hours, unconfirmed lineups block Core/Secondary"));
     }else if(mlb){
-      gates.push(gate("Starting lineups",lineups?"Confirmed":"Not due yet","Recheck â‰¤4h","Recheck â‰¤4h",
+      gates.push(gate("Starting lineups",lineups?"Confirmed":"Not due yet","Recheck ≤4h","Recheck ≤4h",
         true,true,30,
         lineups?"Batting orders already confirmed":"AEGIS will require confirmation inside four hours"));
     }
@@ -143,10 +143,10 @@
       head="CORE READY";
       sub="Every current Core release gate is cleared. Stay inside the execution band.";
     }else if(tier==="SECONDARY"){
-      head="SECONDARY READY â€¢ "+cOpen.length+" CORE GATE"+(cOpen.length===1?"":"S")+" OPEN";
+      head="SECONDARY READY • "+cOpen.length+" CORE GATE"+(cOpen.length===1?"":"S")+" OPEN";
       sub="Playable at reduced exposure. Core requires the remaining distinction gates to clear.";
     }else{
-      head="WATCH â€¢ "+sOpen.length+" RELEASE GATE"+(sOpen.length===1?"":"S")+" OPEN";
+      head="WATCH • "+sOpen.length+" RELEASE GATE"+(sOpen.length===1?"":"S")+" OPEN";
       sub="AEGIS can promote this automatically when the evidence changes. Do not override WATCH manually.";
       cls="watch";
     }
@@ -164,7 +164,7 @@
   function row(g){
     var both=g.secondaryOk&&g.coreOk;
     var status=both?"pass":(!g.secondaryOk?"open":"partial");
-    var icon=both?"âœ“":(!g.secondaryOk?"!":"â€¢");
+    var icon=both?"✓":(!g.secondaryOk?"!":"•");
     return '<div class="v86-gate '+status+'">'+
       '<div class="v86-gateicon">'+icon+'</div>'+
       '<div class="v86-gatemain"><strong>'+esc(g.label)+'</strong><span>'+esc(g.detail)+'</span></div>'+
@@ -217,7 +217,7 @@
       (blockers.length
         ? '<div class="v86-blocktitle"><span>BIGGEST OPEN GATES</span><b>'+blockers.length+' shown</b></div>'+
           '<div class="v86-gates">'+blockers.map(row).join("")+'</div>'
-        : '<div class="v86-cleared"><b>âœ“ CURRENT CORE GATES CLEARED</b><span>Execution still depends on the listed Play-To / Downgrade / Pass numbers.</span></div>')+
+        : '<div class="v86-cleared"><b>✓ CURRENT CORE GATES CLEARED</b><span>Execution still depends on the listed Play-To / Downgrade / Pass numbers.</span></div>')+
       '<div class="v86-next"><div><small>NEXT ACTION</small><b>Scheduled automatic verification</b></div>'+
         '<span>AEGIS will refresh evidence and promote/demote automatically.</span></div>';
 

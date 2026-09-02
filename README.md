@@ -1,8 +1,8 @@
-# AEGIS Sports Command Center v8.7.1 — Autopilot & Daily Operations
+# AEGIS Sports Command Center v8.7.2 — Autopilot & Daily Operations
 
 AEGIS is a free-tier-first sports research operating system built around the SB101 AEGIS decision framework.
 
-**Version taxonomy:** platform release **v8.7.1**; canonical betting governance **SB101 AEGIS v1.1 — September Daily-Use Freeze**. Platform releases do not silently rewrite historical model versions. v8 turns the existing one-tap research engine into a scheduled, persistent daily workflow for **MLB and NCAAF**, while keeping the other registered sport systems available for research and validation.
+**Version taxonomy:** platform release **v8.7.2**; canonical betting governance **SB101 AEGIS v1.1 — September Daily-Use Freeze**. Platform releases do not silently rewrite historical model versions. v8 turns the existing one-tap research engine into a scheduled, persistent daily workflow for **MLB and NCAAF**, while keeping the other registered sport systems available for research and validation.
 
 ## What v8 automates
 

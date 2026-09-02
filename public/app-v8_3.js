@@ -93,9 +93,9 @@
   function verdict(p){
     var t=tierOf(p);
     if(t==="CORE")return ["EDGE SURVIVED","Bankroll qualified. Stay inside the listed execution band.","core"];
-    if(t==="SECONDARY")return ["QUALIFIED â€” REDUCED EXPOSURE","The thesis survived, but not with full Core distinction.","secondary"];
+    if(t==="SECONDARY")return ["QUALIFIED — REDUCED EXPOSURE","The thesis survived, but not with full Core distinction.","secondary"];
     if(t==="WATCH")return ["HOLD THE LINE","The economics survived. A confirmation or support gate is still open.","watch"];
-    return ["CUT â€” GATE FAILED","AEGIS found a thesis, but it did not earn bankroll exposure.","pass"];
+    return ["CUT — GATE FAILED","AEGIS found a thesis, but it did not earn bankroll exposure.","pass"];
   }
   function bestReason(p){
     if(!p)return "No active market expression.";
@@ -147,9 +147,9 @@
     var agreement=n(p&&p.market_effective_agreement,50);
     var uncertainty=n(pr.uncertainty,0);
     var selection=p?String(p.selection||"")+pt(p.point):"No expression";
-    var expr=selection+" "+(p?am(p.price):"")+" â€¢ "+((p&&p.book)||"Market");
+    var expr=selection+" "+(p?am(p.price):"")+" • "+((p&&p.book)||"Market");
     var score=(sc.away!=null&&sc.home!=null)
-      ? '<div class="v83-score"><div><small>AWAY PROJECTION</small><strong>'+esc(e.away_team||"Away")+'</strong></div><b>'+esc(sc.away)+" â€” "+esc(sc.home)+'</b><div><small>HOME PROJECTION</small><strong>'+esc(e.home_team||"Home")+'</strong></div></div>'
+      ? '<div class="v83-score"><div><small>AWAY PROJECTION</small><strong>'+esc(e.away_team||"Away")+'</strong></div><b>'+esc(sc.away)+" — "+esc(sc.home)+'</b><div><small>HOME PROJECTION</small><strong>'+esc(e.home_team||"Home")+'</strong></div></div>'
       : "";
     return '<div class="v83-expression"><small>BEST CURRENT EXPRESSION</small><strong>'+esc(expr)+'</strong><span>'+esc(bestReason(p))+'</span></div>'+
       score+
@@ -170,7 +170,7 @@
     if(!p)return listItem("Market","No synced expression.");
     var movement=(p.open_price==null||p.price==null)
       ?"No verified opening comparison yet."
-      :am(p.open_price)+" â†’ "+am(p.price);
+      :am(p.open_price)+" → "+am(p.price);
     return '<div class="v83-metrics">'+
       metric("Current",am(p.price))+
       metric("Play-To",am(p.play_to))+
@@ -278,7 +278,7 @@
     var head="AEGIS IS WAITING";
     var sub="No edge is entitled to a bet.";
     if(tier==="CORE"){head="EDGE SURVIVED";sub="Core distinction held through every release gate."}
-    else if(tier==="SECONDARY"){head="QUALIFIED â€” REDUCED EXPOSURE";sub="Playable, but not strong enough for Core sizing."}
+    else if(tier==="SECONDARY"){head="QUALIFIED — REDUCED EXPOSURE";sub="Playable, but not strong enough for Core sizing."}
     else if(tier==="WATCH"){head="HOLD THE LINE";sub="Do not turn a Watch candidate into a bet early."}
     var voiceKey=tier+"|"+head+"|"+sub;
     if(voice.dataset.v83Key===voiceKey)return;
