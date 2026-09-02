@@ -1,0 +1,278 @@
+/* =========================================================
+   SB101 AEGIS v8.6 â€” RELEASE READINESS
+   Tiny event-driven companion UI. No intervals or MutationObservers.
+   ========================================================= */
+
+:root{
+  --v86-core:#67f5bf;
+  --v86-secondary:#ffd66e;
+  --v86-watch:#79c8ff;
+  --v86-open:#ff8794;
+  --v86-panel:#061b29;
+  --v86-deep:#03131d;
+  --v86-line:rgba(104,184,216,.24);
+}
+
+.aegis-v86 .v86-readiness{
+  margin:16px 0;
+  padding:18px;
+  border:1px solid var(--v86-line);
+  border-radius:22px;
+  background:
+    radial-gradient(circle at 100% 0,rgba(121,200,255,.07),transparent 31%),
+    linear-gradient(180deg,rgba(6,29,42,.99),rgba(2,16,24,.99));
+  box-shadow:0 18px 46px rgba(0,0,0,.22);
+  overflow:hidden;
+}
+
+.aegis-v86 .v86-readiness.core{
+  border-color:rgba(103,245,191,.34);
+  background:
+    radial-gradient(circle at 100% 0,rgba(103,245,191,.085),transparent 32%),
+    linear-gradient(180deg,rgba(6,31,39,.99),rgba(2,17,23,.99));
+}
+.aegis-v86 .v86-readiness.secondary{border-color:rgba(255,214,110,.30)}
+.aegis-v86 .v86-readiness.watch{border-color:rgba(121,200,255,.30)}
+
+.aegis-v86 .v86-head{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:14px;
+}
+.aegis-v86 .v86-kicker{
+  display:block;
+  margin-bottom:6px;
+  color:var(--v86-core);
+  font-size:9px;
+  font-weight:950;
+  letter-spacing:.19em;
+}
+.aegis-v86 .v86-head h2{
+  margin:0;
+  font-size:25px;
+  line-height:1.08;
+  letter-spacing:-.025em;
+}
+.aegis-v86 .v86-head p{
+  margin:8px 0 0;
+  max-width:570px;
+  color:#9fb4c0;
+  font-size:12px;
+  line-height:1.48;
+}
+.aegis-v86 .v86-tier{
+  flex:none;
+  padding:7px 9px;
+  border:1px solid rgba(121,200,255,.32);
+  border-radius:999px;
+  color:#a8d9ff;
+  background:rgba(15,43,62,.7);
+  font-size:9px;
+  font-weight:950;
+  letter-spacing:.12em;
+}
+.aegis-v86 .core .v86-tier{color:#9affd9;border-color:rgba(103,245,191,.36);background:rgba(6,54,39,.55)}
+.aegis-v86 .secondary .v86-tier{color:#ffe394;border-color:rgba(255,214,110,.35);background:rgba(56,42,9,.52)}
+
+.aegis-v86 .v86-meters{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+  margin-top:16px;
+}
+.aegis-v86 .v86-meter{
+  padding:12px;
+  border:1px solid rgba(95,169,199,.21);
+  border-radius:15px;
+  background:rgba(2,15,23,.72);
+}
+.aegis-v86 .v86-meter>div:first-child{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  margin-bottom:8px;
+}
+.aegis-v86 .v86-meter span{
+  color:#9eb3bf;
+  font-size:9px;
+  font-weight:900;
+  letter-spacing:.09em;
+  text-transform:uppercase;
+}
+.aegis-v86 .v86-meter b{font-size:11px}
+.aegis-v86 .v86-bar{
+  height:7px;
+  overflow:hidden;
+  border-radius:999px;
+  background:#102e40;
+}
+.aegis-v86 .v86-bar i{
+  display:block;
+  height:100%;
+  border-radius:inherit;
+  background:linear-gradient(90deg,#52dfff,var(--v86-core));
+}
+.aegis-v86 .v86-meter.secondary .v86-bar i{
+  background:linear-gradient(90deg,#d8aa3c,var(--v86-secondary));
+}
+
+.aegis-v86 .v86-blocktitle{
+  display:flex;
+  justify-content:space-between;
+  gap:12px;
+  margin:17px 2px 8px;
+  color:#91a9b6;
+  font-size:8px;
+  font-weight:950;
+  letter-spacing:.15em;
+}
+.aegis-v86 .v86-blocktitle b{color:#708995}
+
+.aegis-v86 .v86-gates{
+  display:grid;
+  gap:8px;
+}
+.aegis-v86 .v86-gate{
+  display:grid;
+  grid-template-columns:27px minmax(0,1fr) 76px 112px;
+  align-items:center;
+  gap:10px;
+  min-height:58px;
+  padding:10px;
+  border:1px solid rgba(94,167,197,.18);
+  border-radius:14px;
+  background:rgba(2,15,23,.78);
+}
+.aegis-v86 .v86-gate.open{
+  border-color:rgba(255,135,148,.29);
+  background:linear-gradient(90deg,rgba(61,20,29,.34),rgba(2,15,23,.82) 45%);
+}
+.aegis-v86 .v86-gate.partial{
+  border-color:rgba(255,214,110,.25);
+  background:linear-gradient(90deg,rgba(57,43,9,.28),rgba(2,15,23,.82) 45%);
+}
+.aegis-v86 .v86-gateicon{
+  width:25px;height:25px;
+  display:grid;place-items:center;
+  border:1px solid rgba(255,135,148,.34);
+  border-radius:50%;
+  color:#ffadb6;
+  font-size:11px;
+  font-weight:950;
+}
+.aegis-v86 .v86-gate.partial .v86-gateicon{
+  color:#ffe394;border-color:rgba(255,214,110,.34);
+}
+.aegis-v86 .v86-gate.pass .v86-gateicon{
+  color:#9affd9;border-color:rgba(103,245,191,.34);
+}
+.aegis-v86 .v86-gatemain strong{
+  display:block;
+  font-size:12px;
+}
+.aegis-v86 .v86-gatemain span{
+  display:block;
+  margin-top:3px;
+  color:#7893a1;
+  font-size:9px;
+  line-height:1.35;
+}
+.aegis-v86 .v86-current{
+  text-align:right;
+  color:#eef8fb;
+  font-size:13px;
+  font-weight:900;
+  font-variant-numeric:tabular-nums;
+}
+.aegis-v86 .v86-target{
+  display:grid;
+  grid-template-columns:auto 1fr;
+  column-gap:5px;
+  row-gap:2px;
+  padding-left:9px;
+  border-left:1px solid rgba(94,167,197,.17);
+}
+.aegis-v86 .v86-target small{
+  color:#6f8997;
+  font-size:6px;
+  font-weight:950;
+  letter-spacing:.08em;
+}
+.aegis-v86 .v86-target b{
+  text-align:right;
+  font-size:9px;
+  font-variant-numeric:tabular-nums;
+}
+
+.aegis-v86 .v86-next,
+.aegis-v86 .v86-cleared{
+  margin-top:13px;
+  padding:11px 12px;
+  border:1px solid rgba(103,245,191,.24);
+  border-radius:14px;
+  background:rgba(4,48,36,.38);
+}
+.aegis-v86 .v86-next{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+.aegis-v86 .v86-next small{
+  display:block;
+  color:#78dcb8;
+  font-size:7px;
+  font-weight:950;
+  letter-spacing:.14em;
+}
+.aegis-v86 .v86-next b{font-size:10px}
+.aegis-v86 .v86-next span,
+.aegis-v86 .v86-cleared span{
+  color:#8ea8b4;
+  font-size:9px;
+  line-height:1.4;
+}
+.aegis-v86 .v86-cleared b{
+  display:block;
+  color:#93f4ce;
+  font-size:10px;
+  letter-spacing:.08em;
+  margin-bottom:4px;
+}
+
+@media(max-width:760px){
+  .aegis-v86 .v86-readiness{
+    margin:13px 0;
+    padding:14px;
+    border-radius:19px;
+  }
+  .aegis-v86 .v86-head h2{font-size:20px}
+  .aegis-v86 .v86-head p{font-size:10px}
+  .aegis-v86 .v86-tier{padding:6px 8px;font-size:7px}
+  .aegis-v86 .v86-meters{grid-template-columns:1fr}
+  .aegis-v86 .v86-gate{
+    grid-template-columns:25px minmax(0,1fr) 66px;
+    gap:8px;
+    min-height:55px;
+  }
+  .aegis-v86 .v86-target{
+    grid-column:2/4;
+    margin-left:0;
+    padding:7px 0 0;
+    border-left:0;
+    border-top:1px solid rgba(94,167,197,.15);
+    grid-template-columns:auto 1fr auto 1fr;
+  }
+  .aegis-v86 .v86-target b{text-align:left}
+  .aegis-v86 .v86-current{font-size:12px}
+  .aegis-v86 .v86-next{
+    align-items:flex-start;
+    flex-direction:column;
+  }
+}
+
+@media(prefers-reduced-motion:reduce){
+  .aegis-v86 *{transition:none!important;animation:none!important}
+}
