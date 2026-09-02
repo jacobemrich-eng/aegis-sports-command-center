@@ -1,4 +1,4 @@
-name: Apply AEGIS v8.5 Visual Intelligence
+name: Apply AEGIS v8.6 Release Readiness
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ permissions:
   contents: write
 
 jobs:
-  visual:
+  release-readiness:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -22,24 +22,33 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Apply v8.5 CSS-only intelligence layer
+      - name: Apply v8.6 Release Readiness
         run: python scripts/apply-v8-1-visual.py
+
+      - name: Validate v8.6 JavaScript
+        run: node --check public/app-v8_6.js
 
       - name: Verify safe runtime
         run: |
           ! grep -q 'app-v8_4' public/index.html
           ! grep -q 'app-v8_5' public/index.html
-          grep -q 'visual-v8_4_safe.css' public/index.html
+          test "$(grep -o 'app-v8_6.js' public/index.html | wc -l)" -eq 1
+          test "$(grep -o 'visual-v8_6.css' public/index.html | wc -l)" -eq 1
+          grep -q 'app-v8_3_2.js' public/index.html
           grep -q 'visual-v8_5.css' public/index.html
 
       - name: Run full AEGIS checks
         run: npm run check
 
-      - name: Commit tested v8.5 layer
+      - name: Commit tested v8.6 layer
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add public/index.html public/visual-v8_5.css
+          git add public/index.html public/app-v8_6.js public/visual-v8_6.css
           git diff --cached --check
-          git commit -m "Add AEGIS v8.5 visual intelligence layer"
-          git push origin HEAD:main
+          if git diff --cached --quiet; then
+            echo "No v8.6 changes to commit."
+          else
+            git commit -m "Add AEGIS v8.6 release readiness"
+            git push origin HEAD:main
+          fi
