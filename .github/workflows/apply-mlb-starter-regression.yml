@@ -1,4 +1,4 @@
-name: Apply MLB Starter Regression
+name: Apply Final Card Time UI
 
 on:
   workflow_dispatch:
@@ -22,17 +22,17 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Apply regression patch
-        run: python scripts/apply-mlb-starter-regression.py
+      - name: Apply Final Card UI patch
+        run: python scripts/apply-final-card-time-ui.py
 
       - name: Run full AEGIS checks
         run: npm run check
 
-      - name: Commit tested update
+      - name: Commit tested UI update
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/engine.js tests/engine.test.js
+          git add public/app.js
           git diff --cached --check
-          git commit -m "Add MLB small-sample starter regression"
+          git commit -m "Clarify Final Card game time and market freshness"
           git push origin HEAD:main
