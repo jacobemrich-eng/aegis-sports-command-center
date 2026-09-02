@@ -10,6 +10,7 @@ const store = require('./src/store');
 const PORT = Number(process.env.PORT || 3000);
 const ROOT = __dirname;
 const PUBLIC = path.join(ROOT, 'public');
+const PUBLIC_ROOT = path.resolve(PUBLIC);
 const ACCESS_PIN = String(process.env.AEGIS_ACCESS_PIN || '').trim();
 const SESSION_SECRET = String(process.env.AEGIS_SESSION_SECRET || ACCESS_PIN || 'aegis-local-development');
 const AUTOPILOT_SECRET = String(process.env.AEGIS_AUTOPILOT_SECRET || '').trim();
@@ -38,8 +39,17 @@ function validAutopilot(req){return !!AUTOPILOT_SECRET&&secureEqual(bearer(req),
 function ip(req){return String(req.headers['x-forwarded-for']||req.socket.remoteAddress||'unknown').split(',')[0].trim();}
 function rateLimit(req,res,bucket,limit,windowMs=3600e3){const key=`${bucket}|${ip(req)}`,t=Date.now(),row=RATE.get(key)||{start:t,count:0};if(t-row.start>windowMs){row.start=t;row.count=0;}row.count++;RATE.set(key,row);if(row.count>limit){const retry=Math.ceil((row.start+windowMs-t)/1000);send(res,429,{error:`AEGIS rate limit reached for ${bucket}. Try again in ${Math.ceil(retry/60)} minute(s).`},'application/json',{'Retry-After':String(retry)});return false;}return true;}
 function requireAuth(req,res){if(validSession(req))return true;send(res,401,{error:'AEGIS access is locked. Enter the configured access PIN.',auth_required:true});return false;}
-function mime(file){const ext=path.extname(file).toLowerCase();return ({'.html':'text/html; charset=utf-8','.js':'application/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.svg':'image/svg+xml'}[ext]||'application/octet-stream');}
+function mime(file){const ext=path.extname(file).toLowerCase();return ({'.html':'text/html; charset=utf-8','.js':'application/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.ico':'image/x-icon'}[ext]||'application/octet-stream');}
 function serveFile(res,file){try{const buf=fs.readFileSync(file);res.writeHead(200,{'Content-Type':mime(file),'Cache-Control':file.endsWith('.html')?'no-store':'public, max-age=180',...SECURITY_HEADERS});res.end(buf);}catch{send(res,404,{error:'Not found'});}}
+function publicFile(urlPath){
+  try{
+    const rel=decodeURIComponent(String(urlPath||'')).replace(/^\/+/, '');
+    if(!rel||rel.includes('\0'))return null;
+    const file=path.resolve(PUBLIC_ROOT,rel);
+    if(file!==PUBLIC_ROOT&&!file.startsWith(PUBLIC_ROOT+path.sep))return null;
+    return file;
+  }catch{return null;}
+}
 function baseOddsEndpoint(sport,markets){const cfg=engine.config();return `sports/${encodeURIComponent(sport)}/odds?bookmakers=${encodeURIComponent(cfg.bookmakers)}&markets=${encodeURIComponent(markets)}&oddsFormat=american&dateFormat=iso`;}
 async function safeStatus(){try{return await autopilot.status();}catch(e){return {enabled:autopilot.config.ENABLED,persistent:store.persistent,last_error:e.message,alerts:[{severity:'error',message:e.message}]};}}
 
@@ -47,7 +57,13 @@ const server=http.createServer(async(req,res)=>{
   try{
     const u=new URL(req.url,`http://${req.headers.host||'localhost'}`);
     if(req.method==='GET'&&u.pathname==='/')return serveFile(res,path.join(PUBLIC,'index.html'));
-    if(req.method==='GET'&&['/app.js','/styles.css'].includes(u.pathname))return serveFile(res,path.join(PUBLIC,path.basename(u.pathname)));
+
+    // Serve any real file inside /public. This keeps the frontend future-proof for
+    // versioned CSS/JS, logos, SVGs, images and other presentation assets.
+    if(req.method==='GET'&&!u.pathname.startsWith('/api/')){
+      const file=publicFile(u.pathname);
+      if(file&&fs.existsSync(file)&&fs.statSync(file).isFile())return serveFile(res,file);
+    }
 
     if(req.method==='GET'&&u.pathname==='/api/health'){
       const c=engine.config(),storage=await store.health(),auto=await safeStatus();
@@ -120,4 +136,4 @@ const server=http.createServer(async(req,res)=>{
   }catch(e){console.error(e);return send(res,500,{error:e.message||'Server error'});}
 });
 
-server.listen(PORT,'0.0.0.0',()=>console.log(`AEGIS ${engine.VERSION} running on ${PORT} • ${engine.MODELS.length} registered systems • autopilot ${autopilot.config.ENABLED?'enabled':'disabled'} • persistence ${store.persistent?'cloud':'ephemeral fallback'}`));
+server.listen(PORT,'0.0.0.0',()=>console.log(`AEGIS ${engine.VERSION} running on ${PORT} â€¢ ${engine.MODELS.length} registered systems â€¢ autopilot ${autopilot.config.ENABLED?'enabled':'disabled'} â€¢ persistence ${store.persistent?'cloud':'ephemeral fallback'}`));
