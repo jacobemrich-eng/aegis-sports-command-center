@@ -1,4 +1,4 @@
-name: Apply AEGIS v8.4 Team Identity
+name: Apply AEGIS v8.4.1 Performance Hotfix
 
 on:
   workflow_dispatch:
@@ -7,35 +7,29 @@ permissions:
   contents: write
 
 jobs:
-  identity:
+  hotfix:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: main
-
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-
-      - name: Apply v8.4 presentation layer
+      - name: Apply v8.4.1 hotfix
         run: python scripts/apply-v8-1-visual.py
-
-      - name: Validate v8.4 JavaScript
+      - name: Validate JavaScript
         run: node --check public/app-v8_4.js
-
       - name: Run full AEGIS checks
         run: npm run check
-
-      - name: Commit tested v8.4 upgrade
+      - name: Commit tested hotfix
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add public/index.html public/visual-v8_4.css public/app-v8_4.js
+          git add public/index.html public/app-v8_4.js public/visual-v8_4.css
           git diff --cached --check
-          git commit -m "Add AEGIS v8.4 team identity and matchup visuals"
+          git commit -m "Fix AEGIS v8.4 mobile performance"
           git push origin HEAD:main
