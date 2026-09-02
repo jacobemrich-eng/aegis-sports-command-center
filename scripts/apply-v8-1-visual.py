@@ -204,3 +204,43 @@ html=html.replace(anchor,anchor+"\n"+block,1)
 html=html.replace('v8.0 â€¢ AUTOPILOT & DAILY OPERATIONS','v8.2 â€¢ IDENTITY & MOBILE COMMAND UI')
 INDEX.write_text(html)
 print("AEGIS v8.2 mobile command UI prepared.")
+
+# ===== v8.2 UTF-8 / iPHONE PASTE CLEANUP =====
+
+html = INDEX.read_text()
+
+fixes = {
+    "\u00e2\u0161\u00a1": "&#9889;",
+    "\u00e2\u2014\u2030": "&#9673;",
+    "\u00e2\u2122\u0178": "&#128300;",
+    "\u00e2\u2014\u017d": "&#127919;",
+    "\u00e2\u2013\u00a5": "&#128202;",
+    "\u00e2\u2014\u0152": "&#129504;",
+    "\u00f0\u0178\u2018\u0081": "&#128065;",
+    "\u00f0\u0178\u201d\u00a5": "&#128293;",
+    "\u00e2\u02dc\u2026": "&#9733;",
+    "\u00e2\u0153\u201a": "&#9986;",
+    "\u00e2\u20ac\u00ba": "&#8250;",
+    "\u00e2\u2020\u00bb": "&#8635;",
+    "\u00e2\u2014\u00b7": "&#9655;",
+    "\u00e2\u20ac\u201d": "--",
+}
+
+for bad, good in fixes.items():
+    html = html.replace(bad, good)
+
+html = html.replace(
+    "v8.0 \u2022 AUTOPILOT & DAILY OPERATIONS",
+    "v8.2 \u2022 IDENTITY & MOBILE COMMAND UI"
+)
+
+INDEX.write_text(html)
+
+visual = VISUAL.read_text()
+
+for bad, good in fixes.items():
+    visual = visual.replace(bad, good)
+
+VISUAL.write_text(visual)
+
+print("AEGIS v8.2 encoding cleanup applied.")
