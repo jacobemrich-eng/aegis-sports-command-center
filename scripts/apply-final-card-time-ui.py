@@ -95,14 +95,28 @@ old_header = """<span class="matchup">'+esc(p.event.away_team)+' @ '+esc(p.event
 
 new_header = """<span class="matchup">'+esc(p.event.away_team)+' @ '+esc(p.event.home_team)+'</span><div class="small subtle" style="margin-top:6px">'+esc(eventTimeLabel(p.event?.commence_time||p.commence_time))+'</div></div>'+tierCall(p)+'"""
 
-count = s.count(old_header)
+v8_marker = "/* ===== AEGIS v8 AUTOPILOT OVERRIDES ===== */"
+
+marker_pos = s.find(v8_marker)
+
+if marker_pos == -1:
+    raise SystemExit(
+        "AEGIS v8 override marker was not found."
+    )
+
+before_v8 = s[:marker_pos]
+v8 = s[marker_pos:]
+
+count = v8.count(old_header)
 
 if count != 1:
     raise SystemExit(
-        f"play header target: expected 1 match, found {count}"
+        f"v8 play header target: expected 1 match, found {count}"
     )
 
-s = s.replace(old_header, new_header, 1)
+v8 = v8.replace(old_header, new_header, 1)
+
+s = before_v8 + v8
 
 path.write_text(s)
 
