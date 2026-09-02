@@ -463,7 +463,7 @@ body:before{
 
 
 /* ===== AEGIS v8.2 MOBILE COMMAND UI ===== */
-/* SB101 AEGIS v8.2 â€” Identity & Mobile Command UI */
+/* SB101 AEGIS v8.2 -- Identity & Mobile Command UI */
 :root{--v82-bg:#02080d;--v82-panel:#061722;--v82-panel2:#081d2a;--v82-line:#173a4d;--v82-mint:#67f5bf;--v82-cyan:#52dfff;--v82-gold:#ffd66e;--v82-blue:#76bfff;--v82-red:#ff7382;--v82-muted:#8ca5b5}
 .v82-topbar,.v82-bottomnav,.v82-overview,.v82-quickorders{display:none}
 .v82-shield{position:relative;width:42px;height:48px;display:grid;place-items:center;clip-path:polygon(50% 0,90% 14%,84% 68%,50% 100%,16% 68%,10% 14%);background:linear-gradient(145deg,#70f7c5,#164b3f 48%,#06211e);filter:drop-shadow(0 0 14px rgba(103,245,191,.18))}
