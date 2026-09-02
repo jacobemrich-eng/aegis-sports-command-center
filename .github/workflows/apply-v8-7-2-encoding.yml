@@ -1,0 +1,690 @@
+name: Apply AEGIS v8.7.2 Presentation Integrity
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  hotfix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Apply v8.7.2 encoding and presentation hotfix
+        shell: bash
+        run: |
+          python <<'PY'
+          from pathlib import Path
+          import json
+          import re
+
+          ROOT = Path('.')
+          VERSION = '8.7.2'
+
+          active_names = [
+              'app.js',
+              'app-v8_2.js',
+              'app-v8_3.js',
+              'app-v8_3_1.js',
+              'app-v8_3_2.js',
+              'app-v8_6.js',
+          ]
+
+          active_files = [
+              ROOT / 'public' / name
+              for name in active_names
+          ]
+
+          # ------------------------------------------------------
+          # 1. Bump platform release version
+          # ------------------------------------------------------
+
+          pkg_path = ROOT / 'package.json'
+          pkg = json.loads(
+              pkg_path.read_text(encoding='utf-8')
+          )
+
+          if pkg.get('version') != '8.7.1':
+              raise SystemExit(
+                  'Expected platform version 8.7.1 before hotfix; '
+                  f"found {pkg.get('version')!r}. Refusing unsafe patch."
+              )
+
+          pkg['version'] = VERSION
+
+          pkg_path.write_text(
+              json.dumps(
+                  pkg,
+                  indent=2,
+                  ensure_ascii=False
+              ) + '\n',
+              encoding='utf-8'
+          )
+
+          # ------------------------------------------------------
+          # 2. Generate known UTF-8 mojibake variants safely
+          # ------------------------------------------------------
+
+          intended = {
+              '•': '•',
+              '≥': '≥',
+              '≤': '≤',
+              '—': '—',
+              '–': '–',
+              '→': '→',
+              '←': '←',
+              '✓': '✓',
+              '×': '×',
+              '…': '…',
+              '“': '“',
+              '”': '”',
+              '‘': '‘',
+              '’': '’',
+              '°': '°',
+              '±': '±',
+              '·': '·',
+              '−': '−',
+              '\u00a0': ' ',
+          }
+
+          replacements = {}
+
+          for original, target in intended.items():
+              frontier = {original}
+              seen = {original}
+
+              # Generate first-, second-, and third-level
+              # UTF-8/cp1252/latin1 corruption forms.
+              for _ in range(3):
+                  new_frontier = set()
+
+                  for value in frontier:
+                      raw = value.encode(
+                          'utf-8',
+                          errors='strict'
+                      )
+
+                      for codec in (
+                          'cp1252',
+                          'latin1'
+                      ):
+                          try:
+                              broken = raw.decode(codec)
+                          except UnicodeDecodeError:
+                              continue
+
+                          if broken in seen:
+                              continue
+
+                          seen.add(broken)
+                          new_frontier.add(broken)
+
+                          if broken != original:
+                              replacements[broken] = target
+
+                  frontier = new_frontier
+
+          # Longest forms first so double encoding is not
+          # partially rewritten as a shorter sequence.
+          ordered_replacements = sorted(
+              replacements.items(),
+              key=lambda item: len(item[0]),
+              reverse=True
+          )
+
+          def repair_text(text):
+              out = text
+
+              for broken, fixed in ordered_replacements:
+                  out = out.replace(
+                      broken,
+                      fixed
+                  )
+
+              return out
+
+          def suspicious(text):
+              markers = [
+                  'â',
+                  'Ã',
+                  'Â',
+                  '�'
+              ]
+
+              if any(
+                  marker in text
+                  for marker in markers
+              ):
+                  return True
+
+              return any(
+                  0x80 <= ord(ch) <= 0x9f
+                  for ch in text
+              )
+
+          # ------------------------------------------------------
+          # 3. Repair every currently served JS bundle
+          # ------------------------------------------------------
+
+          for path in active_files:
+              if not path.exists():
+                  raise SystemExit(
+                      f'Missing active bundle: {path}'
+                  )
+
+              original = path.read_text(
+                  encoding='utf-8'
+              )
+
+              repaired = repair_text(original)
+
+              if suspicious(repaired):
+                  raise SystemExit(
+                      f'Unresolved mojibake remains in {path}. '
+                      'Refusing to commit a partial repair.'
+                  )
+
+              path.write_text(
+                  repaired,
+                  encoding='utf-8'
+              )
+
+          # ------------------------------------------------------
+          # 4. Repair index + force Safari/browser refresh
+          # ------------------------------------------------------
+
+          index_path = ROOT / 'public' / 'index.html'
+
+          html = index_path.read_text(
+              encoding='utf-8'
+          )
+
+          html = repair_text(html)
+
+          if suspicious(html):
+              raise SystemExit(
+                  'Unresolved mojibake remains in public/index.html'
+              )
+
+          html, count = re.subn(
+              r'<span class="versionpill">.*?</span>',
+              '<span class="versionpill">'
+              'v8.7.2 • PRESENTATION INTEGRITY'
+              '</span>',
+              html,
+              count=1,
+              flags=re.S
+          )
+
+          if count != 1:
+              raise SystemExit(
+                  'Could not safely locate version pill.'
+              )
+
+          for name in active_names:
+              pattern = (
+                  r'/' +
+                  re.escape(name) +
+                  r'\?v=[^"]+'
+              )
+
+              replacement = (
+                  '/' +
+                  name +
+                  '?v=8.7.2'
+              )
+
+              html, count = re.subn(
+                  pattern,
+                  replacement,
+                  html,
+                  count=1
+              )
+
+              if count != 1:
+                  raise SystemExit(
+                      f'Could not cache-bust {name}'
+                  )
+
+          index_path.write_text(
+              html,
+              encoding='utf-8'
+          )
+
+          # ------------------------------------------------------
+          # 5. Preserve v8.7.1 health contract under v8.7.2
+          # ------------------------------------------------------
+
+          health_test_path = (
+              ROOT /
+              'tests' /
+              'health-contract.test.js'
+          )
+
+          health_test = health_test_path.read_text(
+              encoding='utf-8'
+          )
+
+          if '8.7.1' not in health_test:
+              raise SystemExit(
+                  'Expected v8.7.1 health-contract version '
+                  'anchor was not found.'
+              )
+
+          health_test = health_test.replace(
+              '8.7.1',
+              '8.7.2'
+          )
+
+          health_test_path.write_text(
+              health_test,
+              encoding='utf-8'
+          )
+
+          # ------------------------------------------------------
+          # 6. Replace weak frontend encoding regression test
+          # ------------------------------------------------------
+
+          stability_test = r'''const test = require('node:test');
+          const assert = require('node:assert/strict');
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const vm = require('node:vm');
+
+          const ROOT = path.join(__dirname, '..');
+
+          const active = [
+            'public/app.js',
+            'public/app-v8_2.js',
+            'public/app-v8_3.js',
+            'public/app-v8_3_1.js',
+            'public/app-v8_3_2.js',
+            'public/app-v8_6.js'
+          ];
+
+          test('all active browser bundles parse', () => {
+            for (const rel of active) {
+              const js = fs.readFileSync(
+                path.join(ROOT, rel),
+                'utf8'
+              );
+
+              assert.doesNotThrow(
+                () => new vm.Script(js),
+                rel
+              );
+            }
+          });
+
+          test(
+            'overlay bundles do not use aggressive sub-5-second polling',
+            () => {
+              for (const rel of active.slice(1)) {
+                const js = fs.readFileSync(
+                  path.join(ROOT, rel),
+                  'utf8'
+                );
+
+                assert.doesNotMatch(
+                  js,
+                  /setInterval\s*\([^,]+,\s*(?:[0-4]?\d{0,3}|4\d{3})\s*\)/,
+                  rel
+                );
+              }
+            }
+          );
+
+          test(
+            'compatibility observers are scoped instead of watching the whole body',
+            () => {
+              for (
+                const rel of [
+                  'public/app-v8_3_1.js',
+                  'public/app-v8_3_2.js'
+                ]
+              ) {
+                const js = fs.readFileSync(
+                  path.join(ROOT, rel),
+                  'utf8'
+                );
+
+                assert.doesNotMatch(
+                  js,
+                  /observer\.observe\s*\(\s*document\.body/,
+                  rel
+                );
+              }
+            }
+          );
+
+          test(
+            'all served UI source is free of mojibake markers and control-byte artifacts',
+            () => {
+              const sources = [
+                ...active,
+                'public/index.html'
+              ];
+
+              const bad =
+                /[ÃÂ�â]|[\u0080-\u009f]/u;
+
+              for (const rel of sources) {
+                const text = fs.readFileSync(
+                  path.join(ROOT, rel),
+                  'utf8'
+                );
+
+                assert.doesNotMatch(
+                  text,
+                  bad,
+                  rel
+                );
+              }
+            }
+          );
+
+          test(
+            'presentation symbols render as intended UTF-8 characters',
+            () => {
+              const gates = fs.readFileSync(
+                path.join(
+                  ROOT,
+                  'public/app-v8_6.js'
+                ),
+                'utf8'
+              );
+
+              const intel = fs.readFileSync(
+                path.join(
+                  ROOT,
+                  'public/app-v8_3.js'
+                ),
+                'utf8'
+              );
+
+              assert.match(
+                gates,
+                /WATCH • /
+              );
+
+              assert.match(
+                gates,
+                /≥/
+              );
+
+              assert.match(
+                gates,
+                /✓/
+              );
+
+              assert.match(
+                intel,
+                /QUALIFIED — REDUCED EXPOSURE/
+              );
+
+              assert.match(
+                intel,
+                / → /
+              );
+
+              assert.match(
+                intel,
+                / • /
+              );
+            }
+          );
+
+          test(
+            'index declares UTF-8 and v8.7.2 cache-busted active bundles',
+            () => {
+              const html = fs.readFileSync(
+                path.join(
+                  ROOT,
+                  'public/index.html'
+                ),
+                'utf8'
+              );
+
+              assert.match(
+                html,
+                /<meta charset="utf-8">/i
+              );
+
+              assert.match(
+                html,
+                /v8\.7\.2 • PRESENTATION INTEGRITY/
+              );
+
+              for (
+                const name of [
+                  'app.js',
+                  'app-v8_2.js',
+                  'app-v8_3.js',
+                  'app-v8_3_1.js',
+                  'app-v8_3_2.js',
+                  'app-v8_6.js'
+                ]
+              ) {
+                assert.match(
+                  html,
+                  new RegExp(
+                    '/' +
+                    name.replace(
+                      '.',
+                      '\\.'
+                    ) +
+                    '\\?v=8\\.7\\.2'
+                  )
+                );
+              }
+            }
+          );
+          '''
+
+          stability_test = '\n'.join(
+              line[10:]
+              if line.startswith('          ')
+              else line
+              for line
+              in stability_test.splitlines()
+          ) + '\n'
+
+          (
+              ROOT /
+              'tests' /
+              'frontend-stability.test.js'
+          ).write_text(
+              stability_test,
+              encoding='utf-8'
+          )
+
+          # ------------------------------------------------------
+          # 7. Update documentation version taxonomy
+          # ------------------------------------------------------
+
+          readme_path = ROOT / 'README.md'
+
+          readme = readme_path.read_text(
+              encoding='utf-8'
+          )
+
+          if '8.7.1' in readme:
+              readme = readme.replace(
+                  '8.7.1',
+                  '8.7.2'
+              )
+
+          readme_path.write_text(
+              readme,
+              encoding='utf-8'
+          )
+
+          print(
+              'AEGIS v8.7.2 Presentation Integrity hotfix staged.'
+          )
+          PY
+
+          git add \
+            package.json \
+            README.md \
+            public/index.html \
+            public/app.js \
+            public/app-v8_2.js \
+            public/app-v8_3.js \
+            public/app-v8_3_1.js \
+            public/app-v8_3_2.js \
+            public/app-v8_6.js \
+            tests/frontend-stability.test.js \
+            tests/health-contract.test.js
+
+      - name: Run full AEGIS validation
+        run: npm run check
+
+      - name: Commit tested v8.7.2 changes
+        shell: bash
+        run: |
+          git config user.name \
+            "github-actions[bot]"
+
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git diff --cached --check
+
+          if git diff --cached --quiet; then
+            echo "No changes needed."
+          else
+            git commit \
+              -m "Apply AEGIS v8.7.2 presentation integrity hotfix"
+
+            git push origin HEAD:main
+          fi
+
+      - name: Verify live Render release and presentation integrity
+        shell: bash
+        env:
+          HEALTH_URL: https://aegis-sports-command-center.onrender.com/api/health
+          HOME_URL: https://aegis-sports-command-center.onrender.com/
+
+        run: |
+          EXPECTED_SHA="$(git rev-parse HEAD)"
+          EXPECTED_VERSION="$(
+            node -p "require('./package.json').version"
+          )"
+
+          echo \
+            "Expected release: ${EXPECTED_VERSION}"
+
+          echo \
+            "Expected commit: ${EXPECTED_SHA}"
+
+          for attempt in $(seq 1 24); do
+
+            HEALTH="$(
+              curl -fsS \
+                --max-time 20 \
+                "$HEALTH_URL" \
+                || true
+            )"
+
+            HOME="$(
+              curl -fsS \
+                --max-time 20 \
+                "$HOME_URL" \
+                || true
+            )"
+
+            META="$(
+              printf '%s' "$HEALTH" |
+              node -e "
+                let s='';
+
+                process.stdin
+                  .on('data',d=>s+=d)
+                  .on('end',()=>{
+                    try{
+                      const j=JSON.parse(s);
+
+                      console.log([
+                        j.release_version || '',
+                        j.status || '',
+                        j.deploy?.git_commit || ''
+                      ].join('|'));
+                    }catch{
+                      console.log('||');
+                    }
+                  });
+              "
+            )"
+
+            IFS='|' read -r \
+              LIVE_VERSION \
+              LIVE_STATUS \
+              LIVE_SHA \
+              <<< "$META"
+
+            HTML_STATUS="$(
+              printf '%s' "$HOME" |
+              node -e "
+                let s='';
+
+                process.stdin
+                  .on('data',d=>s+=d)
+                  .on('end',()=>{
+
+                    const bad=
+                      /[ÃÂ�â]|[\u0080-\u009f]/u;
+
+                    if(bad.test(s)){
+                      console.log('MOJIBAKE');
+                      return;
+                    }
+
+                    if(
+                      !s.includes(
+                        'v8.7.2 • PRESENTATION INTEGRITY'
+                      )
+                    ){
+                      console.log('STALE');
+                      return;
+                    }
+
+                    console.log('OK');
+                  });
+              "
+            )"
+
+            echo \
+              "Attempt ${attempt}: release=${LIVE_VERSION:-unknown} status=${LIVE_STATUS:-unknown} commit=${LIVE_SHA:-unknown} ui=${HTML_STATUS:-unknown}"
+
+            if \
+              [ "$LIVE_SHA" = "$EXPECTED_SHA" ] && \
+              [ "$LIVE_VERSION" = "$EXPECTED_VERSION" ] && \
+              [ "$LIVE_STATUS" = "GREEN" ] && \
+              [ "$HTML_STATUS" = "OK" ]
+            then
+              echo \
+                "AEGIS v8.7.2 production presentation integrity verified."
+
+              exit 0
+            fi
+
+            sleep 15
+          done
+
+          echo \
+            "Production did not prove v8.7.2 presentation integrity."
+
+          exit 1
