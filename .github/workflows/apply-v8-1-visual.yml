@@ -1,4 +1,4 @@
-name: Apply AEGIS v8.2 Mobile Command UI
+name: Apply AEGIS v8.3 Game Intelligence
 
 on:
   workflow_dispatch:
@@ -22,20 +22,20 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Apply v8.2 visual upgrade
+      - name: Apply v8.3 presentation layer
         run: python scripts/apply-v8-1-visual.py
 
-      - name: Validate v8.2 JavaScript
-        run: node --check public/app-v8_2.js
+      - name: Validate v8.3 JavaScript
+        run: node --check public/app-v8_3.js
 
       - name: Run full AEGIS checks
         run: npm run check
 
-      - name: Commit tested v8.2 upgrade
+      - name: Commit tested v8.3 upgrade
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add public/index.html public/visual-v8_2.css public/app-v8_2.js
+          git add public/index.html public/visual-v8_3.css public/app-v8_3.js
           git diff --cached --check
-          git commit -m "Activate AEGIS v8.2 mobile command UI"
+          git commit -m "Add AEGIS v8.3 Game Intelligence"
           git push origin HEAD:main
