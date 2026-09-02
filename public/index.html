@@ -34,6 +34,160 @@
 <section id="models" class="page hidden"><div class="panel"><div class="sectionhead"><div><div class="eyebrow">MODEL LIBRARY</div><h2>AEGIS system registry</h2><p class="subtle small">See what is ACTIVE for the selected sport, what is CONDITIONAL, and what remains registry-only or limited-data.</p></div></div><div class="modeltools"><input id="modelSearch" class="input" placeholder="Search models, e.g. bullpen, uncertainty, preseason…"><select id="modelCategory" class="select"><option value="all">All categories</option></select></div><div id="modelCounts" class="counterline"></div><div id="modelGrid" class="modelgrid"></div></div><div class="panel"><div class="eyebrow">AEGIS FIELD GUIDE</div><div class="guidegrid"><div class="guide"><h4>🔥 FIRE</h4><p>Cleared the data, agreement, support, EV, price and execution gates. This is bankroll-qualified.</p></div><div class="guide"><h4>👀 HOLD</h4><p>The economics survived, but a confirmation gate remains open. Wait. Do not treat HOLD as a pick.</p></div><div class="guide"><h4>✂️ CUT</h4><p>The thesis failed a release gate. It stays visible only for transparency and learning.</p></div><div class="guide"><h4>Fair vs Market</h4><p>AEGIS calibrated fair probability compared with the de-vigged sportsbook challenger.</p></div><div class="guide"><h4>Support Strength</h4><p>Magnitude, breadth and confidence of the independent modules actually supporting this market.</p></div><div class="guide"><h4>AEGIS Quality</h4><p>A diagnostic quality index combining data, coverage, agreement, support, uncertainty, market depth and economics. It is not a win probability.</p></div></div></div></section>
 </div>
 <script src="/app.js?v=8.0.0" defer></script>
+<!-- ===== AEGIS v8.2 MOBILE COMMAND UI ===== -->
+<script>
+(function(){
+  'use strict';
+
+  var TABS=[
+    ['command','âš¡','Command'],
+    ['board','â—‰','Board'],
+    ['lab','â™Ÿ','Game Lab'],
+    ['card','â—Ž','Final Card'],
+    ['results','â–¥','Results'],
+    ['models','â—Œ','Models']
+  ];
+
+  function q(s,r){return (r||document).querySelector(s)}
+  function qa(s,r){return Array.prototype.slice.call((r||document).querySelectorAll(s))}
+  function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+  function num(v,d){var n=Number(v);return Number.isFinite(n)?n:(d==null?0:d)}
+  function price(v){var n=Number(v);return Number.isFinite(n)?(n>0?'+'+Math.round(n):String(Math.round(n))):'â€”'}
+  function pointText(p){
+    try{if(typeof window.fmtPoint==='function')return window.fmtPoint(p.market,p.point,p.selection)||''}catch(e){}
+    if(p.point==null)return '';
+    var n=Number(p.point);return Number.isFinite(n)?' '+(n>0?'+':'')+n:'';
+  }
+  function timeText(iso){
+    try{if(typeof window.eventTimeLabel==='function')return window.eventTimeLabel(iso)}catch(e){}
+    if(!iso)return 'Time TBD';
+    var d=new Date(iso); if(!Number.isFinite(d.getTime()))return 'Time TBD';
+    return new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',weekday:'short',hour:'numeric',minute:'2-digit'}).format(d)+' ET';
+  }
+  function currentCard(){return window.LAST&&typeof window.LAST==='object'?window.LAST:null}
+  function counts(card){
+    var out={CORE:0,SECONDARY:0,WATCH:0,CUT:0};
+    if(!card)return out;
+    (card.plays||[]).forEach(function(p){
+      var t=String(p.tier||'').toUpperCase();
+      if(t==='CORE'||t==='SECONDARY'||t==='WATCH')out[t]++;
+      else out.CUT++;
+    });
+    out.CUT+=(card.passes||[]).length;
+    return out;
+  }
+  function bestPlay(card){
+    var plays=(card&&card.plays)||[];
+    return plays.find(function(p){return p.tier==='CORE'})||
+      plays.find(function(p){return p.tier==='SECONDARY'})||
+      plays.find(function(p){return p.tier==='WATCH'})||null;
+  }
+  function sportName(){
+    var sel=q('#sport');
+    if(sel&&sel.selectedOptions&&sel.selectedOptions[0])return sel.selectedOptions[0].textContent.trim();
+    return 'AEGIS';
+  }
+  function activeTab(){
+    var a=q('.navbtn.active');
+    return a&&a.dataset.tab?a.dataset.tab:'command';
+  }
+  function go(tab){
+    var original=q('.navbtn[data-tab="'+tab+'"]');
+    if(original){original.click();}
+    else if(typeof window.nav==='function'){window.nav(tab);}
+    syncNav();
+    window.scrollTo({top:0,behavior:'smooth'});
+  }
+  function syncNav(){
+    var tab=activeTab();
+    qa('.v82-navbtn').forEach(function(b){b.classList.toggle('active',b.dataset.tab===tab)});
+    var label=q('#v82TopSection'); if(label){
+      var found=TABS.find(function(x){return x[0]===tab});
+      label.textContent=found?found[2]:'Command';
+    }
+  }
+
+  function buildShell(){
+    var wrap=q('.wrap'); if(!wrap)return;
+    if(!q('#v82Topbar')){
+      var top=document.createElement('div');
+      top.id='v82Topbar'; top.className='v82-topbar';
+      top.innerHTML='<div class="v82-brand"><div class="v82-shield"><span>A</span></div><div><div class="v82-brandmicro">SB101</div><div class="v82-brandname">AEGIS</div></div></div><div class="v82-topmeta"><span class="v82-online-dot"></span><span id="v82TopSection">Command</span></div>';
+      wrap.insertBefore(top,wrap.firstChild);
+    }
+    if(!q('#v82BottomNav')){
+      var bottom=document.createElement('nav'); bottom.id='v82BottomNav'; bottom.className='v82-bottomnav';
+      bottom.innerHTML=TABS.map(function(t){return '<button class="v82-navbtn" data-tab="'+t[0]+'"><span class="v82-navicon">'+t[1]+'</span><span>'+t[2]+'</span></button>'}).join('');
+      document.body.appendChild(bottom);
+      qa('.v82-navbtn',bottom).forEach(function(b){b.addEventListener('click',function(){go(b.dataset.tab)})});
+    }
+    syncNav();
+  }
+
+  function overviewHtml(card){
+    var c=counts(card), qualified=c.CORE+c.SECONDARY, best=bestPlay(card);
+    var status=qualified
+      ? '<strong>'+qualified+' bankroll-qualified play'+(qualified===1?'':'s')+' ready.</strong><span>AEGIS released only what cleared every gate.</span>'
+      : '<strong>No bankroll-qualified bets yet.</strong><span>AEGIS is waiting for evidence, not forcing action.</span>';
+    var watch=best&&best.tier==='WATCH'?'<div class="v82-overview-focus"><span>ðŸ‘ WATCH</span><b>'+esc(best.event&&best.event.away_team)+' @ '+esc(best.event&&best.event.home_team)+'</b><em>'+esc(best.selection)+esc(pointText(best))+' '+price(best.price)+'</em></div>':'';
+    return '<div class="v82-panelhead"><div><span class="v82-kicker">TODAY\'S OVERVIEW</span><h2>'+esc(sportName())+' Command</h2></div><button class="v82-linkbtn" data-v82-go="card">View Card â€º</button></div>'+statRow(c)+watch+'<div class="v82-actionstate '+(qualified?'ready':'waiting')+'">'+status+'</div>';
+  }
+  function statRow(c){
+    return '<div class="v82-statrow">'+
+      stat('CORE',c.CORE,'fire','ðŸ”¥')+
+      stat('SECONDARY',c.SECONDARY,'secondary','â˜…')+
+      stat('WATCH',c.WATCH,'watch','ðŸ‘')+
+      stat('CUT',c.CUT,'cut','âœ‚')+
+      '</div>';
+  }
+  function stat(label,value,cls,icon){return '<div class="v82-stat '+cls+'"><span>'+icon+' '+label+'</span><b>'+value+'</b></div>'}
+
+  function renderOverview(){
+    var page=q('#command'); if(!page)return;
+    var box=q('#v82Overview');
+    if(!box){box=document.createElement('section');box.id='v82Overview';box.className='v82-overview';page.insertBefore(box,page.firstChild)}
+    box.innerHTML=overviewHtml(currentCard());
+    qa('[data-v82-go]',box).forEach(function(b){b.onclick=function(){go(b.dataset.v82Go)}});
+  }
+
+  function orderCard(p){
+    if(!p)return '<div class="v82-emptyorder"><b>No active candidate.</b><span>AEGIS will surface one here when a market survives enough gates.</span></div>';
+    var ev=p.event||{},tier=String(p.tier||'WATCH').toUpperCase(), cls=tier.toLowerCase();
+    return '<article class="v82-order '+cls+'"><div class="v82-orderhead"><span class="v82-tier '+cls+'">'+(tier==='CORE'?'ðŸ”¥':tier==='SECONDARY'?'â˜…':'ðŸ‘')+' '+esc(tier)+'</span><time>'+esc(timeText(ev.commence_time||p.commence_time))+'</time></div><h3>'+esc(ev.away_team)+' @ '+esc(ev.home_team)+'</h3><div class="v82-orderpick"><strong>'+esc(p.selection)+esc(pointText(p))+'</strong><b>'+price(p.price)+'</b></div><div class="v82-orderbook">'+esc(p.book||'Market')+'</div><div class="v82-tags"><span>Data '+esc(p.data_quality_grade||p.data_freshness&&p.data_freshness.grade||'â€”')+'</span><span>Quality '+Math.round(num((typeof window.decisionQuality==='function'?window.decisionQuality(p):0),0))+'</span><span>'+esc(p.timing||'AEGIS monitored')+'</span></div></article>';
+  }
+
+  function renderQuickOrders(){
+    var page=q('#card'); if(!page)return;
+    var card=currentCard(),c=counts(card),best=bestPlay(card),qualified=c.CORE+c.SECONDARY;
+    var box=q('#v82QuickOrders');
+    if(!box){box=document.createElement('section');box.id='v82QuickOrders';box.className='v82-quickorders';page.insertBefore(box,page.firstChild)}
+    box.innerHTML='<div class="v82-qhead"><div><span class="v82-kicker">âš¡ QUICK ORDERS</span><h2>Final Card <em>Today</em></h2></div><span class="v82-refresh">â†» AUTO</span></div>'+statRow(c)+orderCard(best)+'<div class="v82-nextrefresh"><span>â—· NEXT REFRESH</span><b>Scheduled automatically</b></div><div class="v82-qualified"><b>'+(qualified?qualified+' qualified play'+(qualified===1?'':'s'):'CORE / SECONDARY')+'</b><span>'+(qualified?'Only listed plays are bankroll-qualified.':'No qualifying plays yet. AEGIS will promote only what survives all gates.')+'</span></div><div class="v82-orderactions">'+(qualified?'<button id="v82Lock" class="btn primary">LOCK OFFICIAL CARD</button>':'')+'<button id="v82Copy" class="btn secondary">COPY CARD</button></div>';
+    var copy=q('#v82Copy'); if(copy)copy.onclick=function(){try{if(typeof window.copyCard==='function')return window.copyCard()}catch(e){} var b=q('#copyCard'); if(b)b.click()};
+    var lock=q('#v82Lock'); if(lock)lock.onclick=function(){try{if(typeof window.lockOfficialCard==='function')return window.lockOfficialCard()}catch(e){} var b=q('#lockCard'); if(b)b.click()};
+  }
+
+  function updateOnline(){
+    var dot=q('.v82-online-dot'), status=q('#status');
+    if(dot)dot.classList.toggle('bad',!!(status&&status.classList.contains('bad')));
+  }
+  function refreshAll(){renderOverview();renderQuickOrders();syncNav();updateOnline()}
+
+  function observe(){
+    var targets=['#cardContent','#autopilotMetrics','#latestAutoCard','#status','.navgrid'];
+    targets.forEach(function(sel){var el=q(sel);if(!el)return;new MutationObserver(function(){setTimeout(refreshAll,0)}).observe(el,{childList:true,subtree:true,attributes:true})});
+    var sport=q('#sport');if(sport)sport.addEventListener('change',function(){setTimeout(refreshAll,50)});
+  }
+
+  function initV82(){
+    buildShell();refreshAll();observe();
+    document.documentElement.classList.add('aegis-v82');
+  }
+
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',initV82);
+  else initV82();
+})();
+</script>
+<!-- ===== /AEGIS v8.2 MOBILE COMMAND UI ===== -->
 
 </body>
 </html>
