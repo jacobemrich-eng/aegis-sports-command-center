@@ -1,4 +1,4 @@
-name: Apply AEGIS v8.6 Release Readiness
+name: Apply AEGIS v8.6.1 Encoding Cleanup
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ permissions:
   contents: write
 
 jobs:
-  release-readiness:
+  cleanup:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -22,33 +22,40 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Apply v8.6 Release Readiness
+      - name: Apply encoding-safe patch
         run: python scripts/apply-v8-1-visual.py
 
-      - name: Validate v8.6 JavaScript
+      - name: Syntax check v8.6 readiness
         run: node --check public/app-v8_6.js
 
-      - name: Verify safe runtime
+      - name: Verify mojibake is gone
         run: |
-          ! grep -q 'app-v8_4' public/index.html
-          ! grep -q 'app-v8_5' public/index.html
-          test "$(grep -o 'app-v8_6.js' public/index.html | wc -l)" -eq 1
-          test "$(grep -o 'visual-v8_6.css' public/index.html | wc -l)" -eq 1
-          grep -q 'app-v8_3_2.js' public/index.html
-          grep -q 'visual-v8_5.css' public/index.html
+          python - <<'PY'
+          from pathlib import Path
+          s = Path("public/app-v8_6.js").read_text(encoding="utf-8")
+          bad = ["Ã¢â‚¬Â¢","Ã¢â€°Â¥","Ã¢â€°Â¤","Ãƒâ€”","Ã¢Å“â€œ","Ã¢â€ â€™","Ã¢â€ â€œ","Ã¢â‚¬â€","Ã¢â‚¬â€œ","Ã¢â‚¬Â¦"]
+          found = [x for x in bad if x in s]
+          if found:
+              raise SystemExit(f"Mojibake still present: {found}")
+          required = [r"\u2022", r"\u2265"]
+          missing = [x for x in required if x not in s]
+          if missing:
+              raise SystemExit(f"Expected safe escapes missing: {missing}")
+          print("Encoding verification passed.")
+          PY
 
       - name: Run full AEGIS checks
         run: npm run check
 
-      - name: Commit tested v8.6 layer
+      - name: Commit tested cleanup
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add public/index.html public/app-v8_6.js public/visual-v8_6.css
+          git add public/app-v8_6.js public/index.html
           git diff --cached --check
           if git diff --cached --quiet; then
-            echo "No v8.6 changes to commit."
+            echo "No changes needed."
           else
-            git commit -m "Add AEGIS v8.6 release readiness"
+            git commit -m "Fix AEGIS v8.6 release-readiness encoding"
             git push origin HEAD:main
           fi
