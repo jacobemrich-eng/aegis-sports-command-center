@@ -123,3 +123,48 @@ test('freshness gate becomes C when an MLB probable starter is unresolved', () =
   assert.equal(q.grade,'C');
   assert.match(q.critical.join(' '),/probable starters/i);
 });
+
+
+test('small-sample MLB starter regression shrinks extreme rate stats', () => {
+  const r=e.starterRegression({
+    era:'18.00',
+    inningsPitched:'3.0',
+    strikeOuts:4,
+    baseOnBalls:3,
+    hitBatsmen:0,
+    homeRuns:2,
+    battersFaced:17,
+    whip:'2.33',
+    strikeoutsPer9Inn:'12.00',
+    walksPer9Inn:'9.00',
+    homeRunsPer9:'6.00'
+  },4.35);
+
+  assert.equal(r.active,true);
+  assert.equal(r.severe,true);
+  assert.ok(r.rawEra>10);
+  assert.ok(r.rawFip>10);
+  assert.ok(r.era>4.35&&r.era<6);
+  assert.ok(r.fip>4.35&&r.fip<6);
+  assert.ok(r.sampleWeight<.10);
+});
+
+test('established MLB starter sample keeps most observed ERA signal', () => {
+  const r=e.starterRegression({
+    era:'3.00',
+    inningsPitched:'180.0',
+    strikeOuts:190,
+    baseOnBalls:50,
+    hitBatsmen:4,
+    homeRuns:20,
+    battersFaced:730,
+    whip:'1.10',
+    strikeoutsPer9Inn:'9.50',
+    walksPer9Inn:'2.50',
+    homeRunsPer9:'1.00'
+  },4.35);
+
+  assert.equal(r.active,false);
+  assert.ok(r.sampleWeight>.75);
+  assert.ok(Math.abs(r.era-3.00)<.40);
+});

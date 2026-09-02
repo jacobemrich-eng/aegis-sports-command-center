@@ -354,7 +354,86 @@ async function mlbBoxscore(gamePk){ if(!gamePk)return null; try{return await cac
 async function mlbBullpenUsage(teamId,eventTime){ const games=await mlbTeamRecentGames(teamId,eventTime,4); if(!games.length)return {verified:false,availability:55,heavyCount:0,relievers:[],games:0}; const boxes=await Promise.all(games.map(g=>mlbBoxscore(g.gamePk))); const agg=new Map(); let observed=0; for(let i=0;i<games.length;i++){ const b=boxes[i]; if(!b)continue; const g=games[i],home=String(g.homeId)===String(teamId),side=home?b.teams?.home:b.teams?.away; const ids=side?.pitchers||[]; if(ids.length<2)continue; observed++; const relievers=ids.slice(1); const ageH=Math.max(0,(new Date(eventTime)-new Date(g.date))/36e5); const bucket=ageH<=36?1:ageH<=60?2:3; for(let ri=0;ri<relievers.length;ri++){ const id=relievers[ri],pl=side.players?.[`ID${id}`]||{}; const st=pl.stats?.pitching||{}; const pitches=num(st.numberOfPitches,0),ip=baseballInnings(st.inningsPitched)||0,leverage=relievers.length>1?0.75+0.55*(ri/(relievers.length-1)):1; const cur=agg.get(id)||{id,name:pl.person?.fullName||`Pitcher ${id}`,p1:0,p2:0,p3:0,appearances:0,innings:0,leverageLoad:0}; cur.appearances++;cur.innings+=ip;cur.leverageLoad+=pitches*leverage; if(bucket<=1)cur.p1+=pitches*leverage;if(bucket<=2)cur.p2+=pitches*leverage;cur.p3+=pitches*leverage;agg.set(id,cur); } }
   const relievers=[...agg.values()].sort((a,b)=>b.p2-a.p2); let penalty=0,heavy=0; for(const r of relievers){ let rp=0; if(r.p1>=35)rp+=18;else if(r.p1>=25)rp+=12;else if(r.p1>=18)rp+=6; if(r.p2>=50)rp+=10;else if(r.p2>=38)rp+=6; if(r.appearances>=2&&r.p2>=28)rp+=5; if(rp>=10)heavy++; penalty+=Math.min(20,rp); } penalty=Math.min(42,penalty); const availability=clamp(92-penalty,45,96); return {verified:observed>0,availability,heavyCount:heavy,relievers:relievers.slice(0,6),games:observed,totalPitches:relievers.reduce((s,r)=>s+r.p3,0)}; }
 function pitcherAdvanced(st,staffEra=4.35){const era=num(st.era,staffEra),ip=Math.max(.1,baseballInnings(st.inningsPitched)||.1),k=num(st.strikeOuts,num(st.strikeouts,0)),bb=num(st.baseOnBalls,num(st.walks,0)),hbp=num(st.hitBatsmen,0),hr=num(st.homeRuns,0),bf=num(st.battersFaced,0),go=num(st.groundOuts,0),ao=num(st.airOuts,0);const kbbPct=bf>0?(k-bb)/bf:null;const fip=3.15+(13*hr+3*(bb+hbp)-2*k)/ip;const gbRatio=ao>0?go/ao:null;return {era,fip:Number.isFinite(fip)?fip:era,kbbPct,gbRatio};}
-function starterSkill(st,staffEra=4.35){ const adv=pitcherAdvanced(st,staffEra),era=adv.era,whip=num(st.whip,1.30),k9=num(st.strikeoutsPer9Inn,num(st.strikeoutsPer9,8.5)),bb9=num(st.walksPer9Inn,num(st.walksPer9,3.0)),hr9=num(st.homeRunsPer9,1.15); const eraF=safeDiv(era,4.35,1),fipF=safeDiv(adv.fip,4.35,1),whipF=safeDiv(whip,1.30,1),cmdF=adv.kbbPct==null?safeDiv(safeDiv(bb9,Math.max(4,k9),.35),.35,1):clamp(1-(adv.kbbPct-.12)*2.1,.72,1.30),hrF=safeDiv(hr9,1.15,1); return clamp(.26*eraF+.25*fipF+.18*whipF+.19*cmdF+.12*hrF,.60,1.58); }
+function starterRegression(st,staffEra=4.35){
+  const raw=pitcherAdvanced(st,staffEra),
+    ip=Math.max(0,baseballInnings(st.inningsPitched)||0);
+
+  const priorEra=clamp(
+    .70*4.35+.30*num(staffEra,4.35),
+    3.65,
+    5.05
+  );
+
+  const priorWhip=clamp(
+    1.30*(.85+.15*priorEra/4.35),
+    1.16,
+    1.46
+  );
+
+  const rawWhip=num(st.whip,priorWhip),
+    rawK9=num(st.strikeoutsPer9Inn,num(st.strikeoutsPer9,8.5)),
+    rawBB9=num(st.walksPer9Inn,num(st.walksPer9,3.0)),
+    rawHR9=num(st.homeRunsPer9,1.15);
+
+  const shrink=(obs,prior,stab)=>{
+    obs=num(obs,prior);
+    const w=ip/(ip+stab);
+    return prior+w*(obs-prior);
+  };
+
+  return {
+    ip,
+    priorEra,
+    rawEra:raw.era,
+    rawFip:raw.fip,
+    rawWhip,
+    rawK9,
+    rawBB9,
+    rawHR9,
+    era:shrink(raw.era,priorEra,55),
+    fip:shrink(raw.fip,priorEra,45),
+    whip:shrink(rawWhip,priorWhip,35),
+    k9:shrink(rawK9,8.5,25),
+    bb9:shrink(rawBB9,3.0,25),
+    hr9:shrink(rawHR9,1.15,60),
+    sampleWeight:ip/(ip+45),
+    sampleConfidence:clamp(
+      45+50*(1-Math.exp(-ip/70)),
+      45,
+      95
+    ),
+    active:ip<45,
+    severe:ip<10
+  };
+}
+
+function starterSkill(st,staffEra=4.35){
+  const r=starterRegression(st,staffEra),
+    eraF=safeDiv(r.era,4.35,1),
+    fipF=safeDiv(r.fip,4.35,1),
+    whipF=safeDiv(r.whip,1.30,1),
+    cmdF=clamp(
+      safeDiv(
+        safeDiv(r.bb9,Math.max(4,r.k9),.35),
+        .35,
+        1
+      ),
+      .72,
+      1.30
+    ),
+    hrF=safeDiv(r.hr9,1.15,1);
+
+  return clamp(
+    .26*eraF+
+    .25*fipF+
+    .18*whipF+
+    .19*cmdF+
+    .12*hrF,
+    .60,
+    1.58
+  );
+}
+
 function starterExpectedIP(st,recent){ const seasonIP=baseballInnings(st.inningsPitched),gs=num(st.gamesStarted,0),seasonAvg=gs>0?safeDiv(seasonIP,gs,5.3):5.1,rec=num(recent?.avgIP,seasonAvg); return clamp(.62*seasonAvg+.38*rec,4.0,6.7); }
 function bullpenRunAdjustment(usage){ if(!usage?.verified)return .08; return clamp((75-usage.availability)/100*.9,-.12,.38); }
 function expectedModuleCount(sport){ if(sport==='baseball_mlb')return 9;if(sport==='americanfootball_ncaaf')return 7;if(sport==='americanfootball_nfl_preseason')return 8;if(sport==='basketball_wnba')return 6;if(sport==='americanfootball_nfl')return 6;if(sport==='baseball_kbo'||sport==='baseball_npb')return 5;return 6; }
@@ -392,12 +471,12 @@ async function analyzeMLB(event){
   const weather=await openMeteo(lat,lon,event.commence_time); if(weather)sources.push({name:'Open-Meteo',url:'https://open-meteo.com/'});
   const lg=4.35; const hRpg=num(H.runsPerGame,safeDiv(H.runs,H.gamesPlayed,lg)),aRpg=num(A.runsPerGame,safeDiv(A.runs,A.gamesPlayed,lg)); const hEra=num(HP.era,4.35),aEra=num(AP.era,4.35); const hspEra=num(HSP.era,hEra),aspEra=num(ASP.era,aEra);
   const hOps=num(H.ops,.720),aOps=num(A.ops,.720),hLineOps=num(lineups.homeOps,hOps),aLineOps=num(lineups.awayOps,aOps); const hRecentOff=clamp(safeDiv(hr.pf,lg,1),.86,1.14),aRecentOff=clamp(safeDiv(ar.pf,lg,1),.86,1.14); const hLineAdj=lineups.confirmed?clamp(safeDiv(hLineOps,hOps,1),.92,1.08):1,aLineAdj=lineups.confirmed?clamp(safeDiv(aLineOps,aOps,1),.92,1.08):1; const hOff=(.43*safeDiv(hRpg,lg,1)+.35*safeDiv(hOps,.720,1)+.14*hRecentOff+.08*hLineAdj); const aOff=(.43*safeDiv(aRpg,lg,1)+.35*safeDiv(aOps,.720,1)+.14*aRecentOff+.08*aLineAdj);
-  const hspSkill=starterSkill(HSP,hEra),aspSkill=starterSkill(ASP,aEra),hExpIP=starterExpectedIP(HSP,hWork),aExpIP=starterExpectedIP(ASP,aWork); const hSpShare=hExpIP/9,aSpShare=aExpIP/9; const homePitch=hSpShare*hspSkill+(1-hSpShare)*safeDiv(hEra,4.35,1); const awayPitch=aSpShare*aspSkill+(1-aSpShare)*safeDiv(aEra,4.35,1);
+  const hReg=starterRegression(HSP,hEra),aReg=starterRegression(ASP,aEra),hspSkill=starterSkill(HSP,hEra),aspSkill=starterSkill(ASP,aEra),hExpIP=starterExpectedIP(HSP,hWork),aExpIP=starterExpectedIP(ASP,aWork); const hSpShare=hExpIP/9,aSpShare=aExpIP/9; const homePitch=hSpShare*hspSkill+(1-hSpShare)*safeDiv(hEra,4.35,1); const awayPitch=aSpShare*aspSkill+(1-aSpShare)*safeDiv(aEra,4.35,1);
   const hBullAdj=bullpenRunAdjustment(hBull),aBullAdj=bullpenRunAdjustment(aBull); const wAdj=weatherTotalAdjustment('baseball_mlb',weather,false); let awayRuns=lg*aOff*homePitch+hBullAdj+0.5*wAdj; let homeRuns=lg*hOff*awayPitch+aBullAdj+0.18+0.5*wAdj; awayRuns=clamp(awayRuns,1.7,8.3);homeRuns=clamp(homeRuns,1.7,8.6);
   const margin=homeRuns-awayRuns,total=homeRuns+awayRuns; const homeProb=clamp01(normCdf(margin/2.85));
   const hK9=num(HSP.strikeoutsPer9Inn,num(HSP.strikeoutsPer9,8.5)),aK9=num(ASP.strikeoutsPer9Inn,num(ASP.strikeoutsPer9,8.5)),hBB9=num(HSP.walksPer9Inn,num(HSP.walksPer9,3.0)),aBB9=num(ASP.walksPer9Inn,num(ASP.walksPer9,3.0));
   const mods=[
-    modelModule('Starting pitcher quality', (aspSkill-hspSkill)*1.45,aspSkill>hspSkill?'home':'away',`${hp?.fullName||'Home SP'} ERA ${hspEra.toFixed(2)}, FIP-proxy ${pitcherAdvanced(HSP,hEra).fip.toFixed(2)}, WHIP ${num(HSP.whip,1.30).toFixed(2)}, K/BB ${safeDiv(hK9,hBB9,0).toFixed(2)} vs ${ap?.fullName||'Away SP'} ERA ${aspEra.toFixed(2)}, FIP-proxy ${pitcherAdvanced(ASP,aEra).fip.toFixed(2)}, WHIP ${num(ASP.whip,1.30).toFixed(2)}, K/BB ${safeDiv(aK9,aBB9,0).toFixed(2)}`,hp&&ap?88:45),
+    modelModule('Starting pitcher quality', (aspSkill-hspSkill)*1.45,aspSkill>hspSkill?'home':'away',`${hp?.fullName||'Home SP'} raw ERA ${hReg.rawEra.toFixed(2)} → reg ${hReg.era.toFixed(2)}, raw FIP ${hReg.rawFip.toFixed(2)} → reg ${hReg.fip.toFixed(2)}, MLB IP ${hReg.ip.toFixed(1)} vs ${ap?.fullName||'Away SP'} raw ERA ${aReg.rawEra.toFixed(2)} → reg ${aReg.era.toFixed(2)}, raw FIP ${aReg.rawFip.toFixed(2)} → reg ${aReg.fip.toFixed(2)}, MLB IP ${aReg.ip.toFixed(1)}. Small MLB samples are shrunk toward team/league priors; command stabilizes faster than ERA/HR outcomes.`,hp&&ap?Math.round(clamp(60+.30*Math.min(hReg.sampleConfidence,aReg.sampleConfidence),60,88)):45),
     modelModule('Starter workload', (hExpIP-aExpIP)/2.5,hExpIP>=aExpIP?'home':'away',`Expected innings: home ${hExpIP.toFixed(1)}, away ${aExpIP.toFixed(1)}; recent avg pitches home ${num(hWork.avgPitches,0).toFixed(0)}, away ${num(aWork.avgPitches,0).toFixed(0)}.`,hp&&ap?78:40),
     modelModule('Offense / run support', (hOff-aOff)*1.55,hOff>aOff?'home':'away',`Season + regressed recent offense: home R/G ${hRpg.toFixed(2)}, OPS ${hOps.toFixed(3)}, recent R/G ${num(hr.pf,hRpg).toFixed(2)}; away R/G ${aRpg.toFixed(2)}, OPS ${aOps.toFixed(3)}, recent R/G ${num(ar.pf,aRpg).toFixed(2)}.`,84),
     modelModule('Bullpen availability',(hBull.availability-aBull.availability)/45,hBull.availability>=aBull.availability?'home':'away',`Verified recent bullpen workload: home availability ${hBull.availability.toFixed(0)}/100 (${hBull.heavyCount} heavy arms), away ${aBull.availability.toFixed(0)}/100 (${aBull.heavyCount} heavy arms).`,hBull.verified&&aBull.verified?82:45),
@@ -414,10 +493,10 @@ async function analyzeMLB(event){
     modelModule('Bullpen fatigue environment',(((100-hBull.availability)+(100-aBull.availability)-50)/70),((100-hBull.availability)+(100-aBull.availability))>=50?'over':'under',`Combined bullpen fatigue load ${(200-hBull.availability-aBull.availability).toFixed(0)}; availability home ${hBull.availability.toFixed(0)}, away ${aBull.availability.toFixed(0)}.`,hBull.verified&&aBull.verified?80:42)
   ];
   if(weather)totalDrivers.push(modelModule('Weather run environment',wAdj/0.8,wAdj>=0?'over':'under',`${weatherSummary(weather)}; weather adjustment ${wAdj>=0?'+':''}${wAdj.toFixed(2)} runs.`,62));
-  const criticalPenalty=(hp&&ap?0:12)+(lineups.confirmed?0:7)+(hBull.verified&&aBull.verified?0:8); let dq=38+(hh&&ah?14:0)+(hpStaff&&apStaff?10:0)+(hp&&ap&&hsp&&asp?16:0)+(hlog&&alog?8:0)+(recent?6:0)+(hBull.verified&&aBull.verified?9:0)+(weather?3:0)+(lineups.confirmed?9:0); dq=Math.min(dq,lineups.confirmed?94:85); dq=clamp(dq-criticalPenalty/2,30,96); const uncertainty=clamp(100-dq+(hp&&ap?0:12)+(lineups.confirmed?0:hoursUntil(event.commence_time)<4?7:2)+(hBull.verified&&aBull.verified?0:5)); const rawAgr=agreement(mods),coverage=coverageScore(mods,'baseball_mlb',criticalPenalty),effAgr=effectiveAgreement(rawAgr,coverage,dq); const ec=edgeCount(mods,homeProb>=.5);
+  const starterSampleMinIp=hp&&ap?Math.min(hReg.ip,aReg.ip):0,starterSamplePenalty=hp&&ap?(starterSampleMinIp<10?6:starterSampleMinIp<30?3:0):0; const criticalPenalty=(hp&&ap?0:12)+(lineups.confirmed?0:7)+(hBull.verified&&aBull.verified?0:8)+starterSamplePenalty; let dq=38+(hh&&ah?14:0)+(hpStaff&&apStaff?10:0)+(hp&&ap&&hsp&&asp?16:0)+(hlog&&alog?8:0)+(recent?6:0)+(hBull.verified&&aBull.verified?9:0)+(weather?3:0)+(lineups.confirmed?9:0); dq=Math.min(dq,lineups.confirmed?94:85); dq=clamp(dq-criticalPenalty/2,30,96); const uncertainty=clamp(100-dq+(hp&&ap?0:12)+(lineups.confirmed?0:hoursUntil(event.commence_time)<4?7:2)+(hBull.verified&&aBull.verified?0:5)+(starterSamplePenalty?4:0)); const rawAgr=agreement(mods),coverage=coverageScore(mods,'baseball_mlb',criticalPenalty),effAgr=effectiveAgreement(rawAgr,coverage,dq); const ec=edgeCount(mods,homeProb>=.5);
   const periodProjection=(inn)=>{const firstBoost=inn===1?1.07:1,away=clamp((lg*aOff*hspSkill)*(inn/9)*firstBoost,.08,inn*1.18),home=clamp((lg*hOff*aspSkill)*(inn/9)*firstBoost+(inn/9)*.18,.08,inn*1.22),tot=away+home,tie=inn===1?Math.exp(-tot):clamp(.28-.018*(tot-2.5)-.012*inn,.10,.32);return {projected_score:{away:+away.toFixed(2),home:+home.toFixed(2)},projected_total:+tot.toFixed(2),projected_margin_home:+(home-away).toFixed(2),tie_risk:tie};}; const f1=periodProjection(1),f3=periodProjection(3),f5=periodProjection(5);
-  const risks=[]; if(!hp||!ap)risks.push('One or both probable starters are not confirmed.'); if(!lineups.confirmed)risks.push('Starting lineups are not confirmed yet; AEGIS will not release a Core MLB bet close to first pitch without them.'); if(!(hBull.verified&&aBull.verified))risks.push('Recent bullpen workload could not be fully verified.'); else if(hBull.heavyCount||aBull.heavyCount)risks.push(`Bullpen fatigue exists: home ${hBull.heavyCount} heavy-use arm(s), away ${aBull.heavyCount}.`); if(weather?.precip_probability>=60)risks.push('Elevated precipitation risk can alter pitcher usage or game timing.');
-  return {event_id:event.id,sport:event.sport_key,away_team:event.away_team,home_team:event.home_team,projected_score:{away:+awayRuns.toFixed(1),home:+homeRuns.toFixed(1)},projected_total:+total.toFixed(1),projected_margin_home:+margin.toFixed(1),home_win_probability:homeProb,data_quality:dq,uncertainty,model_agreement:rawAgr,coverage_score:coverage,effective_agreement:effAgr,independent_edge_count:ec,probable_starters_confirmed:!!(hp&&ap),lineups_confirmed:!!lineups.confirmed,bullpen_verified:!!(hBull.verified&&aBull.verified),total_drivers:totalDrivers,f1,f3,f5,modules:mods,risks,weather,notes:[`Probable starters: ${ap?.fullName||'TBD'} vs ${hp?.fullName||'TBD'}`,lineups.confirmed?'Lineups confirmed by MLB feed.':'Lineups not yet confirmed.',`Bullpen availability: away ${aBull.availability.toFixed(0)}/100, home ${hBull.availability.toFixed(0)}/100.`,`F5 projection ${event.away_team} ${f5.projected_score.away} – ${event.home_team} ${f5.projected_score.home}; estimated tie risk ${(f5.tie_risk*100).toFixed(0)}%.`],sources};
+  const risks=[]; if(hp&&ap&&(hReg.active||aReg.active))risks.push(`Small-sample starter regression active: minimum MLB workload ${starterSampleMinIp.toFixed(1)} IP; volatile ERA/FIP/WHIP/HR inputs were shrunk toward team/league priors.`); if(!hp||!ap)risks.push('One or both probable starters are not confirmed.'); if(!lineups.confirmed)risks.push('Starting lineups are not confirmed yet; AEGIS will not release a Core MLB bet close to first pitch without them.'); if(!(hBull.verified&&aBull.verified))risks.push('Recent bullpen workload could not be fully verified.'); else if(hBull.heavyCount||aBull.heavyCount)risks.push(`Bullpen fatigue exists: home ${hBull.heavyCount} heavy-use arm(s), away ${aBull.heavyCount}.`); if(weather?.precip_probability>=60)risks.push('Elevated precipitation risk can alter pitcher usage or game timing.');
+  return {event_id:event.id,sport:event.sport_key,away_team:event.away_team,home_team:event.home_team,projected_score:{away:+awayRuns.toFixed(1),home:+homeRuns.toFixed(1)},projected_total:+total.toFixed(1),projected_margin_home:+margin.toFixed(1),home_win_probability:homeProb,data_quality:dq,uncertainty,model_agreement:rawAgr,coverage_score:coverage,effective_agreement:effAgr,independent_edge_count:ec,probable_starters_confirmed:!!(hp&&ap),lineups_confirmed:!!lineups.confirmed,bullpen_verified:!!(hBull.verified&&aBull.verified),starter_regression_active:!!(hp&&ap&&(hReg.active||aReg.active)),starter_sample_min_ip:+starterSampleMinIp.toFixed(1),starter_regression:{home:hReg,away:aReg},total_drivers:totalDrivers,f1,f3,f5,modules:mods,risks,weather,notes:[`Probable starters: ${ap?.fullName||'TBD'} vs ${hp?.fullName||'TBD'}`,lineups.confirmed?'Lineups confirmed by MLB feed.':'Lineups not yet confirmed.',`Bullpen availability: away ${aBull.availability.toFixed(0)}/100, home ${hBull.availability.toFixed(0)}/100.`,`F5 projection ${event.away_team} ${f5.projected_score.away} – ${event.home_team} ${f5.projected_score.home}; estimated tie risk ${(f5.tie_risk*100).toFixed(0)}%.`],sources};
 }
 
 function lowInfoProjection(event,note,dq=45,risks=[]){ return {event_id:event.id,sport:event.sport_key,away_team:event.away_team,home_team:event.home_team,projected_score:{away:null,home:null},projected_total:null,projected_margin_home:0,home_win_probability:.5,data_quality:dq,uncertainty:100-dq,model_agreement:50,coverage_score:Math.max(20,dq-10),effective_agreement:50,independent_edge_count:0,modules:[],risks:[note,...risks],weather:null,notes:[note],sources:[]}; }
@@ -557,6 +636,7 @@ function dataFreshnessGrade(event,proj,c){
   if(c.market_consensus_books<2)nonCritical.push('multi-book consensus is limited');
   if(event.sport_key==='baseball_mlb'){
     if(!proj.probable_starters_confirmed)critical.push('one or both probable starters are unconfirmed');
+    if(proj.starter_regression_active)nonCritical.push(`limited MLB starter sample (${Number(proj.starter_sample_min_ip||0).toFixed(1)} IP minimum); pitcher rates are regressed toward priors`);
     if(hrs<=4&&!proj.lineups_confirmed)critical.push('starting lineups are not fully confirmed close to first pitch');
     else if(!proj.lineups_confirmed)nonCritical.push('starting lineups are not posted yet');
     if(!proj.bullpen_verified)nonCritical.push('recent bullpen workload is not fully verified');
@@ -750,5 +830,5 @@ module.exports = {
   VERSION, MODELS, SPORTS,
   config:()=>({oddsReady:!!ODDS_KEY,cfbdReady:!!CFBD_KEY,bookmakers:ODDS_BOOKMAKERS,maxScanGames:MAX_SCAN_GAMES,maxDeepMarketGames:MAX_DEEP_MARKET_GAMES,maxDeepMarketCredits:MAX_DEEP_MARKET_CREDITS,oddsCacheTtlMs:ODDS_CACHE_TTL_MS,minOddsRefreshMs:MIN_ODDS_REFRESH_MS,oddsQuotaReserve:ODDS_QUOTA_RESERVE,lastOddsMeta:LAST_ODDS_META}),
   oddsFetch, oddsQuotaProbe, refreshEventMarkets, pregameOnly, sanitizeEvent, scanSlate, resolveFinalScore, settledBetOutcome,
-  sameTeam, teamSimilarity, findRatingMatch, classificationMatch, resolvedNcaafClass, cfbdGameMatch, ncaafCrossClassBaseline, marketBase, mlbPeriodInnings, probToAmerican, executionBands, dataFreshnessGrade, analyzeEvent
+  sameTeam, teamSimilarity, findRatingMatch, classificationMatch, resolvedNcaafClass, cfbdGameMatch, ncaafCrossClassBaseline, marketBase, mlbPeriodInnings, probToAmerican, executionBands, dataFreshnessGrade, starterRegression, analyzeEvent
 };
