@@ -6,6 +6,7 @@ const { URL } = require('url');
 const engine = require('./src/engine');
 const autopilot = require('./src/autopilot');
 const store = require('./src/store');
+const release = require('./src/release');
 
 const PORT = Number(process.env.PORT || 3000);
 const ROOT = __dirname;
@@ -66,9 +67,66 @@ const server=http.createServer(async(req,res)=>{
     }
 
     if(req.method==='GET'&&u.pathname==='/api/health'){
-      const c=engine.config(),storage=await store.health(),auto=await safeStatus();
-      return send(res,200,{ok:true,version:engine.VERSION,models:engine.MODELS.length,odds_ready:c.oddsReady,cfbd_ready:c.cfbdReady,max_scan_games:c.maxScanGames,max_deep_market_games:c.maxDeepMarketGames,max_deep_market_credits:c.maxDeepMarketCredits,odds_cache_ttl_ms:c.oddsCacheTtlMs,min_odds_refresh_ms:c.minOddsRefreshMs,odds_quota_reserve:c.oddsQuotaReserve,auth_required:!!ACCESS_PIN,authenticated:validSession(req),autopilot_enabled:auto.enabled,autopilot_secret_ready:!!AUTOPILOT_SECRET,persistent_storage:storage.persistent,storage_backend:storage.backend,storage_key_mode:storage.key_mode||'none',storage_ok:storage.ok,last_autopilot_success:auto.last_success_at||null,last_autopilot_error:auto.last_error||null,openai_used:false,cost_layer:'No paid AI calls. Public/free data + quota-governed sportsbook API.',autopilot_sports:autopilot.config.AUTO_SPORTS,release_sports:autopilot.config.RELEASE_SPORTS,daily_odds_budget:autopilot.config.DAILY_BUDGET,monthly_odds_budget:autopilot.config.MONTHLY_BUDGET,auto_deep_credit_cap:autopilot.config.AUTO_DEEP_CREDIT_CAP});
-    }
+    const c=engine.config(),
+storage=await store.health(),
+auto=await safeStatus();
+
+    const health=release.buildHealth({
+      storage,
+      auto,
+      oddsReady:c.oddsReady,
+      cfbdReady:c.cfbdReady,
+      autopilotSecretReady:!!AUTOPILOT_SECRET,
+      releaseSports:autopilot.config.RELEASE_SPORTS,
+      engineVersion:engine.VERSION
+    });
+
+    return send(res,200,{
+      ...health,
+
+      version:release.APP_VERSION,
+
+      models:engine.MODELS.length,
+
+      odds_ready:c.oddsReady,
+      cfbd_ready:c.cfbdReady,
+
+      max_scan_games:c.maxScanGames,
+      max_deep_market_games:c.maxDeepMarketGames,
+      max_deep_market_credits:c.maxDeepMarketCredits,
+
+      odds_cache_ttl_ms:c.oddsCacheTtlMs,
+      min_odds_refresh_ms:c.minOddsRefreshMs,
+      odds_quota_reserve:c.oddsQuotaReserve,
+
+      auth_required:!!ACCESS_PIN,
+      authenticated:validSession(req),
+
+      autopilot_enabled:auto.enabled,
+      autopilot_secret_ready:!!AUTOPILOT_SECRET,
+
+      persistent_storage:storage.persistent,
+      storage_backend:storage.backend,
+      storage_key_mode:storage.key_mode||'none',
+      storage_ok:storage.ok,
+
+      last_autopilot_success:auto.last_success_at||null,
+      last_autopilot_error:auto.last_error||null,
+
+      openai_used:false,
+
+      cost_layer:
+        'No paid AI calls. Public/free data + quota-governed sportsbook API.',
+
+      autopilot_sports:autopilot.config.AUTO_SPORTS,
+      release_sports:autopilot.config.RELEASE_SPORTS,
+
+      daily_odds_budget:autopilot.config.DAILY_BUDGET,
+      monthly_odds_budget:autopilot.config.MONTHLY_BUDGET,
+      auto_deep_credit_cap:
+        autopilot.config.AUTO_DEEP_CREDIT_CAP
+    });
+  }
     if(req.method==='POST'&&u.pathname==='/api/login'){
       if(!ACCESS_PIN)return send(res,200,{ok:true,auth_required:false});
       if(!rateLimit(req,res,'login',12,15*60e3))return;
@@ -103,7 +161,7 @@ const server=http.createServer(async(req,res)=>{
       const body=JSON.parse(await readBody(req)||'{}');return send(res,200,{ok:true,...await autopilot.manualLock(Array.isArray(body.keys)?body.keys:[])});
     }
     if(req.method==='GET'&&u.pathname==='/api/state/export'){
-      const state=await store.load();return send(res,200,{exported_at:new Date().toISOString(),version:engine.VERSION,state});
+      const state=await store.load();return send(res,200,{exported_at:new Date().toISOString(),version:release.APP_VERSION,release_version:release.APP_VERSION,engine_version:engine.VERSION,state});
     }
     if(req.method==='POST'&&u.pathname==='/api/results/resolve'){
       if(!rateLimit(req,res,'results',30))return;
@@ -136,4 +194,4 @@ const server=http.createServer(async(req,res)=>{
   }catch(e){console.error(e);return send(res,500,{error:e.message||'Server error'});}
 });
 
-server.listen(PORT,'0.0.0.0',()=>console.log(`AEGIS ${engine.VERSION} running on ${PORT} â€¢ ${engine.MODELS.length} registered systems â€¢ autopilot ${autopilot.config.ENABLED?'enabled':'disabled'} â€¢ persistence ${store.persistent?'cloud':'ephemeral fallback'}`));
+server.listen(PORT,'0.0.0.0',()=>console.log(`AEGIS release ${release.APP_VERSION} • engine ${engine.VERSION} running on ${PORT} • ${engine.MODELS.length} registered systems • autopilot ${autopilot.config.ENABLED?'enabled':'disabled'} • persistence ${store.persistent?'cloud':'ephemeral fallback'}`));
