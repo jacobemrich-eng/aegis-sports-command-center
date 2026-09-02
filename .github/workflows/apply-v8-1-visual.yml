@@ -1,4 +1,4 @@
-name: Apply AEGIS v8.4 Safe Visual Layer
+name: Apply AEGIS v8.5 Visual Intelligence
 
 on:
   workflow_dispatch:
@@ -22,22 +22,24 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Apply safe CSS-only visual layer
+      - name: Apply v8.5 CSS-only intelligence layer
         run: python scripts/apply-v8-1-visual.py
 
-      - name: Verify no v8.4 JavaScript was added
+      - name: Verify safe runtime
         run: |
           ! grep -q 'app-v8_4' public/index.html
+          ! grep -q 'app-v8_5' public/index.html
           grep -q 'visual-v8_4_safe.css' public/index.html
+          grep -q 'visual-v8_5.css' public/index.html
 
       - name: Run full AEGIS checks
         run: npm run check
 
-      - name: Commit tested visual layer
+      - name: Commit tested v8.5 layer
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add public/index.html public/visual-v8_4_safe.css
+          git add public/index.html public/visual-v8_5.css
           git diff --cached --check
-          git commit -m "Add AEGIS v8.4 safe CSS-only visual layer"
+          git commit -m "Add AEGIS v8.5 visual intelligence layer"
           git push origin HEAD:main
