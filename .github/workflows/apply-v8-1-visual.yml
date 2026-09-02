@@ -1,4 +1,4 @@
-name: Apply AEGIS v8.3 Game Intelligence
+name: Apply AEGIS v8.3.1 Polish Hotfix
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ permissions:
   contents: write
 
 jobs:
-  visual:
+  polish:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -22,20 +22,20 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Apply v8.3 presentation layer
+      - name: Apply v8.3.1 hotfix
         run: python scripts/apply-v8-1-visual.py
 
-      - name: Validate v8.3 JavaScript
-        run: node --check public/app-v8_3.js
+      - name: Validate hotfix JavaScript
+        run: node --check public/app-v8_3_1.js
 
       - name: Run full AEGIS checks
         run: npm run check
 
-      - name: Commit tested v8.3 upgrade
+      - name: Commit tested hotfix
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add public/index.html public/visual-v8_3.css public/app-v8_3.js
+          git add public/index.html public/app-v8_3_1.js
           git diff --cached --check
-          git commit -m "Add AEGIS v8.3 Game Intelligence"
+          git commit -m "Polish AEGIS v8.3.1 presentation"
           git push origin HEAD:main
