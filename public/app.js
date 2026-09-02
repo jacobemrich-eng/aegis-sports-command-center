@@ -62,8 +62,78 @@ init().catch(function(){});
 var SERVER_LEDGER=[],SERVER_LOCKS=[],AUTO_STATUS=null,SERVER_LOADED=false;
 function loadAudit(){if(SERVER_LOADED)return SERVER_LEDGER||[];try{return JSON.parse(localStorage.getItem(AUDIT_KEY)||'[]')}catch(e){return []}}
 function serverStableKey(r){return [r.event_id||(r.event&&r.event.id),r.market||'',r.selection||'',r.point==null?'':r.point].join('|')}
-function execHtml(p){var dq=p.data_quality_grade||p.data_freshness?.grade||'—';return '<div class="executionbox"><div class="autostatus"><span class="freshness '+esc(dq)+'">DATA '+esc(dq)+'</span><span class="small subtle">Quote age '+(p.data_freshness?.quote_age_minutes==null?'—':Math.round(p.data_freshness.quote_age_minutes)+'m')+'</span></div><div class="executiongrid"><div class="execitem"><b>Play-To</b><strong>'+fmtA(p.play_to)+'</strong></div><div class="execitem"><b>Downgrade</b><strong>'+fmtA(p.downgrade_at)+'</strong></div><div class="execitem"><b>Pass</b><strong>'+fmtA(p.pass_at)+'</strong></div></div></div>'}
-function playHtml(p){var pr=p.projection||{},ps=p.market_projection_score||pr.projected_score||{},q=decisionQuality(p),range=pct(p.fair_probability_low)+' – '+pct(p.fair_probability_high),flags=(p.sanity_flags||[]).map(function(x){return '<div class="notice warning small">'+esc(x)+'</div>'}).join('');return '<article class="play"><div class="playhead"><div><span class="badge '+esc(p.tier)+'">'+esc(p.tier)+'</span><span class="matchup">'+esc(p.event.away_team)+' @ '+esc(p.event.home_team)+'</span></div>'+tierCall(p)+'</div><div class="pickline">'+esc(p.selection)+fmtPoint(p.market,p.point,p.selection)+' '+fmtA(p.price)+' • '+esc(p.book)+(p.hard_rock?' • <span class="accent">HARD ROCK ✓</span>':'')+'</div>'+verdict(p)+qualityHtml(p)+execHtml(p)+'<div class="briefgrid"><div class="brief"><div class="kicker">10-SECOND THESIS</div><strong>'+esc(short(p.why,170))+'</strong></div><div class="brief"><div class="kicker">WHAT MATTERS NOW</div><strong>'+esc(p.timing)+'</strong></div></div><div class="metricgrid">'+metric(p.market_period_innings?'F'+p.market_period_innings+' projection':'Projection',esc(ps.away)+'–'+esc(ps.home))+metric('Fair vs market',pct(p.fair_probability)+' vs '+pct(p.market_probability))+metric('Edge',pct(p.adjusted_edge))+metric('Support',Math.round(p.market_support_strength||0)+'/100')+'</div><div class="blocker"><b>'+(p.tier==='CORE'?'Main risk':'What is blocking it')+':</b> '+esc(short(blockerFor(p),240))+'</div>'+flags+f5(p)+'<details class="details"><summary>Deep model diagnostics</summary><div class="metricgrid">'+metric('Raw model',pct(p.fair_raw))+metric('Independent',pct(p.fair_independent))+metric('Calibrated fair',pct(p.fair_probability))+metric('Fair range',range)+metric('Market challenger',pct(p.market_probability))+metric('Estimated EV',pct(p.estimated_ev))+metric('Data quality',Math.round(pr.data_quality||0)+'/100')+metric('Freshness grade',esc(p.data_quality_grade||'—'))+metric('Market coverage',Math.round(p.market_coverage||0)+'/100')+metric('Effective agreement',Math.round(p.market_effective_agreement||0)+'/100')+metric('Market edges',esc(p.market_edge_count||0))+metric('Support',Math.round(p.market_support_strength||0)+'/100')+metric('Uncertainty',Math.round(pr.uncertainty||0)+'/100')+metric('Required cushion',pct(p.cushion))+metric('Consensus books',esc(p.market_consensus_books||0))+metric('Market dispersion',pct(p.market_dispersion||0))+metric('Open → current',(p.open_price==null?'—':fmtA(p.open_price)+' → '+fmtA(p.price)))+metric('Price move',(p.price_move==null?'—':(p.price_move>0?'+':'')+p.price_move))+metric('Target book',p.hard_rock?'VERIFIED':'NOT VERIFIED')+'</div><div class="hr"></div><div class="red"><b>Full risk map:</b> '+esc((p.how_it_loses||[]).join(' • '))+'</div><p class="subtle"><b>Final verification:</b> '+esc(p.final_verification)+'</p><details><summary>Applied models & source evidence</summary>'+moduleList(pr)+'<div class="hr"></div>'+(pr.notes||[]).map(function(n){return '<div class="small subtle">• '+esc(n)+'</div>'}).join('')+'<div class="hr"></div>'+(pr.sources||[]).map(function(s){return '<a class="source" target="_blank" rel="noopener" href="'+esc(s.url)+'">'+esc(s.name)+'</a>'}).join('')+'</details></details><button class="btn ghost" style="margin-top:10px" data-openlab="'+esc(p.event_id)+'">OPEN IN GAME LAB</button></article>'}
+function eventTimeLabel(iso){
+  if(!iso)return 'Time TBD';
+  var d=new Date(iso);
+  if(!Number.isFinite(d.getTime()))return 'Time TBD';
+
+  var tz='America/New_York',
+      now=new Date(),
+      dayFmt=new Intl.DateTimeFormat(
+        'en-US',
+        {
+          timeZone:tz,
+          year:'numeric',
+          month:'2-digit',
+          day:'2-digit'
+        }
+      ),
+      key=dayFmt.format(d),
+      today=dayFmt.format(now),
+      tomorrow=dayFmt.format(
+        new Date(now.getTime()+86400000)
+      ),
+      prefix=
+        key===today
+          ?'Today'
+          :key===tomorrow
+            ?'Tomorrow'
+            :new Intl.DateTimeFormat(
+              'en-US',
+              {
+                timeZone:tz,
+                weekday:'short',
+                month:'short',
+                day:'numeric'
+              }
+            ).format(d),
+      time=new Intl.DateTimeFormat(
+        'en-US',
+        {
+          timeZone:tz,
+          hour:'numeric',
+          minute:'2-digit'
+        }
+      ).format(d);
+
+  return prefix+' • '+time+' ET';
+}
+
+function quoteFreshnessText(p){
+  var q=p.data_freshness?.quote_age_minutes;
+
+  if(q==null)return 'Snapshot age at scan —';
+
+  var age=Math.max(0,Math.round(q)),
+      start=p.event?.commence_time||p.commence_time,
+      mins=start
+        ?(new Date(start).getTime()-Date.now())/60000
+        :Infinity,
+      suffix='';
+
+  if(mins>360){
+    suffix=' • next refresh scheduled';
+  }else if(mins>120){
+    suffix=' • monitoring';
+  }else if(mins>0){
+    suffix=' • final window';
+  }
+
+  return 'Snapshot age at scan '+age+'m'+suffix;
+}
+
+function execHtml(p){var dq=p.data_quality_grade||p.data_freshness?.grade||'—';return '<div class="executionbox"><div class="autostatus"><span class="freshness '+esc(dq)+'">DATA '+esc(dq)+'</span><span class="small subtle">'+esc(quoteFreshnessText(p))+'</span></div><div class="executiongrid"><div class="execitem"><b>Play-To</b><strong>'+fmtA(p.play_to)+'</strong></div><div class="execitem"><b>Downgrade</b><strong>'+fmtA(p.downgrade_at)+'</strong></div><div class="execitem"><b>Pass</b><strong>'+fmtA(p.pass_at)+'</strong></div></div></div>'}
+function playHtml(p){var pr=p.projection||{},ps=p.market_projection_score||pr.projected_score||{},q=decisionQuality(p),range=pct(p.fair_probability_low)+' – '+pct(p.fair_probability_high),flags=(p.sanity_flags||[]).map(function(x){return '<div class="notice warning small">'+esc(x)+'</div>'}).join('');return '<article class="play"><div class="playhead"><div><span class="badge '+esc(p.tier)+'">'+esc(p.tier)+'</span><span class="matchup">'+esc(p.event.away_team)+' @ '+esc(p.event.home_team)+'</span><div class="small subtle" style="margin-top:6px">'+esc(eventTimeLabel(p.event?.commence_time||p.commence_time))+'</div></div>'+tierCall(p)+'</div><div class="pickline">'+esc(p.selection)+fmtPoint(p.market,p.point,p.selection)+' '+fmtA(p.price)+' • '+esc(p.book)+(p.hard_rock?' • <span class="accent">HARD ROCK ✓</span>':'')+'</div>'+verdict(p)+qualityHtml(p)+execHtml(p)+'<div class="briefgrid"><div class="brief"><div class="kicker">10-SECOND THESIS</div><strong>'+esc(short(p.why,170))+'</strong></div><div class="brief"><div class="kicker">WHAT MATTERS NOW</div><strong>'+esc(p.timing)+'</strong></div></div><div class="metricgrid">'+metric(p.market_period_innings?'F'+p.market_period_innings+' projection':'Projection',esc(ps.away)+'–'+esc(ps.home))+metric('Fair vs market',pct(p.fair_probability)+' vs '+pct(p.market_probability))+metric('Edge',pct(p.adjusted_edge))+metric('Support',Math.round(p.market_support_strength||0)+'/100')+'</div><div class="blocker"><b>'+(p.tier==='CORE'?'Main risk':'What is blocking it')+':</b> '+esc(short(blockerFor(p),240))+'</div>'+flags+f5(p)+'<details class="details"><summary>Deep model diagnostics</summary><div class="metricgrid">'+metric('Raw model',pct(p.fair_raw))+metric('Independent',pct(p.fair_independent))+metric('Calibrated fair',pct(p.fair_probability))+metric('Fair range',range)+metric('Market challenger',pct(p.market_probability))+metric('Estimated EV',pct(p.estimated_ev))+metric('Data quality',Math.round(pr.data_quality||0)+'/100')+metric('Freshness grade',esc(p.data_quality_grade||'—'))+metric('Market coverage',Math.round(p.market_coverage||0)+'/100')+metric('Effective agreement',Math.round(p.market_effective_agreement||0)+'/100')+metric('Market edges',esc(p.market_edge_count||0))+metric('Support',Math.round(p.market_support_strength||0)+'/100')+metric('Uncertainty',Math.round(pr.uncertainty||0)+'/100')+metric('Required cushion',pct(p.cushion))+metric('Consensus books',esc(p.market_consensus_books||0))+metric('Market dispersion',pct(p.market_dispersion||0))+metric('Open → current',(p.open_price==null?'—':fmtA(p.open_price)+' → '+fmtA(p.price)))+metric('Price move',(p.price_move==null?'—':(p.price_move>0?'+':'')+p.price_move))+metric('Target book',p.hard_rock?'VERIFIED':'NOT VERIFIED')+'</div><div class="hr"></div><div class="red"><b>Full risk map:</b> '+esc((p.how_it_loses||[]).join(' • '))+'</div><p class="subtle"><b>Final verification:</b> '+esc(p.final_verification)+'</p><details><summary>Applied models & source evidence</summary>'+moduleList(pr)+'<div class="hr"></div>'+(pr.notes||[]).map(function(n){return '<div class="small subtle">• '+esc(n)+'</div>'}).join('')+'<div class="hr"></div>'+(pr.sources||[]).map(function(s){return '<a class="source" target="_blank" rel="noopener" href="'+esc(s.url)+'">'+esc(s.name)+'</a>'}).join('')+'</details></details><button class="btn ghost" style="margin-top:10px" data-openlab="'+esc(p.event_id)+'">OPEN IN GAME LAB</button></article>'}
 async function refreshServerData(){try{var rs=await Promise.all([api('/api/autopilot/status'),api('/api/results/ledger')]);AUTO_STATUS=rs[0];SERVER_LEDGER=rs[1].audit||[];SERVER_LOCKS=rs[1].locks||[];SERVER_LOADED=true;renderAutopilot();return rs}catch(e){SERVER_LOADED=false;AUTO_STATUS={last_error:e.message,persistent:false,alerts:[{severity:'error',message:'Server ledger unavailable: '+e.message}]};renderAutopilot();return null}}
 function fmtAgo(iso){if(!iso)return 'Never';var ms=Date.now()-new Date(iso).getTime(),m=Math.max(0,Math.round(ms/60000));if(m<1)return 'just now';if(m<60)return m+'m ago';var h=Math.round(m/60);return h<48?h+'h ago':Math.round(h/24)+'d ago'}
 function renderAutopilot(){if(!$('#autopilotMetrics'))return;var a=AUTO_STATUS||{},u=a.usage||{},cards=a.cards||[];$('#autopilotMetrics').innerHTML=metric('Last successful run',fmtAgo(a.last_success_at))+metric('Storage',a.persistent?'Persistent cloud':'EPHEMERAL')+metric('Odds credits',(u.today??0)+'/'+(u.daily_budget??'—')+' today')+metric('Monthly credits',(u.month??0)+'/'+(u.monthly_budget??'—'))+metric('Provider remaining',(a.provider_quota&&a.provider_quota.remaining!=null)?a.provider_quota.remaining:'—')+metric('Release sports',(a.release_sports||[]).map(function(s){return (SPORTS.find(function(x){return x.key===s})||{title:s}).title}).join(', ')||'—')+metric('Locked pending',(a.locks||[]).length);var alerts=(a.alerts||[]).slice(0,5);$('#autopilotAlerts').innerHTML=alerts.length?alerts.map(function(x){return '<div class="autoalert '+(x.severity==='error'?'error':'')+'"><b>'+esc((x.severity||'warning').toUpperCase())+'</b> • '+esc(x.message)+'<div class="small subtle">'+fmtAgo(x.at)+'</div></div>'}).join(''):'<div class="autoalert good"><b>AUTOPILOT HEALTHY</b> • No active operational alerts.</div>';$('#latestAutoCard').innerHTML=cards.length?cards.map(function(c){var t=(SPORTS.find(function(x){return x.key===c.sport})||{title:c.sport}).title;return '<span class="chip '+(c.core?'good':c.secondary?'warn':'')+'">'+esc(t)+' • '+esc(c.slate_grade)+' • '+c.core+'C/'+c.secondary+'S/'+c.watch+'W • '+fmtAgo(c.generated_at)+'</span>'}).join(' '):'<span class="subtle">No automatic card has been generated yet.</span>'}
