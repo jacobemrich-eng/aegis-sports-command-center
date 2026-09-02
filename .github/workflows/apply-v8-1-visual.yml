@@ -1,4 +1,4 @@
-name: Apply AEGIS v8.4.1 Performance Hotfix
+name: Emergency Rollback to AEGIS v8.3.2
 
 on:
   workflow_dispatch:
@@ -7,29 +7,32 @@ permissions:
   contents: write
 
 jobs:
-  hotfix:
+  rollback:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: main
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-      - name: Apply v8.4.1 hotfix
+
+      - name: Roll back v8.4 presentation layer
         run: python scripts/apply-v8-1-visual.py
-      - name: Validate JavaScript
-        run: node --check public/app-v8_4.js
-      - name: Run full AEGIS checks
+
+      - name: Verify v8.4 is no longer loaded
+        run: |
+          ! grep -q 'app-v8_4.js' public/index.html
+          ! grep -q 'visual-v8_4.css' public/index.html
+
+      - name: Run AEGIS checks
         run: npm run check
-      - name: Commit tested hotfix
+
+      - name: Commit rollback
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add public/index.html public/app-v8_4.js public/visual-v8_4.css
+          git add public/index.html
           git diff --cached --check
-          git commit -m "Fix AEGIS v8.4 mobile performance"
+          git commit -m "Rollback unstable v8.4 mobile UI"
           git push origin HEAD:main
