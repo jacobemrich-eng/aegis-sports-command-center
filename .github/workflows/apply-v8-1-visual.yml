@@ -1,4 +1,4 @@
-name: Emergency Rollback to AEGIS v8.3.2
+name: Apply AEGIS v8.4 Safe Visual Layer
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ permissions:
   contents: write
 
 jobs:
-  rollback:
+  visual:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -17,22 +17,27 @@ jobs:
         with:
           ref: main
 
-      - name: Roll back v8.4 presentation layer
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Apply safe CSS-only visual layer
         run: python scripts/apply-v8-1-visual.py
 
-      - name: Verify v8.4 is no longer loaded
+      - name: Verify no v8.4 JavaScript was added
         run: |
-          ! grep -q 'app-v8_4.js' public/index.html
-          ! grep -q 'visual-v8_4.css' public/index.html
+          ! grep -q 'app-v8_4' public/index.html
+          grep -q 'visual-v8_4_safe.css' public/index.html
 
-      - name: Run AEGIS checks
+      - name: Run full AEGIS checks
         run: npm run check
 
-      - name: Commit rollback
+      - name: Commit tested visual layer
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add public/index.html
+          git add public/index.html public/visual-v8_4_safe.css
           git diff --cached --check
-          git commit -m "Rollback unstable v8.4 mobile UI"
+          git commit -m "Add AEGIS v8.4 safe CSS-only visual layer"
           git push origin HEAD:main
