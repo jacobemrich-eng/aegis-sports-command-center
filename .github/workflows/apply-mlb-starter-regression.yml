@@ -25,7 +25,7 @@ jobs:
       - name: Apply regression patch
         run: python scripts/apply-mlb-starter-regression.py
 
-            - name: Run full AEGIS checks
+      - name: Run full AEGIS checks
         run: npm run check
 
       - name: Commit tested update
