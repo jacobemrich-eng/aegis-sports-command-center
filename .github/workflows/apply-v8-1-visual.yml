@@ -1,4 +1,4 @@
-name: Apply AEGIS v8.1 Visual Command Center
+name: Apply AEGIS v8.2 Mobile Command UI
 
 on:
   workflow_dispatch:
@@ -22,17 +22,20 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Apply visual-only upgrade
+      - name: Apply v8.2 visual upgrade
         run: python scripts/apply-v8-1-visual.py
+
+      - name: Validate v8.2 JavaScript
+        run: node --check public/app-v8_2.js
 
       - name: Run full AEGIS checks
         run: npm run check
 
-      - name: Commit tested visual upgrade
+      - name: Commit tested v8.2 upgrade
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add public/index.html public/visual-v8_1.css
+          git add public/index.html public/visual-v8_2.css public/app-v8_2.js
           git diff --cached --check
-          git commit -m "Add AEGIS v8.1 Visual Command Center"
+          git commit -m "Activate AEGIS v8.2 mobile command UI"
           git push origin HEAD:main
