@@ -1,8 +1,8 @@
-# AEGIS Sports Command Center v8.7.2 — Autopilot & Daily Operations
+# AEGIS Sports Command Center v8.8.0 — Decision Intelligence & Autopilot
 
 AEGIS is a free-tier-first sports research operating system built around the SB101 AEGIS decision framework.
 
-**Version taxonomy:** platform release **v8.7.2**; canonical betting governance **SB101 AEGIS v1.1 — September Daily-Use Freeze**. Platform releases do not silently rewrite historical model versions. v8 turns the existing one-tap research engine into a scheduled, persistent daily workflow for **MLB and NCAAF**, while keeping the other registered sport systems available for research and validation.
+**Version taxonomy:** platform release **v8.8.0**; canonical betting governance **SB101 AEGIS v1.1 — September Daily-Use Freeze**. Platform releases do not silently rewrite historical model versions. v8 turns the existing one-tap research engine into a scheduled, persistent daily workflow for **MLB and NCAAF**, while keeping the other registered sport systems available for research and validation.
 
 ## What v8 automates
 
@@ -150,3 +150,15 @@ Current regression coverage includes:
 AEGIS can automate only information its configured data sources expose. It does not pretend an unavailable Hard Rock quote, missing lineup, unresolved injury impact, or exhausted sportsbook-data quota is verified. Those conditions are surfaced as degraded freshness, Watch/Pass status, or an operational alert.
 
 This is a decision-support and research system, not a guarantee of betting outcomes.
+
+
+## v8.8 Decision Intelligence
+
+- Adds Core Distinction / Stress-Test Gate v2 as an executable governance layer.
+- Enforces actual Hard Rock Play-To / Downgrade / Pass states before bankroll release.
+- Ranks market expressions by tier, stress survival, support, coverage, consensus and economics; simpler primary markets win close calls.
+- Enforces the Precision Mode Core cap of 2 and cross-slate Top-3 actionable scarcity.
+- Builds an optional parlay only when two distinct standalone legs independently clear execution, stress, target-book and uncertainty firewalls.
+- Persists stress score, execution state and market-selection score into the audit ledger.
+
+The canonical betting governance remains **SB101 AEGIS v1.1 — September Daily-Use Freeze**; v8.8 operationalizes its existing rules rather than loosening release thresholds.

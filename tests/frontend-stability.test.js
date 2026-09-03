@@ -148,7 +148,7 @@ test(
 );
 
 test(
-  'index declares UTF-8 and v8.7.2 cache-busted active bundles',
+  'index declares UTF-8 and v8.8 cache-busted active bundles',
   () => {
     const html = fs.readFileSync(
       path.join(
@@ -165,7 +165,7 @@ test(
 
     assert.match(
       html,
-      /v8\.7\.2 • PRESENTATION INTEGRITY/
+      /v8\.8 • DECISION INTELLIGENCE/
     );
 
     for (
@@ -186,7 +186,7 @@ name.replace(
   '.',
   '\\.'
 ) +
-'\\?v=8\\.7\\.2'
+'\\?v=8\\.8\\.0'
         )
       );
     }

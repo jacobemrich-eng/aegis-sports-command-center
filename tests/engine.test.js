@@ -3,8 +3,8 @@ const assert = require('node:assert/strict');
 const e = require('../src/engine');
 
 test('engine metadata loads', () => {
-  assert.equal(e.VERSION, '8.0.0-autopilot-integrity');
-  assert.equal(e.MODELS.length, 59);
+  assert.equal(e.VERSION, '8.8.0-decision-intelligence');
+  assert.equal(e.MODELS.length, 62);
   assert.equal(e.SPORTS.length, 7);
 });
 

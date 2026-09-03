@@ -55,6 +55,7 @@
     var pr=p.projection||{};
     var e=p.event||{};
     var mlb=e.sport_key==="baseball_mlb";
+    var ncaaf=e.sport_key==="americanfootball_ncaaf";
     var dq=num(pr.data_quality,0);
     var cov=num(p.market_coverage,pr.coverage_score);
     var eff=num(p.market_effective_agreement,pr.effective_agreement||pr.model_agreement);
@@ -68,8 +69,8 @@
     var freshness=String(p.data_quality_grade||"—").toUpperCase();
     var hardRock=!!p.hard_rock;
     var inside=!!p.market_inside_fair_range;
-    var supportSecondary=mlb?60:42;
-    var supportCore=mlb?70:55;
+    var supportSecondary=(mlb||ncaaf)?60:42;
+    var supportCore=(mlb||ncaaf)?70:55;
     var hrs=hoursUntil(e.commence_time);
     var lineups=!!pr.lineups_confirmed;
     var probable=!!pr.probable_starters_confirmed;
@@ -79,6 +80,10 @@
     var price=num(p.price,NaN);
     var playTo=num(p.play_to,NaN);
     var downgrade=num(p.downgrade_at,NaN);
+    var stress=p.stress_test||{};
+    var stressScore=num(stress.score,0);
+    var stressSurvivals=num(stress.secondary_survivals,0);
+    var stressCore=!!stress.core_robust;
 
     var gates=[
       gate("Data quality",Math.round(dq)+"/100","≥66","≥80",dq>=66,dq>=80,8),
@@ -92,6 +97,8 @@
       gate("Estimated EV",pct(ev),"≥0.5%","≥2.0%",ev>=.005,ev>=.02,7),
       gate("Freshness grade",freshness,"A/B","A/B",freshness!=="C",freshness!=="C",1,
         freshness==="C"?"C-level information quality blocks release":"Source freshness gate"),
+      gate("Stress survival",Math.round(stressScore)+"/100 • "+Math.round(stressSurvivals)+"/4","Diagnostic","≥65 + ≥3/4",true,stressCore,2,
+        stressCore?"Core distinction survives adverse scenarios":"Core Distinction / Stress-Test Gate v2 is not fully cleared"),
       gate("Target book",hardRock?"Hard Rock ✓":(p.book||"Not verified"),"Hard Rock","Hard Rock",hardRock,hardRock,1,
         hardRock?"Target-book quote verified":"Hard Rock Florida price must be verified before release"),
       gate("Market disagreement",(divergence*100).toFixed(1)+" pts","<12 pts","<8 pts",divergence<.12,divergence<.08,5,
@@ -150,6 +157,12 @@
       sub="AEGIS can promote this automatically when the evidence changes. Do not override WATCH manually.";
       cls="watch";
     }
+    var intel=[];
+    if(Number.isFinite(Number(p.market_selection_score)))intel.push("Decision "+Math.round(Number(p.market_selection_score))+"/100");
+    if(Number.isFinite(Number(p.stress_test&&p.stress_test.score)))intel.push("Stress "+Math.round(Number(p.stress_test.score))+"/100");
+    if(Number.isFinite(Number(p.slate_rank)))intel.push("Slate #"+Math.round(Number(p.slate_rank)));
+    if(p.execution_state)intel.push(String(p.execution_state).replaceAll("_"," "));
+    if(intel.length)sub += " "+intel.join(" • ")+".";
     return {tier:tier,head:head,sub:sub,cls:cls,sOpen:sOpen,cOpen:cOpen};
   }
 
@@ -188,7 +201,8 @@
       c.generated_at||"",p.event_id||"",
       p.tier||"",p.price||"",p.market_support_strength||"",
       p.data_quality_grade||"",p.market_coverage||"",
-      p.market_effective_agreement||"",p.hard_rock?"1":"0"
+      p.market_effective_agreement||"",p.hard_rock?"1":"0",
+      p.market_selection_score||"",p.stress_test&&p.stress_test.score||"",p.slate_rank||""
     ].join("|");
 
     if(old&&old.dataset.key===key)return;

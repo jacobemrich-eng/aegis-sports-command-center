@@ -1,5 +1,6 @@
 const http = require('http');
 const { URL } = require('url');
+const decision = require('./decision');
 
 const PORT = Number(process.env.PORT || 3000);
 const ODDS_KEY = process.env.ODDS_API_KEY || '';
@@ -12,7 +13,7 @@ const ODDS_CACHE_TTL_MS = Math.max(30000, Math.min(300000, Number(process.env.OD
 const MIN_ODDS_REFRESH_MS = Math.max(30000, Math.min(180000, Number(process.env.MIN_ODDS_REFRESH_MS || 60000)));
 const ODDS_QUOTA_RESERVE = Math.max(0, Math.min(200, Number(process.env.ODDS_QUOTA_RESERVE || 35)));
 const TARGET_BOOK = 'hardrockbet_fl';
-const VERSION = '8.0.0-autopilot-integrity';
+const VERSION = '8.8.0-decision-intelligence';
 let LAST_ODDS_META = {remaining:null,used:null,last:null};
 let LAST_QUOTA_PROBE_AT = 0;
 const DEEP_ODDS_CACHE = new Map();
@@ -25,6 +26,9 @@ const MODELS = [
   ['Independent Thesis Model','projection','Locks sports direction before sportsbook price.'],
   ['Model Agreement Score','governance','Penalizes major disagreement across relevant modules.'],
   ['Two-Independent-Edges Gate','governance','Requires multiple independent drivers for Core.'],
+  ['Core Distinction / Stress-Test Gate v2','governance','Stress-tests qualified candidates against normal variance, modest efficiency regression, a weakened matchup assumption and information downgrade before Core survives.'],
+  ['Cross-Slate Top-3 Scarcity Gate','execution','Keeps at most three standalone bankroll exposures actionable after cross-slate comparison; excess qualifiers remain WATCH rather than being forced.'],
+  ['Execution Price State Engine','execution','Converts Play-To / Downgrade / Pass bands into automatic Core, Secondary, Watch or Pass execution states at the verified target book.'],
   ['Market Challenger / Prior','market','De-vigs market prices and treats consensus as a rival forecast.'],
   ['Market Intelligence System','market','Measures consensus, dispersion and quote freshness.'],
   ['Market-Specific Cushion Model','governance','Applies stricter required edge to volatile markets.'],
@@ -736,13 +740,54 @@ function marketCandidate(event,proj,pair,market){
   return {event_id:event.id,market,selection:sideName,point,price:Number(so.price),book:pair.book,book_key:pair.book_key,hard_rock:pair.hard_rock,last_update:pair.last_update,open_price:openPrice,price_move:priceMove,market_period_innings:inn,market_projection_score:scoreProj,market_projection_total:totalProj,market_projection_margin_home:marginProj,market_probability:sp,book_market_probability:bookSp,market_consensus_books:consensus.books,market_dispersion:consensus.dispersion,market_quality_score:marketQuality,decision_quality:finalDecisionQuality,decision_grade:finalDecisionGrade,fair_probability:fair,fair_independent:independentFair,fair_raw:fairRaw,fair_probability_low:fairLow,fair_probability_high:fairHigh,market_prior_trust:trust,ncaaf_evidence_compression_factor:ncaafCompressed?.factor??1,ncaaf_evidence_compression_active:!!ncaafCompressed?.active,independent_disagreement:divergence,independent_disagreement_signed:signedDivergence,raw_market_gap:rawDivergence,market_inside_fair_range:marketInsideFairRange,push_probability:pushProbability,market_coverage:cov,market_model_agreement:rawAgree,market_effective_agreement:eff,market_edge_count:marketEdgeN,market_support_strength:marketSupport,adjusted_edge:edge,estimated_ev:ev,cushion,fit,thesis,tier:gate,sanity_flags:sanityFlags,data_quality_grade:freshness.grade,data_freshness:freshness,play_to:bands.play_to,downgrade_at:bands.downgrade_at,pass_at:bands.pass_at,execution_bands:bands};
 }
 
-function candidateRank(c){ const tier={CORE:4,SECONDARY:3,WATCH:2,PASS:1}[c.tier]||0; return tier*100+(c.hard_rock?8:0)+(c.adjusted_edge||0)*100+(c.fit||0); }
-function chooseMarket(event,proj){ const all=[]; const keys=['h2h','spreads','totals',...(event.sport_key==='baseball_mlb'?['h2h_1st_1_innings','totals_1st_1_innings','h2h_1st_3_innings','spreads_1st_3_innings','totals_1st_3_innings','h2h_1st_5_innings','spreads_1st_5_innings','totals_1st_5_innings']:[])]; for(const k of keys)for(const p of quotePairs(event,k)){ const c=marketCandidate(event,proj,p,k); if(c)all.push(c); }
-  if(!all.length)return {best:null,all:[]}; const hr=all.filter(c=>c.hard_rock&&c.tier!=='PASS'); let pool=hr.length?hr:all; pool=pool.sort((a,b)=>candidateRank(b)-candidateRank(a)); let best=pool[0]; if(!best.hard_rock&&['CORE','SECONDARY'].includes(best.tier)){best={...best,tier:'WATCH',execution_note:'Hard Rock Florida quote not available in the synced board; reference only until target-book price is verified.'};} return {best,all:all.sort((a,b)=>candidateRank(b)-candidateRank(a))}; }
-function buildWhy(proj,c){ let good=[]; if(marketBase(c.market)==='totals'){good=proj.modules.filter(m=>/offense|starting pitcher|staff pitching|bullpen|environment/i.test(m.name)).sort((a,b)=>b.confidence-a.confidence).slice(0,4);}else{const wantHome=sameTeam(c.selection,proj.home_team);good=proj.modules.filter(m=>wantHome?m.value>0:m.value<0).sort((a,b)=>Math.abs(b.value)*b.confidence-Math.abs(a.value)*a.confidence).slice(0,3);} const ps=c.market_projection_score||proj.projected_score||{}; const scope=c.market_period_innings?`F${c.market_period_innings} `:''; return `${c.thesis}. ${scope}independent projection ${proj.away_team} ${ps.away??'—'} – ${proj.home_team} ${ps.home??'—'}. Primary supporting modules: ${good.map(m=>`${m.name} (${m.evidence})`).join(' | ')||'limited structured evidence'}.`; }
+function candidateRank(c){ return decision.selectionScore(c); }
+function chooseMarket(event,proj){
+  const all=[];
+  const keys=['h2h','spreads','totals',...(event.sport_key==='baseball_mlb'?['h2h_1st_1_innings','totals_1st_1_innings','h2h_1st_3_innings','spreads_1st_3_innings','totals_1st_3_innings','h2h_1st_5_innings','spreads_1st_5_innings','totals_1st_5_innings']:[])];
+  for(const k of keys)for(const p of quotePairs(event,k)){
+    const c=marketCandidate(event,proj,p,k);
+    if(c)all.push(c);
+  }
+  if(!all.length)return {best:null,all:[]};
+  const enriched=all.map(c=>decision.enrichCandidate(c,proj,event));
+  const hardRock=enriched.filter(c=>c.hard_rock&&c.tier!=='PASS');
+  const nonPass=enriched.filter(c=>c.tier!=='PASS');
+  const pool=(hardRock.length?hardRock:(nonPass.length?nonPass:enriched)).slice().sort((a,b)=>candidateRank(b)-candidateRank(a));
+  const best=decision.chooseBestExpression(pool,event,proj)||pool[0]||null;
+  return {best,all:enriched.slice().sort((a,b)=>candidateRank(b)-candidateRank(a))};
+}
+function buildWhy(proj,c){
+  let good=[];
+  if(marketBase(c.market)==='totals'){
+    good=proj.modules.filter(m=>/offense|starting pitcher|staff pitching|bullpen|environment/i.test(m.name)).sort((a,b)=>b.confidence-a.confidence).slice(0,4);
+  }else{
+    const wantHome=sameTeam(c.selection,proj.home_team);
+    good=proj.modules.filter(m=>wantHome?m.value>0:m.value<0).sort((a,b)=>Math.abs(b.value)*b.confidence-Math.abs(a.value)*a.confidence).slice(0,3);
+  }
+  const ps=c.market_projection_score||proj.projected_score||{};
+  const scope=c.market_period_innings?`F${c.market_period_innings} `:'';
+  const stress=c.stress_test;
+  const stressText=stress?` Stress test: ${stress.secondary_survivals}/4 adverse scenarios retained Secondary-level economics; score ${stress.score}/100.`:'';
+  const selectionText=c.market_selection_note?` Market selection: ${c.market_selection_note}`:'';
+  return `${c.thesis}. ${scope}independent projection ${proj.away_team} ${ps.away??'—'} – ${proj.home_team} ${ps.home??'—'}. Primary supporting modules: ${good.map(m=>`${m.name} (${m.evidence})`).join(' | ')||'limited structured evidence'}.${stressText}${selectionText}`;
+}
 function fmtAmericanPrice(x){x=Number(x);return Number.isFinite(x)?`${x>0?'+':''}${Math.round(x)}`:'—';}
-function timing(event,c,proj){ const hrs=hoursUntil(event.commence_time),fresh=c.last_update?Math.abs(Date.now()-new Date(c.last_update).getTime())/60000:null; if(c.data_quality_grade==='C')return 'WAIT / PASS — information quality is C'; if(proj.data_quality<65||(proj.coverage_score??0)<58)return 'WAIT / PASS FOR CONFIRMATION'; if(event.sport_key==='baseball_mlb'&&hrs<=4&&!proj.lineups_confirmed)return 'WAIT — starting lineups are not fully confirmed'; if(c.sanity_flags?.length&&c.independent_disagreement>=.08)return 'WAIT — market disagreement requires stronger confirmation'; if(hrs>12)return 'WAIT — scheduled verification will re-check closer to game'; if(fresh!=null&&fresh>45)return 'WAIT — quote may be stale'; const band=c.play_to!=null?` • play to ${fmtAmericanPrice(c.play_to)} • downgrade ${fmtAmericanPrice(c.downgrade_at)} • pass ${fmtAmericanPrice(c.pass_at)}`:''; return `BET NOW if target-book line still matches${band}`; }
-function finalVerification(proj,c){ const flags=[]; if(c.data_quality_grade==='C')flags.push('Data Freshness Gate is C'); if((c.estimated_ev??0)<=0)flags.push('calibrated estimated EV is non-positive'); if((c.adjusted_edge??0)<(c.cushion??0))flags.push('adjusted edge is below the market-specific required cushion'); if(proj.data_quality<80)flags.push('data quality below Core threshold'); if((c.market_coverage??proj.coverage_score??0)<76)flags.push('market-specific model coverage below Core threshold'); if((c.market_edge_count??proj.independent_edge_count)<2)flags.push('fewer than two market-specific independent edges'); if((c.market_support_strength??0)<42)flags.push('market-specific support strength is below the Secondary threshold'); if((c.market_effective_agreement??proj.effective_agreement??proj.model_agreement)<69)flags.push('market-specific effective agreement below Core threshold'); if(c.market_inside_fair_range)flags.push('market price remains inside the calibrated uncertainty band'); if(!c.hard_rock)flags.push('Hard Rock price not verified'); if(c.sanity_flags?.length)flags.push(c.sanity_flags[0]); if(proj.risks.length)flags.push(proj.risks[0]); const exec=`Execution: play-to ${fmtAmericanPrice(c.play_to)}, downgrade ${fmtAmericanPrice(c.downgrade_at)}, pass ${fmtAmericanPrice(c.pass_at)}; freshness ${c.data_quality_grade||'—'}.`; return flags.length?`Caution: ${[...new Set(flags)].join('; ')}. ${exec}`:`Core release gates checked: data quality, coverage, effective agreement, two-edge gate, uncertainty-band separation, market sanity, price cushion, target book, and failure paths. ${exec}`; }
+function timing(event,c,proj){
+  const hrs=hoursUntil(event.commence_time),fresh=c.last_update?Math.abs(Date.now()-new Date(c.last_update).getTime())/60000:null;
+  if(c.data_quality_grade==='C')return 'WAIT / PASS — information quality is C';
+  if(c.execution_state==='WAIT_TARGET_BOOK')return 'WAIT — Hard Rock Florida price is not verified';
+  if(c.execution_state==='PASS_PRICE')return `PASS — current Hard Rock price is beyond ${fmtAmericanPrice(c.pass_at)}`;
+  if(c.execution_state==='WATCH_BAND')return `WAIT — current Hard Rock price is outside the Secondary band; need ${fmtAmericanPrice(c.downgrade_at)} or better`;
+  if(c.execution_state==='WAIT_PRICE_BANDS')return 'WAIT — executable price bands are not fully resolved';
+  if(proj.data_quality<65||(proj.coverage_score??0)<58)return 'WAIT / PASS FOR CONFIRMATION';
+  if(event.sport_key==='baseball_mlb'&&hrs<=4&&!proj.lineups_confirmed)return 'WAIT — starting lineups are not fully confirmed';
+  if(c.sanity_flags?.length&&c.independent_disagreement>=.08)return 'WAIT — market disagreement requires stronger confirmation';
+  if(hrs>12)return 'WAIT — scheduled verification will re-check closer to game';
+  if(fresh!=null&&fresh>45)return 'WAIT — quote may be stale';
+  const band=c.play_to!=null?` • play to ${fmtAmericanPrice(c.play_to)} • downgrade ${fmtAmericanPrice(c.downgrade_at)} • pass ${fmtAmericanPrice(c.pass_at)}`:'';
+  return `BET NOW if target-book line still matches${band}`;
+}
+function finalVerification(proj,c){ const flags=[]; if(c.data_quality_grade==='C')flags.push('Data Freshness Gate is C'); if((c.estimated_ev??0)<=0)flags.push('calibrated estimated EV is non-positive'); if((c.adjusted_edge??0)<(c.cushion??0))flags.push('adjusted edge is below the market-specific required cushion'); if(proj.data_quality<80)flags.push('data quality below Core threshold'); if((c.market_coverage??proj.coverage_score??0)<76)flags.push('market-specific model coverage below Core threshold'); if((c.market_edge_count??proj.independent_edge_count)<2)flags.push('fewer than two market-specific independent edges'); if((c.market_support_strength??0)<42)flags.push('market-specific support strength is below the Secondary threshold'); if((c.market_effective_agreement??proj.effective_agreement??proj.model_agreement)<69)flags.push('market-specific effective agreement below Core threshold'); if(c.market_inside_fair_range)flags.push('market price remains inside the calibrated uncertainty band'); if(!c.hard_rock)flags.push('Hard Rock price not verified'); if(c.sanity_flags?.length)flags.push(c.sanity_flags[0]); if(proj.risks.length)flags.push(proj.risks[0]); const stress=c.stress_test?` Stress ${c.stress_test.score}/100 (${c.stress_test.secondary_survivals}/4 adverse scenarios retain Secondary economics).`:''; const exec=`Execution: play-to ${fmtAmericanPrice(c.play_to)}, downgrade ${fmtAmericanPrice(c.downgrade_at)}, pass ${fmtAmericanPrice(c.pass_at)}; state ${c.execution_state||'—'}; freshness ${c.data_quality_grade||'—'}.${stress}`; return flags.length?`Caution: ${[...new Set(flags)].join('; ')}. ${exec}`:`Core release gates checked: data quality, coverage, effective agreement, two-edge gate, uncertainty-band separation, market sanity, price cushion, target book, and failure paths. ${exec}`; }
 
 
 function settledBetOutcome(record,score){
@@ -811,9 +856,10 @@ async function scanSlate(events,opts={}){
       if(watches.length>3)slateSanity.message += ` MLB watchlist cap active: only the top 3 WATCH candidates remain visible; ${watches.length-3} additional HOLD candidates were CUT.`;
     }
   }
-  const released=[]; const passes=[]; for(const a of analyses){ const c=a.market.best,p=a.projection; if(!c||c.tier==='PASS'){passes.push({event_id:a.event.id,matchup:`${a.event.away_team} @ ${a.event.home_team}`,reason:!c?'No verified market matched the independent projection.':((c.sanity_flags||[]).find(x=>/automatic CUT|no-support gate|comparable-data gate|Slate-level evidence gate|MLB support gate|MLB probable-starter gate|MLB watchlist-cap gate/i.test(x))||`Release gates failed: DQ ${p.data_quality.toFixed(0)}, market coverage ${(c.market_coverage??p.coverage_score??0).toFixed(0)}, market effective agreement ${(c.market_effective_agreement??p.effective_agreement??p.model_agreement).toFixed(0)}, support ${(c.market_support_strength??0).toFixed(0)}, market-specific edges ${c.market_edge_count??p.independent_edge_count}, adjusted edge ${fmtPct(c.adjusted_edge)} vs cushion ${fmtPct(c.cushion)}.`)});continue;} released.push({event_id:a.event.id,event:a.event,projection:p,...c,why:buildWhy(p,c),how_it_loses:p.risks.slice(0,4),timing:timing(a.event,c,p),final_verification:finalVerification(p,c),units:c.tier==='CORE'?1:c.tier==='SECONDARY'?.5:0}); }
-  released.sort((x,y)=>candidateRank(y)-candidateRank(x)); let cores=0; for(const p of released){ if(p.tier==='CORE'){cores++;if(cores>2){p.tier='SECONDARY';p.units=.5;p.final_verification+=' Precision Mode Core cap downgraded this play.';}} }
-  const eligible=released.filter(x=>['CORE','SECONDARY'].includes(x.tier)&&x.hard_rock&&x.fair_probability>=.56&&(x.independent_disagreement||0)<.08).slice(0,3); let parlay=null; if(eligible.length>=2){ const legs=eligible.slice(0,2); let dec=1; for(const l of legs)dec*=l.price>0?1+l.price/100:1+100/(-l.price); const american=dec>=2?Math.round((dec-1)*100):Math.round(-100/(dec-1)); parlay={units:.25,legs:legs.map(l=>({event_id:l.event_id,selection:l.selection,point:l.point,market:l.market,price:l.price,book:l.book})),approx_american:american,rationale:'Optional only: both legs independently cleared straight-bet release gates, use distinct games, have verified Hard Rock quotes, and do not carry extreme market-disagreement flags.'}; }
+  const released=[]; const passes=[]; for(const a of analyses){ const c=a.market.best,p=a.projection; if(!c||c.tier==='PASS'){passes.push({event_id:a.event.id,matchup:`${a.event.away_team} @ ${a.event.home_team}`,reason:!c?'No verified market matched the independent projection.':((c.sanity_flags||[]).find(x=>/automatic CUT|no-support gate|comparable-data gate|Slate-level evidence gate|MLB support gate|MLB probable-starter gate|MLB watchlist-cap gate/i.test(x))||`Release gates failed: DQ ${p.data_quality.toFixed(0)}, market coverage ${(c.market_coverage??p.coverage_score??0).toFixed(0)}, market effective agreement ${(c.market_effective_agreement??p.effective_agreement??p.model_agreement).toFixed(0)}, support ${(c.market_support_strength??0).toFixed(0)}, market-specific edges ${c.market_edge_count??p.independent_edge_count}, adjusted edge ${fmtPct(c.adjusted_edge)} vs cushion ${fmtPct(c.cushion)}.`)});continue;} released.push({event_id:a.event.id,event:a.event,projection:p,...c,why:buildWhy(p,c),how_it_loses:decision.lossPaths(c,p.risks),timing:timing(a.event,c,p),final_verification:finalVerification(p,c),units:c.tier==='CORE'?1:c.tier==='SECONDARY'?.5:0}); }
+  decision.applySlateDiscipline(released);
+  const parlay=decision.buildParlay(released);
+  const decisionIntelligence=decision.summary(released,parlay);
   const grade=released.filter(x=>x.tier==='CORE').length>=2?'A':released.some(x=>x.tier==='CORE')?'B+':released.some(x=>x.tier==='SECONDARY')?'B':'PASS-HEAVY';
   const slateCandidates=analyses.map(a=>a.market?.best).filter(Boolean),slateMetrics={
     games:analyses.length,
@@ -824,7 +870,7 @@ async function scanSlate(events,opts={}){
     hard_rock_coverage:safeDiv(slateCandidates.filter(c=>c.hard_rock).length,Math.max(1,slateCandidates.length),0),
     extreme_disagreements:slateCandidates.filter(c=>(c.independent_disagreement||0)>=.10).length
   };
-  return {version:VERSION,generated_at:new Date().toISOString(),slate_grade:grade,slate_sanity:slateSanity,slate_metrics:slateMetrics,deep_market_scan:deepMeta,plays:released,passes,parlay,analyses}; }
+  return {version:VERSION,generated_at:new Date().toISOString(),decision_intelligence:decisionIntelligence,slate_grade:grade,slate_sanity:slateSanity,slate_metrics:slateMetrics,deep_market_scan:deepMeta,plays:released,passes,parlay,analyses}; }
 
 module.exports = {
   VERSION, MODELS, SPORTS,
