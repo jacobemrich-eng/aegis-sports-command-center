@@ -1,8 +1,8 @@
-# AEGIS Sports Command Center v8.9.1 — Scheduler Redundancy & Hands-Off Recovery
+# AEGIS Sports Command Center v8.9.2 — True Failover & Hands-Off Recovery
 
 AEGIS is a free-tier-first sports research operating system built around the SB101 AEGIS decision framework.
 
-**Version taxonomy:** platform release **v8.9.1**; canonical betting governance **SB101 AEGIS v1.1 — September Daily-Use Freeze**. Platform releases do not silently rewrite historical model versions. v8 turns the existing one-tap research engine into a scheduled, persistent daily workflow for **MLB and NCAAF**, while keeping the other registered sport systems available for research and validation.
+**Version taxonomy:** platform release **v8.9.2**; canonical betting governance **SB101 AEGIS v1.1 — September Daily-Use Freeze**. Platform releases do not silently rewrite historical model versions. v8 turns the existing one-tap research engine into a scheduled, persistent daily workflow for **MLB and NCAAF**, while keeping the other registered sport systems available for research and validation.
 
 ## What v8 automates
 
@@ -188,3 +188,12 @@ The canonical betting governance remains **SB101 AEGIS v1.1 — September Daily-
 - The v8.8 Decision Intelligence engine remains frozen at `8.8.0-decision-intelligence`.
 
 Recommended external heartbeat cadence: every 10 minutes during 07:00–23:00 America/New_York.
+
+
+## v8.9.2 True Failover
+
+- Fixes a self-suppression bug in v8.9.1 where the queued heartbeat recovery recheck saw its own in-flight lock and cancelled itself.
+- The internal post-debounce recheck can now ignore only its own in-flight marker while normal external heartbeat calls still deduplicate concurrent recovery.
+- Backup recovery continues to require stale primary state, healthy persistent storage, valid heartbeat authentication, and the normal AEGIS operating window.
+- The recovery action still reuses the canonical protected `/api/autopilot/tick` execution path.
+- The v8.8 Decision Intelligence engine remains frozen at `8.8.0-decision-intelligence`.

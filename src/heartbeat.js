@@ -92,6 +92,7 @@ function decide({
   autopilotSecretReady=false,
   staleMinutes=35,
   uptimeSeconds=null,
+  ignoreInFlight=false,
   nowMs=Date.now()
 }={}){
   const age=finite(operations.last_success_age_minutes);
@@ -103,7 +104,7 @@ function decide({
   else if(!autopilotSecretReady)reason='autopilot_secret_missing';
   else if(operations.inside_operating_window===false)reason='sleep_window';
   else if(storage.ok===false||storage.persistent!==true)reason='persistence_unhealthy';
-  else if(inFlight)reason='recovery_in_flight';
+  else if(inFlight&&!ignoreInFlight)reason='recovery_in_flight';
   else if(age!==null&&age<Number(staleMinutes||35))reason='fresh';
   else if(age===null&&uptime!==null&&uptime<Number(staleMinutes||35)*60)reason='startup_grace';
   else{

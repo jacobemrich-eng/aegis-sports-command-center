@@ -53,6 +53,43 @@ test('debounced recheck suppresses recovery if primary recovered',async()=>{
   assert.equal(h.publicState({secretReady:true,autopilotSecretReady:true,uptimeSeconds:3600}).last_result,'suppressed:fresh');
 });
 
+test('queued failover recheck may ignore its own in-flight lock and execute recovery',async()=>{
+  let runs=0;
+  assert.equal(h.queueRecovery({
+    delayMs:0,
+    recheck:async()=>h.decide({
+      operations:{inside_operating_window:true,last_success_age_minutes:56},
+      storage:{ok:true,persistent:true},
+      secretReady:true,
+      autopilotSecretReady:true,
+      staleMinutes:35,
+      uptimeSeconds:3600,
+      ignoreInFlight:true
+    }),
+    run:async()=>{runs++;return {ok:true};}
+  }),true);
+  await h._waitForIdleForTest();
+  assert.equal(runs,1);
+  const state=h.publicState({secretReady:true,autopilotSecretReady:true,uptimeSeconds:3600});
+  assert.equal(state.last_result,'success');
+  assert.ok(state.last_recovery_success_at);
+});
+
+test('external decisions still block duplicate recovery while one is in flight',async()=>{
+  assert.equal(h.queueRecovery({delayMs:20,recheck:async()=>({trigger:false,reason:'fresh'}),run:async()=>({ok:true})}),true);
+  const gate=h.decide({
+    operations:{inside_operating_window:true,last_success_age_minutes:56},
+    storage:{ok:true,persistent:true},
+    secretReady:true,
+    autopilotSecretReady:true,
+    staleMinutes:35,
+    uptimeSeconds:3600
+  });
+  assert.equal(gate.trigger,false);
+  assert.equal(gate.reason,'recovery_in_flight');
+  await h._waitForIdleForTest();
+});
+
 test('authenticated probes make redundancy state healthy',()=>{
   h.recordProbe({reason:'fresh'},Date.parse('2026-09-03T16:00:00Z'));
   const s=h.publicState({secretReady:true,autopilotSecretReady:true,nowMs:Date.parse('2026-09-03T16:08:00Z'),uptimeSeconds:3600});
@@ -68,6 +105,7 @@ test('repository wiring exposes protected heartbeat recovery without changing pr
   assert.match(server,/\/api\/autopilot\/heartbeat/);
   assert.match(server,/AEGIS_HEARTBEAT_SECRET/);
   assert.match(server,/heartbeat\.queueRecovery/);
+  assert.match(server,/ignoreInFlight:true/);
   assert.match(server,/127\.0\.0\.1:\$\{PORT\}\/api\/autopilot\/tick/);
   assert.match(workflow,/2,17,32,47 \* \* \* \*/);
 });
@@ -92,5 +130,5 @@ test('Operations Guardian and UI surface scheduler redundancy',()=>{
   assert.match(operations,/scheduler_redundancy/);
   assert.match(operations,/primary-only/);
   assert.match(ui,/REDUNDANT/);
-  assert.match(html,/v8\.9\.1 • REDUNDANT OPS/);
+  assert.match(html,/v8\.9\.2 • TRUE FAILOVER/);
 });

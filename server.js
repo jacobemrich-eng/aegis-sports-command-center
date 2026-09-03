@@ -289,6 +289,7 @@ if(req.method==='POST'&&u.pathname==='/api/autopilot/heartbeat'){
       return heartbeat.decide({
         operations:ops2,
         storage:storage2,
+        ignoreInFlight:true,
         secretReady:!!heartbeatSecret,
         autopilotSecretReady:!!autopilotSecret,
         staleMinutes:Number(process.env.AEGIS_HEARTBEAT_STALE_MINUTES||35),

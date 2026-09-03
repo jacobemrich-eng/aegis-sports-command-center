@@ -148,7 +148,7 @@ test(
 );
 
 test(
-  'index declares UTF-8, v8.9.1 redundant operations shell, and v8.8 core bundle cache keys',
+  'index declares UTF-8, v8.9.2 true-failover operations shell, and v8.8 core bundle cache keys',
   () => {
     const html = fs.readFileSync(
       path.join(
@@ -165,7 +165,7 @@ test(
 
     assert.match(
       html,
-      /v8\.9\.1 • REDUNDANT OPS/
+      /v8\.9\.2 • TRUE FAILOVER/
     );
 
     for (
