@@ -1,0 +1,960 @@
+name: Apply AEGIS v8.9 Hands-Off Operations
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  upgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v5
+        with:
+          ref: main
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+
+      - name: Stage Operations Guardian core
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > src/operations.js <<'EOF_SRC_OPERATIONS_JS'
+          'use strict';
+
+          function finite(v){
+            const n=Number(v);
+            return Number.isFinite(n)?n:null;
+          }
+
+          function firstFinite(...values){
+            for(const value of values){
+              const n=finite(value);
+              if(n!==null)return n;
+            }
+            return null;
+          }
+
+          function ageMinutes(value,nowMs=Date.now()){
+            if(!value)return null;
+            const ms=new Date(value).getTime();
+            if(!Number.isFinite(ms))return null;
+            return Math.max(0,(nowMs-ms)/60000);
+          }
+
+          function etHour(nowMs=Date.now()){
+            try{
+              const parts=new Intl.DateTimeFormat('en-US',{
+                timeZone:'America/New_York',
+                hour:'2-digit',
+                hourCycle:'h23'
+              }).formatToParts(new Date(nowMs));
+              const raw=parts.find(p=>p.type==='hour')?.value;
+              const hour=Number(raw);
+              return Number.isFinite(hour)?hour:null;
+            }catch{
+              return null;
+            }
+          }
+
+          function normalizedAlerts(auto){
+            const rows=Array.isArray(auto?.alerts)?auto.alerts:[];
+            return rows.slice(-4).map(item=>{
+              if(typeof item==='string')return item;
+              if(!item||typeof item!=='object')return String(item||'');
+              return String(item.message||item.title||item.reason||item.type||'Operational alert');
+            }).filter(Boolean);
+          }
+
+          function evaluate({
+            auto={},
+            storage={},
+            config={},
+            production=false,
+            nowMs=Date.now(),
+            uptimeSeconds=null
+          }={}){
+            const scheduleMinutes=firstFinite(config.scheduleMinutes,15)??15;
+            const staleAfter=firstFinite(config.staleAfterMinutes,35)??35;
+            const actionAfter=firstFinite(config.actionAfterMinutes,75)??75;
+            const hour=etHour(nowMs);
+            const insideWindow=hour===null?true:(hour>=7&&hour<23);
+            const lastSuccess=auto.last_success_at||auto.lastSuccessAt||null;
+            const lastAge=ageMinutes(lastSuccess,nowMs);
+            const enabled=auto.enabled!==false&&config.autopilotEnabled!==false;
+            const dailyBudget=firstFinite(config.dailyBudget,auto.daily_budget,auto.usage?.daily_budget);
+            const monthlyBudget=firstFinite(config.monthlyBudget,auto.monthly_budget,auto.usage?.monthly_budget);
+            const dailyUsed=firstFinite(auto.usage?.today,auto.usage?.daily,auto.today_usage,auto.daily_usage);
+            const monthlyUsed=firstFinite(auto.usage?.month,auto.usage?.monthly,auto.month_usage,auto.monthly_usage);
+            const gradeDelayHours=firstFinite(config.gradeDelayHours,2)??2;
+            const autoLockMinutes=firstFinite(config.autoLockMinutes,30)??30;
+
+            const checks=[];
+            const alerts=normalizedAlerts(auto);
+            let severity=0; // 0 green, 1 degraded, 2 red
+            let mode=insideWindow?'AUTONOMOUS':'SLEEP_WINDOW';
+            let recoveryArmed=false;
+            let interventionRequired=false;
+
+            function check(key,ok,level,message){
+              checks.push({key,ok:!!ok,level:ok?'OK':level,message});
+              if(!ok){
+                if(level==='RED')severity=Math.max(severity,2);
+                else severity=Math.max(severity,1);
+                if(message&&!alerts.includes(message))alerts.push(message);
+              }
+            }
+
+            check('storage_health',storage.ok!==false,production?'RED':'DEGRADED','Persistent state backend is reporting an error.');
+            check('persistent_storage',!production||storage.persistent===true,production?'RED':'DEGRADED','Production persistence is not confirmed.');
+            check('autopilot_enabled',enabled,'RED','Autopilot is disabled.');
+
+            if(insideWindow&&enabled){
+              if(lastAge===null){
+                const uptime=finite(uptimeSeconds);
+                const grace=uptime!==null&&uptime<scheduleMinutes*2*60;
+                check('scheduler_freshness',grace,'RED',grace?'Awaiting the first scheduled tick after deployment.':'No successful Autopilot tick is recorded during the operating window.');
+                if(grace){
+                  severity=Math.max(severity,1);
+                  recoveryArmed=true;
+                  mode='RECOVERY_ARMED';
+                }
+              }else if(lastAge<=staleAfter){
+                checks.push({key:'scheduler_freshness',ok:true,level:'OK',message:`Last successful tick was ${Math.round(lastAge)} minutes ago.`});
+              }else if(lastAge<=actionAfter){
+                severity=Math.max(severity,1);
+                recoveryArmed=true;
+                mode='RECOVERY_ARMED';
+                checks.push({key:'scheduler_freshness',ok:false,level:'DEGRADED',message:`Autopilot is ${Math.round(lastAge)} minutes stale; the next scheduler run is armed for recovery.`});
+                alerts.push(`Missed-run recovery armed: last successful tick was ${Math.round(lastAge)} minutes ago.`);
+              }else{
+                severity=2;
+                interventionRequired=true;
+                mode='ACTION_REQUIRED';
+                checks.push({key:'scheduler_freshness',ok:false,level:'RED',message:`Autopilot is ${Math.round(lastAge)} minutes stale, beyond the automatic recovery window.`});
+                alerts.push(`Action required: no successful Autopilot tick for ${Math.round(lastAge)} minutes.`);
+              }
+            }else{
+              checks.push({key:'scheduler_freshness',ok:true,level:'SLEEP',message:'Outside the 07:00–23:00 ET operating window; scheduler staleness is not treated as a fault.'});
+            }
+
+            if(auto.last_error){
+              severity=Math.max(severity,1);
+              if(severity<2)mode='RECOVERY_ARMED';
+              recoveryArmed=true;
+              checks.push({key:'last_run_error',ok:false,level:'DEGRADED',message:'The most recent Autopilot state contains an error; automatic retry/recovery remains armed.'});
+              alerts.push('Autopilot reported an error on its latest recorded run; recovery is armed.');
+            }else{
+              checks.push({key:'last_run_error',ok:true,level:'OK',message:'No current Autopilot error is recorded.'});
+            }
+
+            let quotaProtected=false;
+            if(dailyBudget!==null&&dailyUsed!==null&&dailyBudget>0&&dailyUsed>=dailyBudget){
+              quotaProtected=true;
+              severity=Math.max(severity,1);
+              if(severity<2)mode='QUOTA_PROTECTED';
+              checks.push({key:'daily_budget',ok:false,level:'PROTECTED',message:`Daily sportsbook budget is protected at ${dailyUsed}/${dailyBudget}; nonessential refreshes should pause until reset.`});
+              alerts.push('Daily sportsbook budget reached; quota protection is active.');
+            }else{
+              checks.push({key:'daily_budget',ok:true,level:'OK',message:dailyBudget!==null&&dailyUsed!==null?`Daily usage ${dailyUsed}/${dailyBudget}.`:'Daily usage telemetry is not available in this status payload.'});
+            }
+
+            if(monthlyBudget!==null&&monthlyUsed!==null&&monthlyBudget>0&&monthlyUsed>=monthlyBudget){
+              quotaProtected=true;
+              severity=Math.max(severity,1);
+              if(severity<2)mode='QUOTA_PROTECTED';
+              checks.push({key:'monthly_budget',ok:false,level:'PROTECTED',message:`Monthly sportsbook budget is protected at ${monthlyUsed}/${monthlyBudget}.`});
+              alerts.push('Monthly sportsbook budget reached; quota protection is active.');
+            }else{
+              checks.push({key:'monthly_budget',ok:true,level:'OK',message:monthlyBudget!==null&&monthlyUsed!==null?`Monthly usage ${monthlyUsed}/${monthlyBudget}.`:'Monthly usage telemetry is not available in this status payload.'});
+            }
+
+            if(severity===2){
+              mode='ACTION_REQUIRED';
+              interventionRequired=true;
+            }else if(!insideWindow&&severity===0){
+              mode='SLEEP_WINDOW';
+            }else if(severity===0){
+              mode='AUTONOMOUS';
+            }
+
+            const status=severity===2?'RED':severity===1?'DEGRADED':'GREEN';
+            const nextAction=status==='RED'
+              ?'Open Command Center diagnostics and restore the failed scheduler, persistence, or Autopilot dependency.'
+              :quotaProtected
+                ?'No manual action required unless you intentionally want to change quota policy; AEGIS is protecting the remaining API budget.'
+                :recoveryArmed
+                  ?'No manual action yet. The next scheduled workflow will retry/recover automatically; intervene only if status becomes RED.'
+                  :insideWindow
+                    ?'No action required. AEGIS is operating autonomously.'
+                    :'No action required. AEGIS is outside its scheduled operating window.';
+
+            return {
+              status,
+              mode,
+              intervention_required:interventionRequired,
+              recovery_armed:recoveryArmed,
+              quota_protected:quotaProtected,
+              operating_window_et:'07:00–23:00',
+              inside_operating_window:insideWindow,
+              expected_schedule_minutes:scheduleMinutes,
+              stale_after_minutes:staleAfter,
+              action_after_minutes:actionAfter,
+              last_success_at:lastSuccess,
+              last_success_age_minutes:lastAge===null?null:+lastAge.toFixed(1),
+              usage:{today:dailyUsed,daily_budget:dailyBudget,month:monthlyUsed,monthly_budget:monthlyBudget},
+              safeguards:{
+                scheduler_recovery:'armed',
+                persistent_state:storage.persistent===true,
+                auto_lock_minutes:autoLockMinutes,
+                grade_delay_hours:gradeDelayHours,
+                quota_governor:true,
+                release_sports:Array.isArray(config.releaseSports)?config.releaseSports:[]
+              },
+              checks,
+              alerts:Array.from(new Set(alerts)).slice(-8),
+              next_action:nextAction,
+              evaluated_at:new Date(nowMs).toISOString()
+            };
+          }
+
+          module.exports={ageMinutes,etHour,evaluate};
+          EOF_SRC_OPERATIONS_JS
+
+      - name: Stage Operations Guardian UI
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > public/app-v8_9.js <<'EOF_PUBLIC_APP_V8_9_JS'
+          (function(){
+            'use strict';
+
+            const REFRESH_MS=60000;
+            let timer=null;
+
+            function text(el,value){
+              if(el)el.textContent=value==null?'—':String(value);
+            }
+
+            function ensurePanel(){
+              let panel=document.getElementById('opsGuardian');
+              if(panel)return panel;
+
+              const host=document.querySelector('.autopilotPanel');
+              if(!host)return null;
+
+              panel=document.createElement('div');
+              panel.id='opsGuardian';
+              panel.className='opsGuardian ops-unknown';
+              panel.innerHTML=[
+                '<div class="opsTop">',
+                  '<div>',
+                    '<div class="eyebrow">AUTONOMOUS OPERATIONS</div>',
+                    '<h3 id="opsTitle">Checking hands-off status…</h3>',
+                  '</div>',
+                  '<span id="opsBadge" class="opsBadge">CHECKING</span>',
+                '</div>',
+                '<p id="opsMessage" class="small subtle">AEGIS is verifying scheduler freshness, persistence, recovery and quota safeguards.</p>',
+                '<div class="opsGrid">',
+                  '<div><b>Last success</b><span id="opsLast">—</span></div>',
+                  '<div><b>Recovery</b><span id="opsRecovery">—</span></div>',
+                  '<div><b>Persistence</b><span id="opsPersist">—</span></div>',
+                  '<div><b>Quota</b><span id="opsQuota">—</span></div>',
+                '</div>',
+                '<div id="opsAlerts" class="opsAlerts"></div>'
+              ].join('');
+
+              const head=host.querySelector('.sectionhead');
+              if(head&&head.nextSibling)host.insertBefore(panel,head.nextSibling);
+              else host.appendChild(panel);
+              return panel;
+            }
+
+            function formatAge(minutes){
+              const n=Number(minutes);
+              if(!Number.isFinite(n))return 'Not recorded';
+              if(n<1)return '<1 min ago';
+              return Math.round(n)+' min ago';
+            }
+
+            function render(ops){
+              const panel=ensurePanel();
+              if(!panel||!ops)return;
+
+              const status=String(ops.status||'DEGRADED').toUpperCase();
+              const mode=String(ops.mode||'UNKNOWN').replaceAll('_',' ');
+              panel.className='opsGuardian ops-'+status.toLowerCase();
+
+              text(document.getElementById('opsBadge'),status);
+              text(document.getElementById('opsTitle'),
+                status==='GREEN'?'AEGIS IS OPERATING HANDS-OFF':
+                status==='RED'?'AEGIS NEEDS ATTENTION':
+                mode==='QUOTA PROTECTED'?'AEGIS IS PROTECTING API BUDGET':
+                'AEGIS RECOVERY IS ARMED'
+              );
+              text(document.getElementById('opsMessage'),ops.next_action||'Operational status updated.');
+              text(document.getElementById('opsLast'),formatAge(ops.last_success_age_minutes));
+              text(document.getElementById('opsRecovery'),ops.recovery_armed?'ARMED':'STANDBY');
+              text(document.getElementById('opsPersist'),ops.safeguards&&ops.safeguards.persistent_state?'CONFIRMED':'CHECK');
+
+              const usage=ops.usage||{};
+              const quota=(usage.today!=null&&usage.daily_budget!=null)
+                ? `${usage.today}/${usage.daily_budget} today`
+                : (ops.quota_protected?'PROTECTED':'GOVERNED');
+              text(document.getElementById('opsQuota'),quota);
+
+              const alerts=document.getElementById('opsAlerts');
+              if(alerts){
+                alerts.replaceChildren();
+                const rows=Array.isArray(ops.alerts)?ops.alerts.slice(-3):[];
+                if(rows.length){
+                  for(const item of rows){
+                    const div=document.createElement('div');
+                    div.className='opsAlert';
+                    div.textContent=String(item);
+                    alerts.appendChild(div);
+                  }
+                }
+              }
+            }
+
+            async function refresh(){
+              try{
+                const res=await fetch('/api/health',{cache:'no-store'});
+                if(!res.ok)throw new Error('health '+res.status);
+                const data=await res.json();
+                render(data.operations||null);
+              }catch(err){
+                const panel=ensurePanel();
+                if(panel){
+                  panel.className='opsGuardian ops-red';
+                  text(document.getElementById('opsBadge'),'CHECK');
+                  text(document.getElementById('opsTitle'),'OPERATIONS STATUS UNAVAILABLE');
+                  text(document.getElementById('opsMessage'),'The dashboard could not verify the live operations contract. Refresh once; if it persists, inspect System Diagnostics.');
+                }
+              }
+            }
+
+            function start(){
+              ensurePanel();
+              refresh();
+              if(timer)clearInterval(timer);
+              timer=setInterval(refresh,REFRESH_MS);
+            }
+
+            if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});
+            else start();
+
+            document.addEventListener('visibilitychange',()=>{
+              if(document.visibilityState==='visible')refresh();
+            });
+          })();
+          EOF_PUBLIC_APP_V8_9_JS
+
+          cat > public/visual-v8_9.css <<'EOF_PUBLIC_VISUAL_V8_9_CSS'
+          .opsGuardian{margin:14px 0 4px;padding:16px;border:1px solid rgba(93,229,188,.28);border-radius:18px;background:linear-gradient(180deg,rgba(6,28,35,.94),rgba(5,20,29,.94));box-shadow:0 12px 36px rgba(0,0,0,.18)}
+          .opsTop{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.opsTop h3{margin:4px 0 0;font-size:18px;letter-spacing:.02em}.opsBadge{flex:0 0 auto;padding:7px 10px;border:1px solid rgba(255,255,255,.15);border-radius:999px;font-size:11px;font-weight:900;letter-spacing:.14em}.opsGrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:12px}.opsGrid>div{padding:10px;border:1px solid rgba(255,255,255,.08);border-radius:13px;background:rgba(2,14,22,.6)}.opsGrid b{display:block;color:#91a7b6;font-size:10px;letter-spacing:.11em;text-transform:uppercase}.opsGrid span{display:block;margin-top:5px;font-weight:800;font-size:13px}.opsAlerts{display:grid;gap:7px;margin-top:10px}.opsAlert{padding:9px 11px;border-radius:11px;background:rgba(255,193,7,.08);border:1px solid rgba(255,193,7,.18);font-size:12px;line-height:1.35}.ops-green{border-color:rgba(93,229,188,.35)}.ops-green .opsBadge{color:#72e8c1;border-color:rgba(93,229,188,.4)}.ops-degraded{border-color:rgba(255,202,72,.34)}.ops-degraded .opsBadge{color:#ffd76b;border-color:rgba(255,202,72,.42)}.ops-red{border-color:rgba(255,104,122,.45)}.ops-red .opsBadge{color:#ff8d9d;border-color:rgba(255,104,122,.5)}
+          @media(max-width:700px){.opsGrid{grid-template-columns:repeat(2,minmax(0,1fr))}.opsGuardian{padding:14px}.opsTop h3{font-size:16px}}
+          EOF_PUBLIC_VISUAL_V8_9_CSS
+
+      - name: Stage Operations Guardian tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > tests/operations.test.js <<'EOF_TESTS_OPERATIONS_TEST_JS'
+          const test=require('node:test');
+          const assert=require('node:assert/strict');
+          const fs=require('node:fs');
+          const path=require('node:path');
+
+          const ROOT=path.join(__dirname,'..');
+          const operations=require('../src/operations');
+
+          const NOW=Date.parse('2026-09-03T00:30:00Z'); // 20:30 ET
+          const isoAgo=m=>new Date(NOW-m*60000).toISOString();
+
+          const good={
+            storage:{ok:true,persistent:true},
+            config:{
+              autopilotEnabled:true,
+              dailyBudget:18,
+              monthlyBudget:450,
+              scheduleMinutes:15,
+              releaseSports:['baseball_mlb','americanfootball_ncaaf']
+            },
+            production:true,
+            nowMs:NOW,
+            uptimeSeconds:3600
+          };
+
+          test('fresh production scheduler is autonomous GREEN',()=>{
+            const x=operations.evaluate({...good,auto:{enabled:true,last_success_at:isoAgo(8),last_error:null,usage:{today:8,month:30}}});
+            assert.equal(x.status,'GREEN');
+            assert.equal(x.mode,'AUTONOMOUS');
+            assert.equal(x.intervention_required,false);
+            assert.equal(x.recovery_armed,false);
+          });
+
+          test('moderately stale scheduler arms automatic recovery without asking for intervention',()=>{
+            const x=operations.evaluate({...good,auto:{enabled:true,last_success_at:isoAgo(48),last_error:null}});
+            assert.equal(x.status,'DEGRADED');
+            assert.equal(x.mode,'RECOVERY_ARMED');
+            assert.equal(x.recovery_armed,true);
+            assert.equal(x.intervention_required,false);
+          });
+
+          test('severely stale scheduler requires intervention',()=>{
+            const x=operations.evaluate({...good,auto:{enabled:true,last_success_at:isoAgo(90),last_error:null}});
+            assert.equal(x.status,'RED');
+            assert.equal(x.mode,'ACTION_REQUIRED');
+            assert.equal(x.intervention_required,true);
+          });
+
+          test('production persistence loss is RED',()=>{
+            const x=operations.evaluate({...good,storage:{ok:true,persistent:false},auto:{enabled:true,last_success_at:isoAgo(5)}});
+            assert.equal(x.status,'RED');
+            assert.equal(x.intervention_required,true);
+          });
+
+          test('quota exhaustion protects budget without pretending system outage',()=>{
+            const x=operations.evaluate({...good,auto:{enabled:true,last_success_at:isoAgo(5),usage:{today:18,month:40}}});
+            assert.equal(x.status,'DEGRADED');
+            assert.equal(x.mode,'QUOTA_PROTECTED');
+            assert.equal(x.quota_protected,true);
+            assert.equal(x.intervention_required,false);
+          });
+
+          test('sleep window does not mark old scheduler activity as a failure',()=>{
+            const now=Date.parse('2026-09-03T08:00:00Z'); // 04:00 ET
+            const x=operations.evaluate({...good,nowMs:now,auto:{enabled:true,last_success_at:new Date(now-180*60000).toISOString(),last_error:null}});
+            assert.equal(x.inside_operating_window,false);
+            assert.equal(x.status,'GREEN');
+            assert.equal(x.mode,'SLEEP_WINDOW');
+          });
+
+          test('server health contract exposes Operations Guardian and direct status route',()=>{
+            const server=fs.readFileSync(path.join(ROOT,'server.js'),'utf8');
+            assert.match(server,/require\('\.\/src\/operations'\)/);
+            assert.match(server,/operations:ops/);
+            assert.match(server,/\/api\/operations\/status/);
+            assert.match(server,/operations\.evaluate/);
+          });
+
+          test('scheduled Autopilot workflow retains 15-minute cadence and adds guarded recovery',()=>{
+            const wf=fs.readFileSync(path.join(ROOT,'.github/workflows/aegis-autopilot.yml'),'utf8');
+            assert.match(wf,/2,17,32,47 \* \* \* \*/);
+            assert.match(wf,/cancel-in-progress: false/);
+            assert.match(wf,/success_after_start/);
+            assert.match(wf,/Prior tick completed despite transport failure/);
+            assert.match(wf,/one guarded recovery attempt/);
+            assert.match(wf,/persistent_storage/);
+            assert.match(wf,/contents: read/);
+          });
+
+          test('v8.9 UI is additive, calm, cache-busted, and free of common mojibake',()=>{
+            const js=fs.readFileSync(path.join(ROOT,'public/app-v8_9.js'),'utf8');
+            const html=fs.readFileSync(path.join(ROOT,'public/index.html'),'utf8');
+            assert.match(js,/REFRESH_MS=60000/);
+            assert.doesNotMatch(js,/MutationObserver/);
+            assert.doesNotMatch(js,/[ÃÂ�â]|[\u0080-\u009f]/u);
+            assert.match(js,/AEGIS IS OPERATING HANDS-OFF/);
+            assert.match(html,/v8\.9 • AUTONOMOUS OPS/);
+            assert.match(html,/\/app-v8_9\.js\?v=8\.9\.0/);
+            assert.match(html,/\/visual-v8_9\.css\?v=8\.9\.0/);
+          });
+
+          test('v8.9 platform release does not rewrite the v8.8 Decision Intelligence engine',()=>{
+            const pkg=require('../package.json');
+            const engine=require('../src/engine');
+            assert.equal(pkg.version,'8.9.0');
+            assert.equal(engine.VERSION,'8.8.0-decision-intelligence');
+          });
+          EOF_TESTS_OPERATIONS_TEST_JS
+
+      - name: Upgrade Autopilot recovery workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > .github/workflows/aegis-autopilot.yml <<'EOF__GITHUB_WORKFLOWS_AEGIS_AUTOPILOT_YML'
+          name: AEGIS Autopilot
+
+          on:
+            workflow_dispatch:
+            schedule:
+              - cron: '2,17,32,47 * * * *'
+
+          permissions:
+            contents: read
+
+          concurrency:
+            group: aegis-autopilot
+            cancel-in-progress: false
+
+          jobs:
+            tick:
+              runs-on: ubuntu-latest
+              timeout-minutes: 8
+
+              steps:
+                - name: Run guarded Autopilot tick
+                  shell: bash
+                  env:
+                    BASE_URL: https://aegis-sports-command-center.onrender.com
+                    AUTOPILOT_SECRET: __AEGIS_AUTOPILOT_SECRET_EXPR__
+                  run: |
+                    set -euo pipefail
+
+                    ET_HOUR="$(TZ=America/New_York date +%H)"
+                    ET_HOUR=$((10#$ET_HOUR))
+
+                    if [ "$ET_HOUR" -lt 7 ] || [ "$ET_HOUR" -ge 23 ]; then
+                      echo "Outside AEGIS operating window (07:00–23:00 ET). No tick required."
+                      exit 0
+                    fi
+
+                    if [ -z "${AUTOPILOT_SECRET:-}" ]; then
+                      echo "AEGIS_AUTOPILOT_SECRET is missing."
+                      exit 1
+                    fi
+
+                    START_EPOCH="$(date +%s)"
+                    echo "AEGIS guarded tick starting at $(date -u +%FT%TZ) / ET hour ${ET_HOUR}."
+
+                    # Wake Render first. Failure here is non-fatal because the POST below
+                    # has the long timeout needed for a free-tier cold start.
+                    curl -fsS --max-time 30 "$BASE_URL/api/health" >/tmp/aegis-health-pre.json || true
+
+                    run_tick() {
+                      curl -fsS \
+                        --max-time 180 \
+                        -X POST \
+                        -H "Authorization: Bearer ${AUTOPILOT_SECRET}" \
+                        -H "Content-Type: application/json" \
+                        "$BASE_URL/api/autopilot/tick"
+                    }
+
+                    valid_tick() {
+                      node -e "
+                        const fs=require('fs');
+                        const p=process.argv[1];
+                        try{
+                          const j=JSON.parse(fs.readFileSync(p,'utf8'));
+                          if(j && j.ok===true){
+                            console.log('AEGIS tick accepted:', JSON.stringify({runs:j.runs?.length??null,errors:j.errors?.length??null,graded:j.graded??null,usage:j.usage??null,persistent:j.persistent??null}));
+                            process.exit(0);
+                          }
+                        }catch(e){}
+                        process.exit(1);
+                      " "$1"
+                    }
+
+                    success_after_start() {
+                      curl -fsS --max-time 30 "$BASE_URL/api/health" >/tmp/aegis-health-recovery.json || return 1
+                      node -e "
+                        const fs=require('fs');
+                        const start=Number(process.argv[2]);
+                        try{
+                          const j=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));
+                          const ts=Date.parse(j.last_autopilot_success||'');
+                          const sec=Number.isFinite(ts)?Math.floor(ts/1000):0;
+                          if(sec >= start-60 && j.persistent_storage===true && j.autopilot_enabled===true){
+                            console.log('Prior tick completed despite transport failure; recovery POST suppressed.');
+                            process.exit(0);
+                          }
+                        }catch(e){}
+                        process.exit(1);
+                      " /tmp/aegis-health-recovery.json "$START_EPOCH"
+                    }
+
+                    echo "Primary Autopilot attempt..."
+                    if run_tick >/tmp/aegis-tick.json && valid_tick /tmp/aegis-tick.json; then
+                      PRIMARY_OK=1
+                    else
+                      PRIMARY_OK=0
+                    fi
+
+                    if [ "$PRIMARY_OK" -ne 1 ]; then
+                      echo "Primary attempt did not return a verified success payload. Checking whether it completed server-side before retrying."
+                      sleep 20
+
+                      if success_after_start; then
+                        PRIMARY_OK=1
+                      else
+                        echo "No server-side success confirmed. Running one guarded recovery attempt."
+                        sleep 10
+                        run_tick >/tmp/aegis-tick-recovery.json
+                        valid_tick /tmp/aegis-tick-recovery.json
+                        PRIMARY_OK=1
+                      fi
+                    fi
+
+                    curl -fsS --max-time 30 "$BASE_URL/api/health" >/tmp/aegis-health-post.json
+
+                    node -e "
+                      const fs=require('fs');
+                      const j=JSON.parse(fs.readFileSync('/tmp/aegis-health-post.json','utf8'));
+                      const fatal=[];
+                      if(j.status==='RED') fatal.push('health_red');
+                      if(j.persistent_storage!==true) fatal.push('persistence_not_confirmed');
+                      if(j.autopilot_enabled!==true) fatal.push('autopilot_disabled');
+                      if(j.autopilot_secret_ready!==true) fatal.push('autopilot_secret_not_ready');
+                      if(fatal.length){
+                        console.error('AEGIS post-tick health failed:', fatal.join(', '));
+                        process.exit(1);
+                      }
+                      console.log('AEGIS Autopilot tick completed with healthy persistence and scheduler state.');
+                    "
+          EOF__GITHUB_WORKFLOWS_AEGIS_AUTOPILOT_YML
+          python <<'PY_SECRET_EXPR'
+          from pathlib import Path
+          p = Path('.github/workflows/aegis-autopilot.yml')
+          text = p.read_text(encoding='utf-8')
+          literal = '$' + '{{ secrets.AEGIS_AUTOPILOT_SECRET }}'
+          text = text.replace('__AEGIS_AUTOPILOT_SECRET_EXPR__', literal)
+          p.write_text(text, encoding='utf-8')
+          PY_SECRET_EXPR
+
+      - name: Integrate v8.9 into AEGIS
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/apply-v89.py <<'EOF_PATCH_V89'
+          from pathlib import Path
+          import json
+          import re
+
+          ROOT=Path('.')
+          APP_VERSION='8.9.0'
+
+          pkg_path=ROOT/'package.json'
+          pkg=json.loads(pkg_path.read_text(encoding='utf-8'))
+          if pkg.get('version')!='8.8.0':
+              raise SystemExit(f"Expected v8.8.0 before v8.9; found {pkg.get('version')!r}. Refusing unsafe patch.")
+          pkg['version']=APP_VERSION
+          check=pkg.get('scripts',{}).get('check','')
+          if 'node --check src/operations.js' not in check:
+              check=check.replace('node --check src/release.js','node --check src/release.js && node --check src/operations.js')
+          if 'node --check public/app-v8_9.js' not in check:
+              check=check.replace('node --check public/app-v8_6.js','node --check public/app-v8_6.js && node --check public/app-v8_9.js')
+          if 'node --check src/operations.js' not in check or 'node --check public/app-v8_9.js' not in check:
+              raise SystemExit('Unable to add v8.9 syntax gates safely.')
+          pkg['scripts']['check']=check
+          pkg_path.write_text(json.dumps(pkg,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
+
+          server_path=ROOT/'server.js'
+          server=server_path.read_text(encoding='utf-8')
+          if "require('./src/operations')" not in server:
+              anchor="const release = require('./src/release');"
+              if anchor not in server:
+                  raise SystemExit('server release import anchor missing')
+              server=server.replace(anchor,anchor+"\nconst operations = require('./src/operations');",1)
+
+          health_start="if(req.method==='GET'&&u.pathname==='/api/health'){"
+          login_start="if(req.method==='POST'&&u.pathname==='/api/login'){"
+          i=server.find(health_start)
+          j=server.find(login_start,i+1)
+          if i<0 or j<0:
+              raise SystemExit('server health/login route anchors missing')
+          block=server[i:j]
+          if 'operations:ops' not in block:
+              block,n=re.subn(
+                  r'auto=await safeStatus\(\);',
+                  """auto=await safeStatus();
+                        const ops=operations.evaluate({
+                          auto,
+                          storage,
+                          config:{
+                            autopilotEnabled:auto.enabled,
+                            dailyBudget:autopilot.config.DAILY_BUDGET,
+                            monthlyBudget:autopilot.config.MONTHLY_BUDGET,
+                            scheduleMinutes:15,
+                            autoLockMinutes:Number(process.env.AEGIS_AUTO_LOCK_MINUTES||30),
+                            gradeDelayHours:Number(process.env.AEGIS_GRADE_DELAY_HOURS||2),
+                            releaseSports:autopilot.config.RELEASE_SPORTS
+                          },
+                          production:process.env.NODE_ENV==='production',
+                          uptimeSeconds:process.uptime()
+                        });""",
+                  block,
+                  count=1
+              )
+              if n!=1:
+                  raise SystemExit('health safeStatus anchor did not patch exactly once')
+              if '...health,' not in block:
+                  raise SystemExit('health response spread anchor missing')
+              block=block.replace('...health,','...health,\n                operations:ops,',1)
+          server=server[:i]+block+server[j:]
+
+          if "/api/operations/status" not in server:
+              route="""            if(req.method==='GET'&&u.pathname==='/api/operations/status'){
+                        const c=engine.config(),
+                              storage=await store.health(),
+                              auto=await safeStatus();
+
+                        const ops=operations.evaluate({
+                          auto,
+                          storage,
+                          config:{
+                            autopilotEnabled:auto.enabled,
+                            dailyBudget:autopilot.config.DAILY_BUDGET,
+                            monthlyBudget:autopilot.config.MONTHLY_BUDGET,
+                            scheduleMinutes:15,
+                            autoLockMinutes:Number(process.env.AEGIS_AUTO_LOCK_MINUTES||30),
+                            gradeDelayHours:Number(process.env.AEGIS_GRADE_DELAY_HOURS||2),
+                            releaseSports:autopilot.config.RELEASE_SPORTS,
+                            oddsQuotaReserve:c.oddsQuotaReserve
+                          },
+                          production:process.env.NODE_ENV==='production',
+                          uptimeSeconds:process.uptime()
+                        });
+
+                        return send(res,200,{
+                          ok:ops.status!=='RED',
+                          release_version:release.APP_VERSION,
+                          engine_version:engine.VERSION,
+                          operations:ops
+                        });
+                      }
+          """
+              pos=server.find(login_start)
+              if pos<0:
+                  raise SystemExit('login route insertion anchor missing')
+              server=server[:pos]+route+server[pos:]
+          server_path.write_text(server,encoding='utf-8')
+
+          index_path=ROOT/'public'/'index.html'
+          html=index_path.read_text(encoding='utf-8')
+          html,n=re.subn(r'<span class="versionpill">.*?</span>','<span class="versionpill">v8.9 • AUTONOMOUS OPS</span>',html,count=1,flags=re.S)
+          if n!=1:
+              raise SystemExit('index version pill missing')
+          css_tag='<link rel="stylesheet" href="/visual-v8_9.css?v=8.9.0">'
+          if css_tag not in html:
+              if '</head>' not in html:
+                  raise SystemExit('index head close missing')
+              html=html.replace('</head>',css_tag+'\n</head>',1)
+          js_tag='<script src="/app-v8_9.js?v=8.9.0" defer></script>'
+          if js_tag not in html:
+              if '</body>' not in html:
+                  raise SystemExit('index body close missing')
+              html=html.replace('</body>',js_tag+'\n</body>',1)
+          index_path.write_text(html,encoding='utf-8')
+
+          health_path=ROOT/'tests'/'health-contract.test.js'
+          health=health_path.read_text(encoding='utf-8')
+          if '8.8.0' not in health:
+              raise SystemExit('v8.8.0 health contract anchor missing')
+          health=health.replace('8.8.0','8.9.0')
+          health_path.write_text(health,encoding='utf-8')
+
+          # v8.9 changes the platform shell/version pill while deliberately
+          # keeping the validated v8.8 Decision Intelligence core bundles.
+          front_path=ROOT/'tests'/'frontend-stability.test.js'
+          front=front_path.read_text(encoding='utf-8')
+          header_old=r'v8\.8 • DECISION INTELLIGENCE'
+          header_new=r'v8\.9 • AUTONOMOUS OPS'
+          if header_old not in front:
+              raise SystemExit('v8.8 frontend shell header test anchor missing')
+          front=front.replace(header_old,header_new,1)
+          front=front.replace(
+              'index declares UTF-8 and v8.8 cache-busted active bundles',
+              'index declares UTF-8, v8.9 operations shell, and v8.8 core bundle cache keys',
+              1
+          )
+          front_path.write_text(front,encoding='utf-8')
+
+          readme_path=ROOT/'README.md'
+          readme=readme_path.read_text(encoding='utf-8')
+          readme=readme.replace('# AEGIS Sports Command Center v8.8.0 — Decision Intelligence & Autopilot','# AEGIS Sports Command Center v8.9.0 — Hands-Off Operations & Recovery',1)
+          readme=readme.replace('platform release **v8.8.0**','platform release **v8.9.0**',1)
+          if '## v8.9 Hands-Off Operations & Recovery' not in readme:
+              readme += """
+
+          ## v8.9 Hands-Off Operations & Recovery
+
+          - Adds an Operations Guardian contract that classifies live production as AUTONOMOUS, RECOVERY ARMED, QUOTA PROTECTED, SLEEP WINDOW, or ACTION REQUIRED.
+          - Detects missed/stale Autopilot activity with a recovery window before asking for manual intervention.
+          - Replaces the scheduled GitHub workflow with guarded cold-start handling, server-side completion detection, and one safe recovery attempt.
+          - Treats quota exhaustion as a protected operating state rather than a false outage.
+          - Surfaces persistence, recovery, scheduler freshness, quota state, auto-lock timing, grading delay, and active alerts in the Command Center.
+          - Keeps the v8.8 Decision Intelligence engine frozen at `8.8.0-decision-intelligence`; v8.9 changes operations/reliability, not betting-model weights.
+
+          The canonical betting governance remains **SB101 AEGIS v1.1 — September Daily-Use Freeze**.
+          """
+          readme_path.write_text(readme,encoding='utf-8')
+          print('AEGIS v8.9 Hands-Off Operations & Recovery staged.')
+          EOF_PATCH_V89
+          python /tmp/apply-v89.py
+
+          git add \
+            package.json \
+            README.md \
+            server.js \
+            src/operations.js \
+            public/index.html \
+            public/app-v8_9.js \
+            public/visual-v8_9.css \
+            tests/operations.test.js \
+            tests/health-contract.test.js \
+            tests/frontend-stability.test.js \
+            .github/workflows/aegis-autopilot.yml
+
+      - name: Run full AEGIS validation
+        run: npm run check
+
+      - name: Commit tested v8.9 changes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git diff --cached --check
+
+          if git diff --cached --quiet; then
+            echo "No changes needed."
+          else
+            git commit -m "Apply AEGIS v8.9 hands-off operations and recovery"
+            git push origin HEAD:main
+          fi
+
+      - name: Verify live Render v8.9
+        shell: bash
+        env:
+          HEALTH_URL: https://aegis-sports-command-center.onrender.com/api/health
+          OPS_URL: https://aegis-sports-command-center.onrender.com/api/operations/status
+          HOME_URL: https://aegis-sports-command-center.onrender.com/
+          BUNDLE_URL: https://aegis-sports-command-center.onrender.com/app-v8_9.js?v=8.9.0
+        run: |
+          set -euo pipefail
+
+          EXPECTED_SHA="$(git rev-parse HEAD)"
+          EXPECTED_VERSION="$(node -p "require('./package.json').version")"
+          EXPECTED_ENGINE="8.8.0-decision-intelligence"
+
+          echo "Expected release: ${EXPECTED_VERSION}"
+          echo "Expected engine: ${EXPECTED_ENGINE}"
+          echo "Expected commit: ${EXPECTED_SHA}"
+
+          for attempt in $(seq 1 24); do
+            HEALTH="$(curl -fsS --max-time 25 "$HEALTH_URL" || true)"
+            OPS="$(curl -fsS --max-time 25 "$OPS_URL" || true)"
+            HOME="$(curl -fsS --max-time 25 "$HOME_URL" || true)"
+            BUNDLE="$(curl -fsS --max-time 25 "$BUNDLE_URL" || true)"
+
+            META="$(
+              printf '%s' "$HEALTH" |
+              node -e "
+                let s='';
+                process.stdin.on('data',d=>s+=d).on('end',()=>{
+                  try{
+                    const j=JSON.parse(s);
+                    console.log([
+                      j.release_version||'',
+                      j.engine_version||'',
+                      j.status||'',
+                      j.deploy?.git_commit||'',
+                      j.persistent_storage===true?'true':'false',
+                      j.autopilot_enabled===true?'true':'false',
+                      j.operations?.status||'',
+                      j.operations?.intervention_required===true?'true':'false'
+                    ].join('|'));
+                  }catch{
+                    console.log('|||||||');
+                  }
+                });
+              "
+            )"
+
+            IFS='|' read -r \
+              LIVE_VERSION \
+              LIVE_ENGINE \
+              LIVE_STATUS \
+              LIVE_SHA \
+              LIVE_STORAGE \
+              LIVE_AUTOPILOT \
+              LIVE_OPS_STATUS \
+              LIVE_INTERVENTION \
+              <<< "$META"
+
+            OPS_OK="$(
+              printf '%s' "$OPS" |
+              node -e "
+                let s='';
+                process.stdin.on('data',d=>s+=d).on('end',()=>{
+                  try{
+                    const j=JSON.parse(s);
+                    if(
+                      j.release_version==='8.9.0' &&
+                      j.engine_version==='8.8.0-decision-intelligence' &&
+                      j.operations &&
+                      j.operations.status!=='RED' &&
+                      j.operations.intervention_required!==true &&
+                      j.operations.safeguards?.persistent_state===true
+                    ) return console.log('OK');
+                  }catch{}
+                  console.log('WAIT');
+                });
+              "
+            )"
+
+            UI_OK="$(
+              printf '%s' "$HOME" |
+              node -e "
+                let s='';
+                process.stdin.on('data',d=>s+=d).on('end',()=>{
+                  const bad=/[ÃÂ�â]|[\u0080-\u009f]/u;
+                  if(bad.test(s))return console.log('MOJIBAKE');
+                  if(!s.includes('v8.9 • AUTONOMOUS OPS'))return console.log('STALE');
+                  if(!s.includes('/app-v8_9.js?v=8.9.0'))return console.log('NO_OPS_BUNDLE');
+                  console.log('OK');
+                });
+              "
+            )"
+
+            BUNDLE_OK="$(
+              printf '%s' "$BUNDLE" |
+              node -e "
+                let s='';
+                process.stdin.on('data',d=>s+=d).on('end',()=>{
+                  const bad=/[ÃÂ�â]|[\u0080-\u009f]/u;
+                  if(bad.test(s))return console.log('MOJIBAKE');
+                  if(!s.includes('AEGIS IS OPERATING HANDS-OFF'))return console.log('OLD');
+                  if(!s.includes('REFRESH_MS=60000'))return console.log('POLLING_CONTRACT_MISSING');
+                  console.log('OK');
+                });
+              "
+            )"
+
+            echo "Attempt ${attempt}: release=${LIVE_VERSION:-unknown} engine=${LIVE_ENGINE:-unknown} health=${LIVE_STATUS:-unknown} commit=${LIVE_SHA:-unknown} storage=${LIVE_STORAGE:-unknown} autopilot=${LIVE_AUTOPILOT:-unknown} ops=${LIVE_OPS_STATUS:-unknown} intervention=${LIVE_INTERVENTION:-unknown} ops_api=${OPS_OK:-unknown} ui=${UI_OK:-unknown} bundle=${BUNDLE_OK:-unknown}"
+
+            if \
+              [ "$LIVE_VERSION" = "$EXPECTED_VERSION" ] && \
+              [ "$LIVE_ENGINE" = "$EXPECTED_ENGINE" ] && \
+              [ "$LIVE_STATUS" != "RED" ] && \
+              [ "$LIVE_SHA" = "$EXPECTED_SHA" ] && \
+              [ "$LIVE_STORAGE" = "true" ] && \
+              [ "$LIVE_AUTOPILOT" = "true" ] && \
+              [ "$LIVE_OPS_STATUS" != "RED" ] && \
+              [ "$LIVE_INTERVENTION" = "false" ] && \
+              [ "$OPS_OK" = "OK" ] && \
+              [ "$UI_OK" = "OK" ] && \
+              [ "$BUNDLE_OK" = "OK" ]
+            then
+              echo "AEGIS v8.9 Hands-Off Operations production verification passed."
+              exit 0
+            fi
+
+            sleep 15
+          done
+
+          echo "Production did not prove the expected v8.9 hands-off operations release."
+          exit 1
