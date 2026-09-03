@@ -1,0 +1,128 @@
+name: AEGIS Autopilot
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '2,17,32,47 * * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aegis-autopilot
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    steps:
+      - name: Run guarded Autopilot tick
+        shell: bash
+        env:
+          BASE_URL: https://aegis-sports-command-center.onrender.com
+          AUTOPILOT_SECRET: ${{ secrets.AEGIS_AUTOPILOT_SECRET }}
+        run: |
+          set -euo pipefail
+
+          ET_HOUR="$(TZ=America/New_York date +%H)"
+          ET_HOUR=$((10#$ET_HOUR))
+
+          if [ "$ET_HOUR" -lt 7 ] || [ "$ET_HOUR" -ge 23 ]; then
+            echo "Outside AEGIS operating window (07:00–23:00 ET). No tick required."
+            exit 0
+          fi
+
+          if [ -z "${AUTOPILOT_SECRET:-}" ]; then
+            echo "AEGIS_AUTOPILOT_SECRET is missing."
+            exit 1
+          fi
+
+          START_EPOCH="$(date +%s)"
+          echo "AEGIS guarded tick starting at $(date -u +%FT%TZ) / ET hour ${ET_HOUR}."
+
+          # Wake Render first. Failure here is non-fatal because the POST below
+          # has the long timeout needed for a free-tier cold start.
+          curl -fsS --max-time 30 "$BASE_URL/api/health" >/tmp/aegis-health-pre.json || true
+
+          run_tick() {
+            curl -fsS \
+              --max-time 180 \
+              -X POST \
+              -H "Authorization: Bearer ${AUTOPILOT_SECRET}" \
+              -H "Content-Type: application/json" \
+              "$BASE_URL/api/autopilot/tick"
+          }
+
+          valid_tick() {
+            node -e "
+              const fs=require('fs');
+              const p=process.argv[1];
+              try{
+                const j=JSON.parse(fs.readFileSync(p,'utf8'));
+                if(j && j.ok===true){
+                  console.log('AEGIS tick accepted:', JSON.stringify({runs:j.runs?.length??null,errors:j.errors?.length??null,graded:j.graded??null,usage:j.usage??null,persistent:j.persistent??null}));
+                  process.exit(0);
+                }
+              }catch(e){}
+              process.exit(1);
+            " "$1"
+          }
+
+          success_after_start() {
+            curl -fsS --max-time 30 "$BASE_URL/api/health" >/tmp/aegis-health-recovery.json || return 1
+            node -e "
+              const fs=require('fs');
+              const start=Number(process.argv[2]);
+              try{
+                const j=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));
+                const ts=Date.parse(j.last_autopilot_success||'');
+                const sec=Number.isFinite(ts)?Math.floor(ts/1000):0;
+                if(sec >= start-60 && j.persistent_storage===true && j.autopilot_enabled===true){
+                  console.log('Prior tick completed despite transport failure; recovery POST suppressed.');
+                  process.exit(0);
+                }
+              }catch(e){}
+              process.exit(1);
+            " /tmp/aegis-health-recovery.json "$START_EPOCH"
+          }
+
+          echo "Primary Autopilot attempt..."
+          if run_tick >/tmp/aegis-tick.json && valid_tick /tmp/aegis-tick.json; then
+            PRIMARY_OK=1
+          else
+            PRIMARY_OK=0
+          fi
+
+          if [ "$PRIMARY_OK" -ne 1 ]; then
+            echo "Primary attempt did not return a verified success payload. Checking whether it completed server-side before retrying."
+            sleep 20
+
+            if success_after_start; then
+              PRIMARY_OK=1
+            else
+              echo "No server-side success confirmed. Running one guarded recovery attempt."
+              sleep 10
+              run_tick >/tmp/aegis-tick-recovery.json
+              valid_tick /tmp/aegis-tick-recovery.json
+              PRIMARY_OK=1
+            fi
+          fi
+
+          curl -fsS --max-time 30 "$BASE_URL/api/health" >/tmp/aegis-health-post.json
+
+          node -e "
+            const fs=require('fs');
+            const j=JSON.parse(fs.readFileSync('/tmp/aegis-health-post.json','utf8'));
+            const fatal=[];
+            if(j.status==='RED') fatal.push('health_red');
+            if(j.persistent_storage!==true) fatal.push('persistence_not_confirmed');
+            if(j.autopilot_enabled!==true) fatal.push('autopilot_disabled');
+            if(j.autopilot_secret_ready!==true) fatal.push('autopilot_secret_not_ready');
+            if(fatal.length){
+              console.error('AEGIS post-tick health failed:', fatal.join(', '));
+              process.exit(1);
+            }
+            console.log('AEGIS Autopilot tick completed with healthy persistence and scheduler state.');
+          "
