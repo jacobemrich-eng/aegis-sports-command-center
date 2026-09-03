@@ -1,0 +1,1032 @@
+name: Apply AEGIS v8.8 Decision Intelligence
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  upgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v5
+        with:
+          ref: main
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Apply v8.8 Decision Intelligence
+        shell: bash
+        run: |
+          set -euo pipefail
+          
+          cat > src/decision.js <<'EOF_DECISION'
+          'use strict';
+          
+          function num(v, d=0){
+            const n=Number(v);
+            return Number.isFinite(n)?n:d;
+          }
+          function clamp(v, lo=0, hi=100){
+            return Math.max(lo,Math.min(hi,num(v,lo)));
+          }
+          function marketBase(market){
+            const s=String(market||'');
+            if(s.startsWith('totals'))return 'totals';
+            if(s.startsWith('spreads'))return 'spreads';
+            return 'h2h';
+          }
+          function periodInnings(market){
+            const m=String(market||'').match(/_1st_(\d+)_innings/);
+            return m?Number(m[1]):null;
+          }
+          function tierValue(tier){
+            return ({CORE:4,SECONDARY:3,WATCH:2,PASS:1}[String(tier||'').toUpperCase()]||0);
+          }
+          function gradeFor(q){
+            q=num(q,0);
+            return q>=85?'ELITE':q>=75?'STRONG':q>=65?'SOLID':q>=55?'FRAGILE':'LOW';
+          }
+          function executionState(c){
+            if(!c?.hard_rock)return {state:'WAIT_TARGET_BOOK',ready:false,price_ok:false};
+            if(String(c.data_quality_grade||'').toUpperCase()==='C')return {state:'WAIT_FRESHNESS',ready:false,price_ok:false};
+            const price=Number(c.price),play=Number(c.play_to),down=Number(c.downgrade_at),pass=Number(c.pass_at);
+            if(![price,play,down,pass].every(Number.isFinite))return {state:'WAIT_PRICE_BANDS',ready:false,price_ok:false};
+            if(price>=play)return {state:'CORE_BAND',ready:true,price_ok:true};
+            if(price>=down)return {state:'SECONDARY_BAND',ready:true,price_ok:true};
+            if(price>=pass)return {state:'WATCH_BAND',ready:false,price_ok:true};
+            return {state:'PASS_PRICE',ready:false,price_ok:false};
+          }
+          function stressCandidate(c,proj={},event={}){
+            const edge=num(c?.adjusted_edge,0),cushion=Math.max(.0001,num(c?.cushion,0));
+            const ev=num(c?.estimated_ev,-1),secondaryReq=cushion*.72,coreReq=cushion;
+            const grade=String(c?.data_quality_grade||'C').toUpperCase();
+            const period=periodInnings(c?.market)!=null,base=marketBase(c?.market);
+            let infoPenalty=.0025;
+            if(grade==='B')infoPenalty+=.002;
+            if(grade==='C')infoPenalty+=.006;
+            if(event?.sport_key==='baseball_mlb'){
+              if(!proj?.lineups_confirmed)infoPenalty+=.002;
+              if(!period&&!proj?.bullpen_verified)infoPenalty+=.0015;
+              if(base==='totals'&&!proj?.probable_starters_confirmed)infoPenalty+=.004;
+            }
+            const scenarios=[
+              {key:'normal_variance',label:'Normal variance',haircut:Math.max(.0025,cushion*.10)},
+              {key:'efficiency_regression',label:'Modest efficiency regression',haircut:Math.max(.0035,cushion*.14)},
+              {key:'matchup_weakening',label:'One key matchup assumption weakens',haircut:Math.max(.004,cushion*.18)},
+              {key:'information_downgrade',label:'Information / lineup downgrade',haircut:infoPenalty}
+            ].map(s=>{
+              const stressedEdge=edge-s.haircut;
+              const stressedEv=ev-s.haircut*1.25;
+              return {...s,stressed_edge:stressedEdge,stressed_ev:stressedEv,secondary_survives:stressedEdge>=secondaryReq&&stressedEv>0,core_survives:stressedEdge>=coreReq&&stressedEv>=.005};
+            });
+            const secondarySurvivals=scenarios.filter(s=>s.secondary_survives).length;
+            const coreSurvivals=scenarios.filter(s=>s.core_survives).length;
+            const edgeHeadroom=clamp(100*(edge-secondaryReq)/Math.max(.006,cushion*.5));
+            const supportHeadroom=clamp(100*(num(c?.market_support_strength,0)-42)/28);
+            const quality=clamp(c?.decision_quality,0,100);
+            const score=clamp(
+              30*(secondarySurvivals/4)+
+              20*(coreSurvivals/4)+
+              .20*edgeHeadroom+
+              .15*supportHeadroom+
+              .15*quality
+            );
+            const worst=scenarios.slice().sort((a,b)=>(a.stressed_edge-secondaryReq)-(b.stressed_edge-secondaryReq))[0];
+            const coreRobust=secondarySurvivals>=3&&coreSurvivals>=1&&score>=65&&num(c?.market_support_strength,0)>=70&&num(c?.market_coverage,0)>=76&&num(c?.market_effective_agreement,0)>=69&&grade!=='C';
+            return {score:+score.toFixed(1),scenarios,secondary_survivals:secondarySurvivals,core_survivals:coreSurvivals,core_robust:coreRobust,worst_case:worst?{key:worst.key,label:worst.label,stressed_edge:worst.stressed_edge,stressed_ev:worst.stressed_ev,secondary_survives:worst.secondary_survives}:null,secondary_required_edge:secondaryReq,core_required_edge:coreReq};
+          }
+          function selectionScore(c){
+            if(!c)return 0;
+            const tierBase={CORE:52,SECONDARY:40,WATCH:24,PASS:6}[String(c.tier||'').toUpperCase()]??0;
+            const edgeOver=num(c.adjusted_edge,0)-num(c.cushion,0);
+            let score=tierBase;
+            score+=clamp(c.decision_quality)*.15;
+            score+=clamp(c.stress_test?.score)*.12;
+            score+=clamp(c.market_support_strength)*.06;
+            score+=clamp(c.market_coverage)*.04;
+            score+=clamp(edgeOver*400,-5,6);
+            score+=clamp(num(c.estimated_ev,0)*140,-5,5);
+            score+=c.hard_rock?4:-7;
+            score+=num(c.market_consensus_books,0)>=3?2:0;
+            score-=clamp(num(c.independent_disagreement,0)*60,0,8);
+            if(c.market_inside_fair_range)score-=4;
+            if(periodInnings(c.market)!=null)score-=1;
+            if(marketBase(c.market)==='totals')score-=.5;
+            return +clamp(score,0,100).toFixed(2);
+          }
+          
+          function appendFlag(c,message){
+            const flags=Array.isArray(c.sanity_flags)?c.sanity_flags.slice():[];
+            if(!flags.includes(message))flags.push(message);
+            c.sanity_flags=flags;
+          }
+          function enrichCandidate(candidate,proj={},event={}){
+            const c={...candidate,sanity_flags:Array.isArray(candidate?.sanity_flags)?candidate.sanity_flags.slice():[]};
+            c.pre_decision_tier=c.tier;
+            c.stress_test=stressCandidate(c,proj,event);
+            const exec=executionState(c);
+            c.execution_state=exec.state;
+            c.execution_ready=exec.ready;
+          
+            if(!c.hard_rock&&['CORE','SECONDARY'].includes(c.tier)){
+              c.tier='WATCH';
+              appendFlag(c,'Target-book firewall: Hard Rock Florida price is not verified; reference only until the target-book quote is available.');
+            }
+          
+            if(c.tier==='CORE'&&!c.stress_test.core_robust){
+              c.tier='SECONDARY';
+              appendFlag(c,`Core Distinction / Stress-Test Gate v2: only ${c.stress_test.secondary_survivals}/4 adverse scenarios retained Secondary-level economics with stress score ${c.stress_test.score}/100; Core downgraded.`);
+            }
+          
+            if(c.hard_rock&&['CORE','SECONDARY'].includes(c.tier)){
+              if(exec.state==='PASS_PRICE'){
+                c.tier='PASS';
+                appendFlag(c,'Execution-price firewall: the current Hard Rock price is beyond the published pass threshold; automatic CUT.');
+              }else if(exec.state==='WATCH_BAND'){
+                c.tier='WATCH';
+                appendFlag(c,'Execution-price firewall: the current Hard Rock price is outside the Secondary execution band; wait for a better number.');
+              }else if(c.tier==='CORE'&&exec.state==='SECONDARY_BAND'){
+                c.tier='SECONDARY';
+                appendFlag(c,'Execution-price downgrade: model quality cleared Core, but the current Hard Rock number is only inside the Secondary band.');
+              }
+            }
+          
+            const caps={CORE:100,SECONDARY:88,WATCH:74,PASS:49};
+            c.intrinsic_decision_quality=num(c.decision_quality,0);
+            c.decision_quality=Math.min(num(c.decision_quality,0),caps[c.tier]??49);
+            c.decision_grade=gradeFor(c.decision_quality);
+            c.market_selection_score=selectionScore(c);
+            return c;
+          }
+          function sameSelection(a,b){return String(a||'').trim().toLowerCase()===String(b||'').trim().toLowerCase();}
+          function chooseBestExpression(candidates,event={},proj={}){
+            const rows=(candidates||[]).filter(Boolean).slice().sort((a,b)=>selectionScore(b)-selectionScore(a));
+            if(!rows.length)return null;
+            const best=rows[0];
+            const bestBase=marketBase(best.market),bestPeriod=periodInnings(best.market);
+            if(bestBase!=='totals'&&(best.market!=='h2h'||bestPeriod!=null)){
+              const primary=rows.find(c=>c.market==='h2h'&&sameSelection(c.selection,best.selection)&&c.hard_rock===best.hard_rock&&c.tier===best.tier);
+              if(primary){
+                const gap=selectionScore(best)-selectionScore(primary);
+                const bullpenReason=event?.sport_key==='baseball_mlb'&&bestPeriod!=null&&!proj?.bullpen_verified;
+                const tolerance=bullpenReason?1.5:4.5;
+                if(gap<=tolerance){
+                  primary.market_selection_note=`Primary-expression preference: ${primary.market} chosen because the derivative improved decision score by only ${gap.toFixed(1)} points.`;
+                  return primary;
+                }
+              }
+            }
+            best.market_selection_note='Best expression selected by tier, stress survival, execution quality, support, consensus and edge economics.';
+            return best;
+          }
+          function recalcQualityForTier(p){
+            const caps={CORE:100,SECONDARY:88,WATCH:74,PASS:49};
+            p.decision_quality=Math.min(num(p.decision_quality,0),caps[p.tier]??49);
+            p.decision_grade=gradeFor(p.decision_quality);
+          }
+          function applySlateDiscipline(plays){
+            const rows=(plays||[]).filter(Boolean);
+            rows.forEach(p=>{p.market_selection_score=selectionScore(p);p.pre_slate_tier=p.tier;});
+            rows.sort((a,b)=>selectionScore(b)-selectionScore(a));
+            rows.forEach((p,i)=>{p.slate_rank=i+1;});
+          
+            let coreCount=0;
+            for(const p of rows){
+              if(p.tier==='CORE'){
+                coreCount++;
+                if(coreCount>2){
+                  p.tier='SECONDARY';p.units=.5;
+                  appendFlag(p,'Precision Mode Core cap: only the top two Core-qualified plays may remain Core on one slate.');
+                  p.final_verification=(p.final_verification||'')+' Precision Mode Core cap downgraded this play.';
+                  recalcQualityForTier(p);
+                }
+              }
+            }
+          
+            const actionable=rows.filter(p=>['CORE','SECONDARY'].includes(p.tier)).sort((a,b)=>selectionScore(b)-selectionScore(a));
+            actionable.forEach((p,i)=>{p.action_rank=i+1;});
+            for(const p of actionable.slice(3)){
+              p.tier='WATCH';p.units=0;p.slate_cut=true;p.timing='WAIT — outside the Top-3 actionable slate after cross-slate comparison';
+              appendFlag(p,'Cross-slate Top-3 scarcity gate: three stronger standalone exposures already qualified, so this play is held at WATCH rather than forcing additional bankroll exposure.');
+              p.final_verification=(p.final_verification||'')+' Cross-slate Top-3 scarcity gate moved this otherwise qualified play to WATCH.';
+              recalcQualityForTier(p);
+            }
+            rows.forEach(p=>{
+              p.top_slate=['CORE','SECONDARY'].includes(p.tier)&&num(p.action_rank,99)<=3;
+              p.card_role=p.tier==='CORE'?`CORE #${p.action_rank||p.slate_rank}`:p.tier==='SECONDARY'?`SECONDARY #${p.action_rank||p.slate_rank}`:p.tier==='WATCH'?'WATCH':'PASS';
+              p.market_selection_score=selectionScore(p);
+            });
+            rows.sort((a,b)=>selectionScore(b)-selectionScore(a));
+            rows.forEach((p,i)=>{p.slate_rank=i+1;});
+            return rows;
+          }
+          function decimalFromAmerican(price){
+            price=Number(price);
+            if(!Number.isFinite(price)||price===0)return null;
+            return price>0?1+price/100:1+100/(-price);
+          }
+          function parlayEligible(p){
+            return !!p&&['CORE','SECONDARY'].includes(p.tier)&&p.units>0&&p.top_slate===true&&p.hard_rock&&p.execution_ready&&['CORE_BAND','SECONDARY_BAND'].includes(p.execution_state)&&String(p.data_quality_grade||'').toUpperCase()!=='C'&&num(p.stress_test?.score,0)>=55&&num(p.stress_test?.secondary_survivals,0)>=2&&num(p.decision_quality,0)>=65&&num(p.independent_disagreement,0)<.08&&!p.market_inside_fair_range&&/^BET NOW/i.test(String(p.timing||''));
+          }
+          function buildParlay(plays){
+            const eligible=(plays||[]).filter(parlayEligible).sort((a,b)=>selectionScore(b)-selectionScore(a));
+            const legs=[];
+            const events=new Set();
+            for(const p of eligible){
+              if(events.has(p.event_id))continue;
+              const dec=decimalFromAmerican(p.price);if(!dec)continue;
+              legs.push(p);events.add(p.event_id);
+              if(legs.length===2)break;
+            }
+            if(legs.length<2)return null;
+            const dec=legs.reduce((m,l)=>m*decimalFromAmerican(l.price),1);
+            const american=dec>=2?Math.round((dec-1)*100):Math.round(-100/(dec-1));
+            return {units:.25,legs:legs.map(l=>({event_id:l.event_id,selection:l.selection,point:l.point,market:l.market,price:l.price,book:l.book,stress_score:l.stress_test?.score,decision_score:l.market_selection_score})),approx_american:american,firewall:'CLEARED',rationale:'Optional only: both legs are standalone Core/Secondary plays, top-slate exposures, inside executable Hard Rock bands, outside the calibrated uncertainty overlap, stress-tested, and from distinct games.'};
+          }
+          function lossPaths(candidate,projectionRisks=[]){
+            const out=[];
+            const worst=candidate?.stress_test?.worst_case;
+            if(worst&&!worst.secondary_survives)out.push(`${worst.label}: the stressed edge falls below the Secondary survival threshold.`);
+            if(candidate?.execution_state==='SECONDARY_BAND')out.push(`Price sensitivity: further movement beyond ${candidate.downgrade_at} removes the current execution quality.`);
+            else if(candidate?.execution_state==='CORE_BAND')out.push(`Price sensitivity: movement past the published Play-To/Downgrade bands can erase the release edge.`);
+            if(num(candidate?.independent_disagreement,0)>=.06)out.push('Market disagreement: the sportsbook consensus may be correctly identifying information the independent model is underweighting.');
+            for(const r of projectionRisks||[])if(r&&!out.includes(r))out.push(r);
+            return out.slice(0,4);
+          }
+          function summary(plays,parlay){
+            const rows=plays||[];
+            const actionable=rows.filter(p=>['CORE','SECONDARY'].includes(p.tier));
+            return {policy:'CORE_CAP_2_TOP_3_ACTIONABLE',actionable_count:actionable.length,core_count:rows.filter(p=>p.tier==='CORE').length,secondary_count:rows.filter(p=>p.tier==='SECONDARY').length,watch_count:rows.filter(p=>p.tier==='WATCH').length,top_decision_score:rows.length?Math.max(...rows.map(selectionScore)):0,avg_stress_score:rows.length?+(rows.reduce((s,p)=>s+num(p.stress_test?.score,0),0)/rows.length).toFixed(1):0,parlay_status:parlay?'QUALIFIED':'NO QUALIFIED PARLAY',rules:['Core must survive adverse-scenario stress testing.','Actual Hard Rock price must remain inside the published execution band.','Only the top three standalone exposures may remain actionable.','Parlay legs must independently qualify and pass the parlay firewall.']};
+          }
+          module.exports={marketBase,periodInnings,executionState,stressCandidate,selectionScore,enrichCandidate,chooseBestExpression,applySlateDiscipline,parlayEligible,buildParlay,lossPaths,summary};
+          EOF_DECISION
+          
+          cat > tests/decision-intelligence.test.js <<'EOF_TESTS'
+          const test = require('node:test');
+          const assert = require('node:assert/strict');
+          const fs = require('node:fs');
+          const path = require('node:path');
+          
+          const decision = require('../src/decision');
+          const engine = require('../src/engine');
+          
+          const ROOT = path.join(__dirname, '..');
+          
+          function base(overrides={}){
+            return {
+              event_id:'e1',
+              tier:'CORE',
+              hard_rock:true,
+              data_quality_grade:'A',
+              price:-110,
+              play_to:-120,
+              downgrade_at:-130,
+              pass_at:-145,
+              adjusted_edge:.05,
+              cushion:.035,
+              estimated_ev:.04,
+              market_support_strength:78,
+              market_coverage:84,
+              market_effective_agreement:76,
+              decision_quality:88,
+              market_consensus_books:4,
+              independent_disagreement:.03,
+              market_inside_fair_range:false,
+              market:'h2h',
+              selection:'Alpha',
+              units:1,
+              timing:'BET NOW if target-book line still matches',
+              sanity_flags:[],
+              ...overrides
+            };
+          }
+          
+          const projection = {
+            lineups_confirmed:true,
+            bullpen_verified:true,
+            probable_starters_confirmed:true
+          };
+          
+          const event = {
+            sport_key:'baseball_mlb'
+          };
+          
+          test('v8.8 engine identity is explicit', () => {
+            assert.equal(
+              engine.VERSION,
+              '8.8.0-decision-intelligence'
+            );
+          });
+          
+          test('robust Core survives the adverse-scenario stress gate', () => {
+            const x = decision.enrichCandidate(
+              base(),
+              projection,
+              event
+            );
+          
+            assert.equal(x.tier, 'CORE');
+            assert.equal(x.stress_test.core_robust, true);
+            assert.ok(x.stress_test.secondary_survivals >= 3);
+            assert.ok(x.stress_test.core_survivals >= 1);
+          });
+          
+          test('marginal Core is downgraded instead of being forced', () => {
+            const x = decision.enrichCandidate(
+              base({
+                adjusted_edge:.035,
+                estimated_ev:.021
+              }),
+              projection,
+              event
+            );
+          
+            assert.equal(x.tier, 'SECONDARY');
+            assert.equal(x.stress_test.core_robust, false);
+            assert.ok(
+              x.sanity_flags.some(
+                v => /Stress-Test Gate v2/.test(v)
+              )
+            );
+          });
+          
+          test('adverse Hard Rock movement beyond pass line is an automatic CUT', () => {
+            const x = decision.enrichCandidate(
+              base({price:-160}),
+              projection,
+              event
+            );
+          
+            assert.equal(x.execution_state, 'PASS_PRICE');
+            assert.equal(x.tier, 'PASS');
+          });
+          
+          test('Hard Rock Secondary execution band downgrades a Core candidate', () => {
+            const x = decision.enrichCandidate(
+              base({price:-125}),
+              projection,
+              event
+            );
+          
+            assert.equal(
+              x.execution_state,
+              'SECONDARY_BAND'
+            );
+          
+            assert.equal(x.tier, 'SECONDARY');
+          });
+          
+          test('unverified target book cannot remain actionable', () => {
+            const x = decision.enrichCandidate(
+              base({
+                hard_rock:false,
+                book:'FanDuel'
+              }),
+              projection,
+              event
+            );
+          
+            assert.equal(x.tier, 'WATCH');
+            assert.equal(
+              x.execution_state,
+              'WAIT_TARGET_BOOK'
+            );
+          });
+          
+          test('market selection prefers the simpler primary expression when derivative advantage is marginal', () => {
+            const primary = decision.enrichCandidate(
+              base({
+                tier:'SECONDARY',
+                market:'h2h',
+                adjusted_edge:.038,
+                cushion:.035,
+                decision_quality:78
+              }),
+              projection,
+              event
+            );
+          
+            const derivative = decision.enrichCandidate(
+              base({
+                tier:'SECONDARY',
+                market:'spreads_1st_5_innings',
+                adjusted_edge:.039,
+                cushion:.035,
+                decision_quality:79
+              }),
+              projection,
+              event
+            );
+          
+            assert.equal(
+              decision.chooseBestExpression(
+                [primary, derivative],
+                event,
+                projection
+              ).market,
+              'h2h'
+            );
+          });
+          
+          test('materially stronger derivative may win market selection', () => {
+            const primary = decision.enrichCandidate(
+              base({
+                tier:'SECONDARY',
+                market:'h2h',
+                adjusted_edge:.038,
+                cushion:.035,
+                decision_quality:78
+              }),
+              projection,
+              event
+            );
+          
+            const derivative = decision.enrichCandidate(
+              base({
+                tier:'SECONDARY',
+                market:'spreads_1st_5_innings',
+                adjusted_edge:.07,
+                cushion:.035,
+                estimated_ev:.08,
+                market_support_strength:90,
+                decision_quality:88
+              }),
+              projection,
+              event
+            );
+          
+            assert.equal(
+              decision.chooseBestExpression(
+                [primary, derivative],
+                event,
+                projection
+              ).market,
+              'spreads_1st_5_innings'
+            );
+          });
+          
+          test('cross-slate discipline preserves Core cap two and Top-3 actionable scarcity', () => {
+            const rows = [
+              base({event_id:'e1'}),
+              base({event_id:'e2'}),
+              base({event_id:'e3'}),
+              base({
+                event_id:'e4',
+                tier:'SECONDARY',
+                units:.5,
+                decision_quality:78
+              }),
+              base({
+                event_id:'e5',
+                tier:'SECONDARY',
+                units:.5,
+                decision_quality:76
+              })
+            ].map(
+              x => decision.enrichCandidate(
+                x,
+                projection,
+                event
+              )
+            );
+          
+            decision.applySlateDiscipline(rows);
+          
+            assert.ok(
+              rows.filter(x => x.tier === 'CORE').length <= 2
+            );
+          
+            assert.ok(
+              rows.filter(
+                x => ['CORE','SECONDARY'].includes(x.tier)
+              ).length <= 3
+            );
+          
+            assert.ok(rows.some(x => x.slate_cut));
+          });
+          
+          test('parlay firewall requires independently executable distinct-game legs', () => {
+            const a = decision.enrichCandidate(
+              base({event_id:'e1'}),
+              projection,
+              event
+            );
+          
+            const b = decision.enrichCandidate(
+              base({
+                event_id:'e2',
+                selection:'Beta'
+              }),
+              projection,
+              event
+            );
+          
+            a.timing = 'BET NOW if target-book line still matches';
+            b.timing = 'BET NOW if target-book line still matches';
+          
+            const rows = decision.applySlateDiscipline([a,b]);
+            const parlay = decision.buildParlay(rows);
+          
+            assert.ok(parlay);
+            assert.equal(parlay.firewall, 'CLEARED');
+            assert.equal(parlay.legs.length, 2);
+            assert.notEqual(
+              parlay.legs[0].event_id,
+              parlay.legs[1].event_id
+            );
+          });
+          
+          test('parlay firewall refuses WATCH or non-executable legs', () => {
+            const a = decision.enrichCandidate(
+              base({event_id:'e1'}),
+              projection,
+              event
+            );
+          
+            const b = decision.enrichCandidate(
+              base({
+                event_id:'e2',
+                selection:'Beta',
+                price:-140
+              }),
+              projection,
+              event
+            );
+          
+            a.timing = 'BET NOW if target-book line still matches';
+            b.timing = 'WAIT — current price is outside Secondary band';
+          
+            const rows = decision.applySlateDiscipline([a,b]);
+          
+            assert.equal(
+              decision.buildParlay(rows),
+              null
+            );
+          });
+          
+          test('engine, audit and Final Card are wired to Decision Intelligence', () => {
+            const engineSource = fs.readFileSync(
+              path.join(ROOT, 'src/engine.js'),
+              'utf8'
+            );
+          
+            const autopilotSource = fs.readFileSync(
+              path.join(ROOT, 'src/autopilot.js'),
+              'utf8'
+            );
+          
+            const finalCardSource = fs.readFileSync(
+              path.join(ROOT, 'public/app-v8_6.js'),
+              'utf8'
+            );
+          
+            assert.match(
+              engineSource,
+              /decision\.enrichCandidate/
+            );
+          
+            assert.match(
+              engineSource,
+              /decision\.applySlateDiscipline/
+            );
+          
+            assert.match(
+              engineSource,
+              /decision\.buildParlay/
+            );
+          
+            assert.match(
+              autopilotSource,
+              /stress_score:/
+            );
+          
+            assert.match(
+              finalCardSource,
+              /Stress survival/
+            );
+          
+            assert.match(
+              finalCardSource,
+              /supportSecondary=\(mlb\|\|ncaaf\)\?60:42/
+            );
+          });
+          EOF_TESTS
+          
+          python <<'PY'
+          from pathlib import Path
+          import json
+          import re
+          
+          ROOT = Path('.')
+          APP_VERSION = '8.8.0'
+          ENGINE_VERSION = '8.8.0-decision-intelligence'
+          
+          # Package release + syntax gate.
+          pkg_path = ROOT / 'package.json'
+          pkg = json.loads(pkg_path.read_text(encoding='utf-8'))
+          if pkg.get('version') != '8.7.2':
+              raise SystemExit(f"Expected v8.7.2 before v8.8; found {pkg.get('version')!r}. Refusing unsafe patch.")
+          pkg['version'] = APP_VERSION
+          check = pkg.get('scripts', {}).get('check', '')
+          if 'node --check src/decision.js' not in check:
+              check = check.replace('node --check src/engine.js', 'node --check src/engine.js && node --check src/decision.js')
+          pkg['scripts']['check'] = check
+          pkg_path.write_text(json.dumps(pkg, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+          
+          # Engine integration.
+          engine_path = ROOT / 'src' / 'engine.js'
+          engine = engine_path.read_text(encoding='utf-8')
+          
+          if "require('./decision')" not in engine:
+              anchor = "const { URL } = require('url');\n"
+              if anchor not in engine:
+                  raise SystemExit('engine import anchor missing')
+              engine = engine.replace(anchor, anchor + "const decision = require('./decision');\n", 1)
+          
+          old_version = "const VERSION = '8.0.0-autopilot-integrity';"
+          if old_version not in engine:
+              raise SystemExit('expected engine VERSION anchor missing')
+          engine = engine.replace(old_version, f"const VERSION = '{ENGINE_VERSION}';", 1)
+          
+          model_anchor = "  ['Two-Independent-Edges Gate','governance','Requires multiple independent drivers for Core.'],\n"
+          if "Core Distinction / Stress-Test Gate v2" not in engine:
+              if model_anchor not in engine:
+                  raise SystemExit('model registry anchor missing')
+              engine = engine.replace(
+                  model_anchor,
+                  model_anchor +
+                  "  ['Core Distinction / Stress-Test Gate v2','governance','Stress-tests qualified candidates against normal variance, modest efficiency regression, a weakened matchup assumption and information downgrade before Core survives.'],\n" +
+                  "  ['Cross-Slate Top-3 Scarcity Gate','execution','Keeps at most three standalone bankroll exposures actionable after cross-slate comparison; excess qualifiers remain WATCH rather than being forced.'],\n" +
+                  "  ['Execution Price State Engine','execution','Converts Play-To / Downgrade / Pass bands into automatic Core, Secondary, Watch or Pass execution states at the verified target book.'],\n",
+                  1
+              )
+          
+          candidate_pattern = re.compile(
+              r"function candidateRank\(c\)\{.*?\nfunction buildWhy",
+              re.S
+          )
+          new_candidate_block = r'''function candidateRank(c){ return decision.selectionScore(c); }
+          function chooseMarket(event,proj){
+            const all=[];
+            const keys=['h2h','spreads','totals',...(event.sport_key==='baseball_mlb'?['h2h_1st_1_innings','totals_1st_1_innings','h2h_1st_3_innings','spreads_1st_3_innings','totals_1st_3_innings','h2h_1st_5_innings','spreads_1st_5_innings','totals_1st_5_innings']:[])];
+            for(const k of keys)for(const p of quotePairs(event,k)){
+              const c=marketCandidate(event,proj,p,k);
+              if(c)all.push(c);
+            }
+            if(!all.length)return {best:null,all:[]};
+            const enriched=all.map(c=>decision.enrichCandidate(c,proj,event));
+            const hardRock=enriched.filter(c=>c.hard_rock&&c.tier!=='PASS');
+            const nonPass=enriched.filter(c=>c.tier!=='PASS');
+            const pool=(hardRock.length?hardRock:(nonPass.length?nonPass:enriched)).slice().sort((a,b)=>candidateRank(b)-candidateRank(a));
+            const best=decision.chooseBestExpression(pool,event,proj)||pool[0]||null;
+            return {best,all:enriched.slice().sort((a,b)=>candidateRank(b)-candidateRank(a))};
+          }
+          function buildWhy'''
+          engine, n = candidate_pattern.subn(new_candidate_block, engine, count=1)
+          if n != 1:
+              raise SystemExit(f'candidate/market-selection patch matched {n} blocks')
+          
+          why_pattern = re.compile(r"function buildWhy\(proj,c\)\{.*?\nfunction fmtAmericanPrice", re.S)
+          new_why = r'''function buildWhy(proj,c){
+            let good=[];
+            if(marketBase(c.market)==='totals'){
+              good=proj.modules.filter(m=>/offense|starting pitcher|staff pitching|bullpen|environment/i.test(m.name)).sort((a,b)=>b.confidence-a.confidence).slice(0,4);
+            }else{
+              const wantHome=sameTeam(c.selection,proj.home_team);
+              good=proj.modules.filter(m=>wantHome?m.value>0:m.value<0).sort((a,b)=>Math.abs(b.value)*b.confidence-Math.abs(a.value)*a.confidence).slice(0,3);
+            }
+            const ps=c.market_projection_score||proj.projected_score||{};
+            const scope=c.market_period_innings?`F${c.market_period_innings} `:'';
+            const stress=c.stress_test;
+            const stressText=stress?` Stress test: ${stress.secondary_survivals}/4 adverse scenarios retained Secondary-level economics; score ${stress.score}/100.`:'';
+            const selectionText=c.market_selection_note?` Market selection: ${c.market_selection_note}`:'';
+            return `${c.thesis}. ${scope}independent projection ${proj.away_team} ${ps.away??'—'} – ${proj.home_team} ${ps.home??'—'}. Primary supporting modules: ${good.map(m=>`${m.name} (${m.evidence})`).join(' | ')||'limited structured evidence'}.${stressText}${selectionText}`;
+          }
+          function fmtAmericanPrice'''
+          engine, n = why_pattern.subn(new_why, engine, count=1)
+          if n != 1:
+              raise SystemExit(f'buildWhy patch matched {n} blocks')
+          
+          timing_pattern = re.compile(r"function timing\(event,c,proj\)\{.*?\nfunction finalVerification", re.S)
+          new_timing = r'''function timing(event,c,proj){
+            const hrs=hoursUntil(event.commence_time),fresh=c.last_update?Math.abs(Date.now()-new Date(c.last_update).getTime())/60000:null;
+            if(c.data_quality_grade==='C')return 'WAIT / PASS — information quality is C';
+            if(c.execution_state==='WAIT_TARGET_BOOK')return 'WAIT — Hard Rock Florida price is not verified';
+            if(c.execution_state==='PASS_PRICE')return `PASS — current Hard Rock price is beyond ${fmtAmericanPrice(c.pass_at)}`;
+            if(c.execution_state==='WATCH_BAND')return `WAIT — current Hard Rock price is outside the Secondary band; need ${fmtAmericanPrice(c.downgrade_at)} or better`;
+            if(c.execution_state==='WAIT_PRICE_BANDS')return 'WAIT — executable price bands are not fully resolved';
+            if(proj.data_quality<65||(proj.coverage_score??0)<58)return 'WAIT / PASS FOR CONFIRMATION';
+            if(event.sport_key==='baseball_mlb'&&hrs<=4&&!proj.lineups_confirmed)return 'WAIT — starting lineups are not fully confirmed';
+            if(c.sanity_flags?.length&&c.independent_disagreement>=.08)return 'WAIT — market disagreement requires stronger confirmation';
+            if(hrs>12)return 'WAIT — scheduled verification will re-check closer to game';
+            if(fresh!=null&&fresh>45)return 'WAIT — quote may be stale';
+            const band=c.play_to!=null?` • play to ${fmtAmericanPrice(c.play_to)} • downgrade ${fmtAmericanPrice(c.downgrade_at)} • pass ${fmtAmericanPrice(c.pass_at)}`:'';
+            return `BET NOW if target-book line still matches${band}`;
+          }
+          function finalVerification'''
+          engine, n = timing_pattern.subn(new_timing, engine, count=1)
+          if n != 1:
+              raise SystemExit(f'timing patch matched {n} blocks')
+          
+          old_exec = "const exec=`Execution: play-to ${fmtAmericanPrice(c.play_to)}, downgrade ${fmtAmericanPrice(c.downgrade_at)}, pass ${fmtAmericanPrice(c.pass_at)}; freshness ${c.data_quality_grade||'—'}.`;"
+          new_exec = "const stress=c.stress_test?` Stress ${c.stress_test.score}/100 (${c.stress_test.secondary_survivals}/4 adverse scenarios retain Secondary economics).`:''; const exec=`Execution: play-to ${fmtAmericanPrice(c.play_to)}, downgrade ${fmtAmericanPrice(c.downgrade_at)}, pass ${fmtAmericanPrice(c.pass_at)}; state ${c.execution_state||'—'}; freshness ${c.data_quality_grade||'—'}.${stress}`;"
+          if old_exec not in engine:
+              raise SystemExit('finalVerification execution anchor missing')
+          engine = engine.replace(old_exec, new_exec, 1)
+          
+          old_loss = 'how_it_loses:p.risks.slice(0,4)'
+          if old_loss not in engine:
+              raise SystemExit('released-play loss-path anchor missing')
+          engine = engine.replace(old_loss, 'how_it_loses:decision.lossPaths(c,p.risks)', 1)
+          
+          slate_pattern = re.compile(
+              r"  released\.sort\(\(x,y\)=>candidateRank\(y\)-candidateRank\(x\)\);.*?\n  const grade=",
+              re.S
+          )
+          new_slate = "  decision.applySlateDiscipline(released);\n  const parlay=decision.buildParlay(released);\n  const decisionIntelligence=decision.summary(released,parlay);\n  const grade="
+          engine, n = slate_pattern.subn(new_slate, engine, count=1)
+          if n != 1:
+              raise SystemExit(f'slate discipline/parlay patch matched {n} blocks')
+          
+          return_anchor = 'return {version:VERSION,generated_at:new Date().toISOString(),slate_grade:'
+          if return_anchor not in engine:
+              raise SystemExit('scanSlate return anchor missing')
+          engine = engine.replace(
+              return_anchor,
+              'return {version:VERSION,generated_at:new Date().toISOString(),decision_intelligence:decisionIntelligence,slate_grade:',
+              1
+          )
+          
+          engine_path.write_text(engine, encoding='utf-8')
+          
+          # Audit persistence for new decision fields.
+          auto_path = ROOT / 'src' / 'autopilot.js'
+          auto = auto_path.read_text(encoding='utf-8')
+          audit_anchor = 'quality:c.decision_quality??0,data_quality_grade:c.data_quality_grade||null,'
+          if audit_anchor not in auto:
+              raise SystemExit('autopilot audit anchor missing')
+          auto = auto.replace(
+              audit_anchor,
+              'quality:c.decision_quality??0,stress_score:c.stress_test?.score??null,stress_secondary_survivals:c.stress_test?.secondary_survivals??null,stress_core_robust:c.stress_test?.core_robust??null,market_selection_score:c.market_selection_score??null,execution_state:c.execution_state||null,data_quality_grade:c.data_quality_grade||null,',
+              1
+          )
+          auto_path.write_text(auto, encoding='utf-8')
+          
+          # Final Card readiness displays the new stress gate and correct MLB/NCAAF support thresholds.
+          ui_path = ROOT / 'public' / 'app-v8_6.js'
+          ui = ui_path.read_text(encoding='utf-8')
+          
+          mlb_anchor = '    var mlb=e.sport_key==="baseball_mlb";\n'
+          if mlb_anchor not in ui:
+              raise SystemExit('Final Card sport anchor missing')
+          ui = ui.replace(mlb_anchor, mlb_anchor + '    var ncaaf=e.sport_key==="americanfootball_ncaaf";\n', 1)
+          
+          if '    var supportSecondary=mlb?60:42;\n' not in ui or '    var supportCore=mlb?70:55;\n' not in ui:
+              raise SystemExit('Final Card support threshold anchors missing')
+          ui = ui.replace('    var supportSecondary=mlb?60:42;\n', '    var supportSecondary=(mlb||ncaaf)?60:42;\n', 1)
+          ui = ui.replace('    var supportCore=mlb?70:55;\n', '    var supportCore=(mlb||ncaaf)?70:55;\n', 1)
+          
+          price_anchor = '    var downgrade=num(p.downgrade_at,NaN);\n'
+          if price_anchor not in ui:
+              raise SystemExit('Final Card execution anchor missing')
+          ui = ui.replace(
+              price_anchor,
+              price_anchor +
+              '    var stress=p.stress_test||{};\n'
+              '    var stressScore=num(stress.score,0);\n'
+              '    var stressSurvivals=num(stress.secondary_survivals,0);\n'
+              '    var stressCore=!!stress.core_robust;\n',
+              1
+          )
+          
+          target_anchor = '      gate("Target book",'
+          if target_anchor not in ui:
+              raise SystemExit('Final Card target-book gate anchor missing')
+          stress_gate = (
+              '      gate("Stress survival",Math.round(stressScore)+"/100 • "+Math.round(stressSurvivals)+"/4",'
+              '"Diagnostic","≥65 + ≥3/4",true,stressCore,2,\n'
+              '        stressCore?"Core distinction survives adverse scenarios":"Core Distinction / Stress-Test Gate v2 is not fully cleared"),\n'
+          )
+          ui = ui.replace(target_anchor, stress_gate + target_anchor, 1)
+          
+          summary_anchor = '    return {tier:tier,head:head,sub:sub,cls:cls,sOpen:sOpen,cOpen:cOpen};\n'
+          if summary_anchor not in ui:
+              raise SystemExit('Final Card summary anchor missing')
+          ui = ui.replace(
+              summary_anchor,
+              '    var intel=[];\n'
+              '    if(Number.isFinite(Number(p.market_selection_score)))intel.push("Decision "+Math.round(Number(p.market_selection_score))+"/100");\n'
+              '    if(Number.isFinite(Number(p.stress_test&&p.stress_test.score)))intel.push("Stress "+Math.round(Number(p.stress_test.score))+"/100");\n'
+              '    if(Number.isFinite(Number(p.slate_rank)))intel.push("Slate #"+Math.round(Number(p.slate_rank)));\n'
+              '    if(p.execution_state)intel.push(String(p.execution_state).replaceAll("_"," "));\n'
+              '    if(intel.length)sub += " "+intel.join(" • ")+".";\n'
+              + summary_anchor,
+              1
+          )
+          
+          key_anchor = '      p.market_effective_agreement||"",p.hard_rock?"1":"0"\n'
+          if key_anchor not in ui:
+              raise SystemExit('Final Card render-key anchor missing')
+          ui = ui.replace(
+              key_anchor,
+              '      p.market_effective_agreement||"",p.hard_rock?"1":"0",\n'
+              '      p.market_selection_score||"",p.stress_test&&p.stress_test.score||"",p.slate_rank||""\n',
+              1
+          )
+          ui_path.write_text(ui, encoding='utf-8')
+          
+          # Platform version + browser cache-bust.
+          index_path = ROOT / 'public' / 'index.html'
+          html = index_path.read_text(encoding='utf-8')
+          html, n = re.subn(
+              r'<span class="versionpill">.*?</span>',
+              '<span class="versionpill">v8.8 • DECISION INTELLIGENCE</span>',
+              html,
+              count=1,
+              flags=re.S
+          )
+          if n != 1:
+              raise SystemExit('index version pill missing')
+          active = ['app.js','app-v8_2.js','app-v8_3.js','app-v8_3_1.js','app-v8_3_2.js','app-v8_6.js']
+          for name in active:
+              pat = r'/' + re.escape(name) + r'\?v=[^"]+'
+              html, n = re.subn(pat, '/' + name + '?v=8.8.0', html, count=1)
+              if n != 1:
+                  raise SystemExit(f'could not cache-bust {name}')
+          index_path.write_text(html, encoding='utf-8')
+          
+          # Engine metadata regression now records the substantive decision-engine version.
+          engine_test_path = ROOT / 'tests' / 'engine.test.js'
+          engine_test = engine_test_path.read_text(encoding='utf-8')
+          if "assert.equal(e.VERSION, '8.0.0-autopilot-integrity');" not in engine_test or 'assert.equal(e.MODELS.length, 59);' not in engine_test:
+              raise SystemExit('engine metadata test anchors missing')
+          engine_test = engine_test.replace("assert.equal(e.VERSION, '8.0.0-autopilot-integrity');", "assert.equal(e.VERSION, '8.8.0-decision-intelligence');", 1)
+          engine_test = engine_test.replace('assert.equal(e.MODELS.length, 59);', 'assert.equal(e.MODELS.length, 62);', 1)
+          engine_test_path.write_text(engine_test, encoding='utf-8')
+          
+          # Existing release tests now target v8.8.
+          health_path = ROOT / 'tests' / 'health-contract.test.js'
+          health = health_path.read_text(encoding='utf-8')
+          if '8.7.2' not in health:
+              raise SystemExit('health contract v8.7.2 anchor missing')
+          health = health.replace('8.7.2', '8.8.0')
+          health_path.write_text(health, encoding='utf-8')
+          
+          front_path = ROOT / 'tests' / 'frontend-stability.test.js'
+          front = front_path.read_text(encoding='utf-8')
+          if 'v8.7.2' not in front or 'PRESENTATION INTEGRITY' not in front:
+              raise SystemExit('frontend stability v8.7.2 anchors missing')
+          front = front.replace('v8.7.2', 'v8.8.0').replace('v8\\.7\\.2', 'v8\\.8\\.0').replace('8\\.7\\.2', '8\\.8\\.0').replace('PRESENTATION INTEGRITY', 'DECISION INTELLIGENCE')
+          front_path.write_text(front, encoding='utf-8')
+          
+          # Documentation taxonomy.
+          readme_path = ROOT / 'README.md'
+          readme = readme_path.read_text(encoding='utf-8')
+          readme = readme.replace('# AEGIS Sports Command Center v8.7.2 — Autopilot & Daily Operations', '# AEGIS Sports Command Center v8.8.0 — Decision Intelligence & Autopilot', 1)
+          readme = readme.replace('platform release **v8.7.2**', 'platform release **v8.8.0**', 1)
+          if '## v8.8 Decision Intelligence' not in readme:
+              readme += '''\n\n## v8.8 Decision Intelligence\n\n- Adds Core Distinction / Stress-Test Gate v2 as an executable governance layer.\n- Enforces actual Hard Rock Play-To / Downgrade / Pass states before bankroll release.\n- Ranks market expressions by tier, stress survival, support, coverage, consensus and economics; simpler primary markets win close calls.\n- Enforces the Precision Mode Core cap of 2 and cross-slate Top-3 actionable scarcity.\n- Builds an optional parlay only when two distinct standalone legs independently clear execution, stress, target-book and uncertainty firewalls.\n- Persists stress score, execution state and market-selection score into the audit ledger.\n\nThe canonical betting governance remains **SB101 AEGIS v1.1 — September Daily-Use Freeze**; v8.8 operationalizes its existing rules rather than loosening release thresholds.\n'''
+          readme_path.write_text(readme, encoding='utf-8')
+          
+          print('AEGIS v8.8 Decision Intelligence integration staged.')
+          PY
+          
+          git add \
+            package.json \
+            README.md \
+            src/decision.js \
+            src/engine.js \
+            src/autopilot.js \
+            public/index.html \
+            public/app-v8_6.js \
+            tests/decision-intelligence.test.js \
+            tests/engine.test.js \
+            tests/frontend-stability.test.js \
+            tests/health-contract.test.js
+
+      - name: Run full AEGIS validation
+        run: npm run check
+
+      - name: Commit tested v8.8 changes
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git diff --cached --check
+
+          if git diff --cached --quiet; then
+            echo "No changes needed."
+          else
+            git commit -m "Apply AEGIS v8.8 Decision Intelligence"
+            git push origin HEAD:main
+          fi
+
+      - name: Verify live Render v8.8
+        shell: bash
+        env:
+          HEALTH_URL: https://aegis-sports-command-center.onrender.com/api/health
+          HOME_URL: https://aegis-sports-command-center.onrender.com/
+          BUNDLE_URL: https://aegis-sports-command-center.onrender.com/app-v8_6.js?v=8.8.0
+        run: |
+          EXPECTED_SHA="$(git rev-parse HEAD)"
+          EXPECTED_VERSION="$(node -p "require('./package.json').version")"
+          EXPECTED_ENGINE="8.8.0-decision-intelligence"
+
+          echo "Expected release: ${EXPECTED_VERSION}"
+          echo "Expected engine: ${EXPECTED_ENGINE}"
+          echo "Expected commit: ${EXPECTED_SHA}"
+
+          for attempt in $(seq 1 24); do
+            HEALTH="$(curl -fsS --max-time 20 "$HEALTH_URL" || true)"
+            HOME="$(curl -fsS --max-time 20 "$HOME_URL" || true)"
+            BUNDLE="$(curl -fsS --max-time 20 "$BUNDLE_URL" || true)"
+
+            META="$(
+              printf '%s' "$HEALTH" |
+              node -e "
+                let s='';
+                process.stdin.on('data',d=>s+=d).on('end',()=>{
+                  try{
+                    const j=JSON.parse(s);
+                    console.log([
+                      j.release_version || '',
+                      j.engine_version || '',
+                      j.status || '',
+                      j.deploy?.git_commit || '',
+                      j.persistent_storage === true ? 'true' : 'false',
+                      j.autopilot_enabled === true ? 'true' : 'false'
+                    ].join('|'));
+                  }catch{
+                    console.log('|||||');
+                  }
+                });
+              "
+            )"
+
+            IFS='|' read -r \
+              LIVE_VERSION \
+              LIVE_ENGINE \
+              LIVE_STATUS \
+              LIVE_SHA \
+              LIVE_STORAGE \
+              LIVE_AUTOPILOT \
+              <<< "$META"
+
+            UI_STATUS="$(
+              printf '%s' "$HOME" |
+              node -e "
+                let s='';
+                process.stdin.on('data',d=>s+=d).on('end',()=>{
+                  const bad=/[ÃÂ�â]|[\u0080-\u009f]/u;
+                  if(bad.test(s)) return console.log('MOJIBAKE');
+                  if(!s.includes('v8.8 • DECISION INTELLIGENCE')) return console.log('STALE');
+                  if(!s.includes('/app-v8_6.js?v=8.8.0')) return console.log('OLD_CACHE_KEY');
+                  console.log('OK');
+                });
+              "
+            )"
+
+            BUNDLE_STATUS="$(
+              printf '%s' "$BUNDLE" |
+              node -e "
+                let s='';
+                process.stdin.on('data',d=>s+=d).on('end',()=>{
+                  const bad=/[ÃÂ�â]|[\u0080-\u009f]/u;
+                  if(bad.test(s)) return console.log('MOJIBAKE');
+                  if(!s.includes('Stress survival')) return console.log('OLD_BUNDLE');
+                  if(!s.includes('Decision ')) return console.log('NO_DECISION_META');
+                  console.log('OK');
+                });
+              "
+            )"
+
+            echo "Attempt ${attempt}: release=${LIVE_VERSION:-unknown} engine=${LIVE_ENGINE:-unknown} status=${LIVE_STATUS:-unknown} commit=${LIVE_SHA:-unknown} storage=${LIVE_STORAGE:-unknown} autopilot=${LIVE_AUTOPILOT:-unknown} ui=${UI_STATUS:-unknown} bundle=${BUNDLE_STATUS:-unknown}"
+
+            if \
+              [ "$LIVE_VERSION" = "$EXPECTED_VERSION" ] && \
+              [ "$LIVE_ENGINE" = "$EXPECTED_ENGINE" ] && \
+              [ "$LIVE_STATUS" = "GREEN" ] && \
+              [ "$LIVE_SHA" = "$EXPECTED_SHA" ] && \
+              [ "$LIVE_STORAGE" = "true" ] && \
+              [ "$LIVE_AUTOPILOT" = "true" ] && \
+              [ "$UI_STATUS" = "OK" ] && \
+              [ "$BUNDLE_STATUS" = "OK" ]
+            then
+              echo "AEGIS v8.8 Decision Intelligence production verification passed."
+              exit 0
+            fi
+
+            sleep 15
+          done
+
+          echo "Production did not prove the expected v8.8 Decision Intelligence release."
+          exit 1
