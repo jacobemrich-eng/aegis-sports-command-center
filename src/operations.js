@@ -66,6 +66,7 @@ function evaluate({
   const monthlyUsed=firstFinite(auto.usage?.month,auto.usage?.monthly,auto.month_usage,auto.monthly_usage);
   const gradeDelayHours=firstFinite(config.gradeDelayHours,2)??2;
   const autoLockMinutes=firstFinite(config.autoLockMinutes,30)??30;
+  const redundancy=config.schedulerRedundancy&&typeof config.schedulerRedundancy==='object'?config.schedulerRedundancy:null;
 
   const checks=[];
   const alerts=normalizedAlerts(auto);
@@ -86,6 +87,28 @@ function evaluate({
   check('storage_health',storage.ok!==false,production?'RED':'DEGRADED','Persistent state backend is reporting an error.');
   check('persistent_storage',!production||storage.persistent===true,production?'RED':'DEGRADED','Production persistence is not confirmed.');
   check('autopilot_enabled',enabled,'RED','Autopilot is disabled.');
+
+  if(redundancy){
+    const backupReady=redundancy.ready===true;
+    const backupStatus=String(redundancy.status||'UNCONFIGURED').toUpperCase();
+    const backupHealthy=backupReady&&['HEALTHY','STARTING','RECOVERY_RUNNING'].includes(backupStatus);
+
+    if(!backupReady){
+      severity=Math.max(severity,1);
+      recoveryArmed=true;
+      if(severity<2)mode='RECOVERY_ARMED';
+      checks.push({key:'scheduler_redundancy',ok:false,level:'DEGRADED',message:'Backup heartbeat is not configured; GitHub Actions is currently the only scheduler.'});
+      alerts.push('Scheduler redundancy setup is incomplete: configure the backup heartbeat secret and external cron.');
+    }else if(insideWindow&&!backupHealthy){
+      severity=Math.max(severity,1);
+      recoveryArmed=true;
+      if(severity<2)mode='RECOVERY_ARMED';
+      checks.push({key:'scheduler_redundancy',ok:false,level:'DEGRADED',message:backupStatus==='STALE'?'Backup heartbeat has stopped checking in on schedule.':'Backup heartbeat is configured but has not completed its first check-in yet.'});
+      alerts.push(backupStatus==='STALE'?'Backup scheduler heartbeat is stale.':'Backup scheduler is awaiting its first heartbeat check-in.');
+    }else{
+      checks.push({key:'scheduler_redundancy',ok:true,level:insideWindow?'OK':'SLEEP',message:backupReady?'Independent backup heartbeat is configured and available.':'Backup scheduler is outside its operating window.'});
+    }
+  }
 
   if(insideWindow&&enabled){
     if(lastAge===null){
@@ -157,8 +180,15 @@ function evaluate({
   }
 
   const status=severity===2?'RED':severity===1?'DEGRADED':'GREEN';
+  const redundancyNeedsSetup=redundancy&&redundancy.ready!==true;
+  const redundancyUnhealthy=redundancy&&redundancy.ready===true&&insideWindow&&!['HEALTHY','STARTING','RECOVERY_RUNNING'].includes(String(redundancy.status||'').toUpperCase());
+
   const nextAction=status==='RED'
     ?'Open Command Center diagnostics and restore the failed scheduler, persistence, or Autopilot dependency.'
+    :redundancyNeedsSetup
+      ?'Configure the independent backup heartbeat to restore redundant hands-off scheduling.'
+      :redundancyUnhealthy
+        ?'Primary Autopilot may still be operating, but the backup heartbeat needs attention if it does not recover on its next check.'
     :quotaProtected
       ?'No manual action required unless you intentionally want to change quota policy; AEGIS is protecting the remaining API budget.'
       :recoveryArmed
@@ -182,7 +212,8 @@ function evaluate({
     last_success_age_minutes:lastAge===null?null:+lastAge.toFixed(1),
     usage:{today:dailyUsed,daily_budget:dailyBudget,month:monthlyUsed,monthly_budget:monthlyBudget},
     safeguards:{
-      scheduler_recovery:'armed',
+      scheduler_recovery:redundancy&&redundancy.ready===true?'redundant':'primary-only',
+      scheduler_redundancy:redundancy,
       persistent_state:storage.persistent===true,
       auto_lock_minutes:autoLockMinutes,
       grade_delay_hours:gradeDelayHours,

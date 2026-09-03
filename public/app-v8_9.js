@@ -29,7 +29,7 @@
       '<p id="opsMessage" class="small subtle">AEGIS is verifying scheduler freshness, persistence, recovery and quota safeguards.</p>',
       '<div class="opsGrid">',
         '<div><b>Last success</b><span id="opsLast">—</span></div>',
-        '<div><b>Recovery</b><span id="opsRecovery">—</span></div>',
+        '<div><b>Schedulers</b><span id="opsRecovery">—</span></div>',
         '<div><b>Persistence</b><span id="opsPersist">—</span></div>',
         '<div><b>Quota</b><span id="opsQuota">—</span></div>',
       '</div>',
@@ -66,7 +66,14 @@
     );
     text(document.getElementById('opsMessage'),ops.next_action||'Operational status updated.');
     text(document.getElementById('opsLast'),formatAge(ops.last_success_age_minutes));
-    text(document.getElementById('opsRecovery'),ops.recovery_armed?'ARMED':'STANDBY');
+    const redundancy=ops.safeguards&&ops.safeguards.scheduler_redundancy;
+      const backupStatus=String(redundancy&&redundancy.status||'UNCONFIGURED').toUpperCase();
+      const redundantHealthy=redundancy&&redundancy.ready===true&&['HEALTHY','STARTING','RECOVERY_RUNNING'].includes(backupStatus);
+      text(document.getElementById('opsRecovery'),
+        redundantHealthy?'REDUNDANT':
+        redundancy&&redundancy.ready===true?'BACKUP CHECK':
+        ops.recovery_armed?'PRIMARY ONLY':'PRIMARY ONLY'
+      );
     text(document.getElementById('opsPersist'),ops.safeguards&&ops.safeguards.persistent_state?'CONFIRMED':'CHECK');
 
     const usage=ops.usage||{};

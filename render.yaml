@@ -20,6 +20,14 @@ services:
         sync: false
       - key: AEGIS_AUTOPILOT_SECRET
         sync: false
+      - key: AEGIS_HEARTBEAT_SECRET
+        sync: false
+      - key: AEGIS_HEARTBEAT_STALE_MINUTES
+        value: "35"
+      - key: AEGIS_HEARTBEAT_PROBE_FRESH_MINUTES
+        value: "25"
+      - key: AEGIS_HEARTBEAT_DEBOUNCE_MS
+        value: "15000"
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SECRET_KEY

@@ -8,6 +8,7 @@ const autopilot = require('./src/autopilot');
 const store = require('./src/store');
 const release = require('./src/release');
 const operations = require('./src/operations');
+const heartbeat = require('./src/heartbeat');
 
 const PORT = Number(process.env.PORT || 3000);
 const ROOT = __dirname;
@@ -81,7 +82,15 @@ auto=await safeStatus();
                   scheduleMinutes:15,
                   autoLockMinutes:Number(process.env.AEGIS_AUTO_LOCK_MINUTES||30),
                   gradeDelayHours:Number(process.env.AEGIS_GRADE_DELAY_HOURS||2),
-                  releaseSports:autopilot.config.RELEASE_SPORTS
+                  releaseSports:autopilot.config.RELEASE_SPORTS,
+                  schedulerRedundancy:heartbeat.publicState({
+                    secretReady:!!String(process.env.AEGIS_HEARTBEAT_SECRET||'').trim(),
+                    autopilotSecretReady:!!String(process.env.AEGIS_AUTOPILOT_SECRET||'').trim(),
+                    staleMinutes:Number(process.env.AEGIS_HEARTBEAT_STALE_MINUTES||35),
+                    probeFreshMinutes:Number(process.env.AEGIS_HEARTBEAT_PROBE_FRESH_MINUTES||25),
+                    debounceMs:Number(process.env.AEGIS_HEARTBEAT_DEBOUNCE_MS||15000),
+                    uptimeSeconds:process.uptime()
+                  })
                 },
                 production:process.env.NODE_ENV==='production',
                 uptimeSeconds:process.uptime()
@@ -94,12 +103,21 @@ auto=await safeStatus();
       cfbdReady:c.cfbdReady,
       autopilotSecretReady:!!AUTOPILOT_SECRET,
       releaseSports:autopilot.config.RELEASE_SPORTS,
+      schedulerRedundancy:heartbeat.publicState({
+        secretReady:!!String(process.env.AEGIS_HEARTBEAT_SECRET||'').trim(),
+        autopilotSecretReady:!!String(process.env.AEGIS_AUTOPILOT_SECRET||'').trim(),
+        staleMinutes:Number(process.env.AEGIS_HEARTBEAT_STALE_MINUTES||35),
+        probeFreshMinutes:Number(process.env.AEGIS_HEARTBEAT_PROBE_FRESH_MINUTES||25),
+        debounceMs:Number(process.env.AEGIS_HEARTBEAT_DEBOUNCE_MS||15000),
+        uptimeSeconds:process.uptime()
+      }),
       engineVersion:engine.VERSION
     });
 
     return send(res,200,{
       ...health,
                 operations:ops,
+                scheduler_redundancy:ops.safeguards?.scheduler_redundancy||null,
 
       version:release.APP_VERSION,
 
@@ -170,10 +188,154 @@ auto=await safeStatus();
                 ok:ops.status!=='RED',
                 release_version:release.APP_VERSION,
                 engine_version:engine.VERSION,
-                operations:ops
+                operations:ops,
+                scheduler_redundancy:ops.safeguards?.scheduler_redundancy||null
               });
             }
-if(req.method==='POST'&&u.pathname==='/api/login'){
+if(req.method==='POST'&&u.pathname==='/api/autopilot/heartbeat'){
+  const heartbeatSecret=String(process.env.AEGIS_HEARTBEAT_SECRET||'').trim();
+  const autopilotSecret=String(process.env.AEGIS_AUTOPILOT_SECRET||'').trim();
+
+  if(!heartbeat.authorized(req.headers.authorization,heartbeatSecret)){
+    return send(res,401,{ok:false,error:'unauthorized'});
+  }
+
+  const storage=await store.health(),
+        auto=await safeStatus();
+
+  const heartbeatState=heartbeat.publicState({
+    secretReady:!!heartbeatSecret,
+    autopilotSecretReady:!!autopilotSecret,
+    staleMinutes:Number(process.env.AEGIS_HEARTBEAT_STALE_MINUTES||35),
+    probeFreshMinutes:Number(process.env.AEGIS_HEARTBEAT_PROBE_FRESH_MINUTES||25),
+    debounceMs:Number(process.env.AEGIS_HEARTBEAT_DEBOUNCE_MS||15000),
+    uptimeSeconds:process.uptime()
+  });
+
+  const ops=operations.evaluate({
+    auto,
+    storage,
+    config:{
+      autopilotEnabled:auto.enabled,
+      dailyBudget:autopilot.config.DAILY_BUDGET,
+      monthlyBudget:autopilot.config.MONTHLY_BUDGET,
+      scheduleMinutes:15,
+      autoLockMinutes:Number(process.env.AEGIS_AUTO_LOCK_MINUTES||30),
+      gradeDelayHours:Number(process.env.AEGIS_GRADE_DELAY_HOURS||2),
+      releaseSports:autopilot.config.RELEASE_SPORTS,
+      schedulerRedundancy:heartbeatState
+    },
+    production:process.env.NODE_ENV==='production',
+    uptimeSeconds:process.uptime()
+  });
+
+  const gate=heartbeat.decide({
+    operations:ops,
+    storage,
+    secretReady:!!heartbeatSecret,
+    autopilotSecretReady:!!autopilotSecret,
+    staleMinutes:Number(process.env.AEGIS_HEARTBEAT_STALE_MINUTES||35),
+    uptimeSeconds:process.uptime()
+  });
+
+  heartbeat.recordProbe(gate);
+
+  if(!gate.trigger){
+    return send(res,200,{
+      ok:true,
+      triggered:false,
+      reason:gate.reason,
+      last_success_age_minutes:gate.last_success_age_minutes,
+      redundancy:heartbeat.publicState({
+        secretReady:!!heartbeatSecret,
+        autopilotSecretReady:!!autopilotSecret,
+        staleMinutes:Number(process.env.AEGIS_HEARTBEAT_STALE_MINUTES||35),
+        probeFreshMinutes:Number(process.env.AEGIS_HEARTBEAT_PROBE_FRESH_MINUTES||25),
+        debounceMs:Number(process.env.AEGIS_HEARTBEAT_DEBOUNCE_MS||15000),
+        uptimeSeconds:process.uptime()
+      })
+    });
+  }
+
+  const queued=heartbeat.queueRecovery({
+    delayMs:Number(process.env.AEGIS_HEARTBEAT_DEBOUNCE_MS||15000),
+    recheck:async()=>{
+      const storage2=await store.health(),
+            auto2=await safeStatus();
+      const state2=heartbeat.publicState({
+        secretReady:!!heartbeatSecret,
+        autopilotSecretReady:!!autopilotSecret,
+        staleMinutes:Number(process.env.AEGIS_HEARTBEAT_STALE_MINUTES||35),
+        probeFreshMinutes:Number(process.env.AEGIS_HEARTBEAT_PROBE_FRESH_MINUTES||25),
+        debounceMs:Number(process.env.AEGIS_HEARTBEAT_DEBOUNCE_MS||15000),
+        uptimeSeconds:process.uptime()
+      });
+      const ops2=operations.evaluate({
+        auto:auto2,
+        storage:storage2,
+        config:{
+          autopilotEnabled:auto2.enabled,
+          dailyBudget:autopilot.config.DAILY_BUDGET,
+          monthlyBudget:autopilot.config.MONTHLY_BUDGET,
+          scheduleMinutes:15,
+          autoLockMinutes:Number(process.env.AEGIS_AUTO_LOCK_MINUTES||30),
+          gradeDelayHours:Number(process.env.AEGIS_GRADE_DELAY_HOURS||2),
+          releaseSports:autopilot.config.RELEASE_SPORTS,
+          schedulerRedundancy:state2
+        },
+        production:process.env.NODE_ENV==='production',
+        uptimeSeconds:process.uptime()
+      });
+      return heartbeat.decide({
+        operations:ops2,
+        storage:storage2,
+        secretReady:!!heartbeatSecret,
+        autopilotSecretReady:!!autopilotSecret,
+        staleMinutes:Number(process.env.AEGIS_HEARTBEAT_STALE_MINUTES||35),
+        uptimeSeconds:process.uptime()
+      });
+    },
+    run:async()=>{
+      const controller=new AbortController();
+      const timer=setTimeout(()=>controller.abort(),220000);
+      try{
+        const response=await fetch(`http://127.0.0.1:${PORT}/api/autopilot/tick`,{
+          method:'POST',
+          headers:{
+            Authorization:`Bearer ${autopilotSecret}`,
+            'Content-Type':'application/json',
+            'X-AEGIS-Recovery-Source':'heartbeat'
+          },
+          signal:controller.signal
+        });
+        const raw=await response.text();
+        let body=null;
+        try{body=raw?JSON.parse(raw):null;}catch{}
+        if(!response.ok||!body||body.ok!==true){
+          throw new Error(`autopilot_tick_failed_${response.status}`);
+        }
+        return {
+          ok:true,
+          status:response.status,
+          runs:Array.isArray(body.runs)?body.runs.length:null,
+          errors:Array.isArray(body.errors)?body.errors.length:null,
+          graded:body.graded??null,
+          persistent:body.persistent??null
+        };
+      }finally{
+        clearTimeout(timer);
+      }
+    }
+  });
+
+  return send(res,queued?202:200,{
+    ok:true,
+    triggered:queued,
+    reason:queued?'recovery_queued':'recovery_already_queued',
+    last_success_age_minutes:gate.last_success_age_minutes
+  });
+}
+  if(req.method==='POST'&&u.pathname==='/api/login'){
       if(!ACCESS_PIN)return send(res,200,{ok:true,auth_required:false});
       if(!rateLimit(req,res,'login',12,15*60e3))return;
       const body=JSON.parse(await readBody(req)||'{}');

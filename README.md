@@ -1,8 +1,8 @@
-# AEGIS Sports Command Center v8.9.0 — Hands-Off Operations & Recovery
+# AEGIS Sports Command Center v8.9.1 — Scheduler Redundancy & Hands-Off Recovery
 
 AEGIS is a free-tier-first sports research operating system built around the SB101 AEGIS decision framework.
 
-**Version taxonomy:** platform release **v8.9.0**; canonical betting governance **SB101 AEGIS v1.1 — September Daily-Use Freeze**. Platform releases do not silently rewrite historical model versions. v8 turns the existing one-tap research engine into a scheduled, persistent daily workflow for **MLB and NCAAF**, while keeping the other registered sport systems available for research and validation.
+**Version taxonomy:** platform release **v8.9.1**; canonical betting governance **SB101 AEGIS v1.1 — September Daily-Use Freeze**. Platform releases do not silently rewrite historical model versions. v8 turns the existing one-tap research engine into a scheduled, persistent daily workflow for **MLB and NCAAF**, while keeping the other registered sport systems available for research and validation.
 
 ## What v8 automates
 
@@ -174,3 +174,17 @@ The canonical betting governance remains **SB101 AEGIS v1.1 — September Daily-
 - Keeps the v8.8 Decision Intelligence engine frozen at `8.8.0-decision-intelligence`; v8.9 changes operations/reliability, not betting-model weights.
 
 The canonical betting governance remains **SB101 AEGIS v1.1 — September Daily-Use Freeze**.
+
+
+## v8.9.1 Scheduler Redundancy
+
+- Keeps GitHub Actions as the primary scheduler while adding an independent protected heartbeat endpoint for backup scheduling.
+- The backup heartbeat is a probe first: it does not spend sportsbook quota when the primary scheduler is fresh.
+- Recovery only queues after the last successful Autopilot tick is at least 35 minutes stale, then waits 15 seconds and rechecks before triggering.
+- The recheck suppresses duplicate work if GitHub Actions recovered in the meantime.
+- Backup recovery reuses the existing protected `/api/autopilot/tick` path internally and never exposes the Autopilot secret to the external heartbeat provider.
+- A separate `AEGIS_HEARTBEAT_SECRET` limits the external scheduler to the heartbeat gate only.
+- Operations Guardian marks scheduler redundancy as degraded until the backup heartbeat is configured and checking in.
+- The v8.8 Decision Intelligence engine remains frozen at `8.8.0-decision-intelligence`.
+
+Recommended external heartbeat cadence: every 10 minutes during 07:00–23:00 America/New_York.
