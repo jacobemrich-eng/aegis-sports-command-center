@@ -1,0 +1,199 @@
+'use strict';
+
+function finite(v){
+  const n=Number(v);
+  return Number.isFinite(n)?n:null;
+}
+
+function firstFinite(...values){
+  for(const value of values){
+    const n=finite(value);
+    if(n!==null)return n;
+  }
+  return null;
+}
+
+function ageMinutes(value,nowMs=Date.now()){
+  if(!value)return null;
+  const ms=new Date(value).getTime();
+  if(!Number.isFinite(ms))return null;
+  return Math.max(0,(nowMs-ms)/60000);
+}
+
+function etHour(nowMs=Date.now()){
+  try{
+    const parts=new Intl.DateTimeFormat('en-US',{
+      timeZone:'America/New_York',
+      hour:'2-digit',
+      hourCycle:'h23'
+    }).formatToParts(new Date(nowMs));
+    const raw=parts.find(p=>p.type==='hour')?.value;
+    const hour=Number(raw);
+    return Number.isFinite(hour)?hour:null;
+  }catch{
+    return null;
+  }
+}
+
+function normalizedAlerts(auto){
+  const rows=Array.isArray(auto?.alerts)?auto.alerts:[];
+  return rows.slice(-4).map(item=>{
+    if(typeof item==='string')return item;
+    if(!item||typeof item!=='object')return String(item||'');
+    return String(item.message||item.title||item.reason||item.type||'Operational alert');
+  }).filter(Boolean);
+}
+
+function evaluate({
+  auto={},
+  storage={},
+  config={},
+  production=false,
+  nowMs=Date.now(),
+  uptimeSeconds=null
+}={}){
+  const scheduleMinutes=firstFinite(config.scheduleMinutes,15)??15;
+  const staleAfter=firstFinite(config.staleAfterMinutes,35)??35;
+  const actionAfter=firstFinite(config.actionAfterMinutes,75)??75;
+  const hour=etHour(nowMs);
+  const insideWindow=hour===null?true:(hour>=7&&hour<23);
+  const lastSuccess=auto.last_success_at||auto.lastSuccessAt||null;
+  const lastAge=ageMinutes(lastSuccess,nowMs);
+  const enabled=auto.enabled!==false&&config.autopilotEnabled!==false;
+  const dailyBudget=firstFinite(config.dailyBudget,auto.daily_budget,auto.usage?.daily_budget);
+  const monthlyBudget=firstFinite(config.monthlyBudget,auto.monthly_budget,auto.usage?.monthly_budget);
+  const dailyUsed=firstFinite(auto.usage?.today,auto.usage?.daily,auto.today_usage,auto.daily_usage);
+  const monthlyUsed=firstFinite(auto.usage?.month,auto.usage?.monthly,auto.month_usage,auto.monthly_usage);
+  const gradeDelayHours=firstFinite(config.gradeDelayHours,2)??2;
+  const autoLockMinutes=firstFinite(config.autoLockMinutes,30)??30;
+
+  const checks=[];
+  const alerts=normalizedAlerts(auto);
+  let severity=0; // 0 green, 1 degraded, 2 red
+  let mode=insideWindow?'AUTONOMOUS':'SLEEP_WINDOW';
+  let recoveryArmed=false;
+  let interventionRequired=false;
+
+  function check(key,ok,level,message){
+    checks.push({key,ok:!!ok,level:ok?'OK':level,message});
+    if(!ok){
+      if(level==='RED')severity=Math.max(severity,2);
+      else severity=Math.max(severity,1);
+      if(message&&!alerts.includes(message))alerts.push(message);
+    }
+  }
+
+  check('storage_health',storage.ok!==false,production?'RED':'DEGRADED','Persistent state backend is reporting an error.');
+  check('persistent_storage',!production||storage.persistent===true,production?'RED':'DEGRADED','Production persistence is not confirmed.');
+  check('autopilot_enabled',enabled,'RED','Autopilot is disabled.');
+
+  if(insideWindow&&enabled){
+    if(lastAge===null){
+      const uptime=finite(uptimeSeconds);
+      const grace=uptime!==null&&uptime<scheduleMinutes*2*60;
+      check('scheduler_freshness',grace,'RED',grace?'Awaiting the first scheduled tick after deployment.':'No successful Autopilot tick is recorded during the operating window.');
+      if(grace){
+        severity=Math.max(severity,1);
+        recoveryArmed=true;
+        mode='RECOVERY_ARMED';
+      }
+    }else if(lastAge<=staleAfter){
+      checks.push({key:'scheduler_freshness',ok:true,level:'OK',message:`Last successful tick was ${Math.round(lastAge)} minutes ago.`});
+    }else if(lastAge<=actionAfter){
+      severity=Math.max(severity,1);
+      recoveryArmed=true;
+      mode='RECOVERY_ARMED';
+      checks.push({key:'scheduler_freshness',ok:false,level:'DEGRADED',message:`Autopilot is ${Math.round(lastAge)} minutes stale; the next scheduler run is armed for recovery.`});
+      alerts.push(`Missed-run recovery armed: last successful tick was ${Math.round(lastAge)} minutes ago.`);
+    }else{
+      severity=2;
+      interventionRequired=true;
+      mode='ACTION_REQUIRED';
+      checks.push({key:'scheduler_freshness',ok:false,level:'RED',message:`Autopilot is ${Math.round(lastAge)} minutes stale, beyond the automatic recovery window.`});
+      alerts.push(`Action required: no successful Autopilot tick for ${Math.round(lastAge)} minutes.`);
+    }
+  }else{
+    checks.push({key:'scheduler_freshness',ok:true,level:'SLEEP',message:'Outside the 07:00–23:00 ET operating window; scheduler staleness is not treated as a fault.'});
+  }
+
+  if(auto.last_error){
+    severity=Math.max(severity,1);
+    if(severity<2)mode='RECOVERY_ARMED';
+    recoveryArmed=true;
+    checks.push({key:'last_run_error',ok:false,level:'DEGRADED',message:'The most recent Autopilot state contains an error; automatic retry/recovery remains armed.'});
+    alerts.push('Autopilot reported an error on its latest recorded run; recovery is armed.');
+  }else{
+    checks.push({key:'last_run_error',ok:true,level:'OK',message:'No current Autopilot error is recorded.'});
+  }
+
+  let quotaProtected=false;
+  if(dailyBudget!==null&&dailyUsed!==null&&dailyBudget>0&&dailyUsed>=dailyBudget){
+    quotaProtected=true;
+    severity=Math.max(severity,1);
+    if(severity<2)mode='QUOTA_PROTECTED';
+    checks.push({key:'daily_budget',ok:false,level:'PROTECTED',message:`Daily sportsbook budget is protected at ${dailyUsed}/${dailyBudget}; nonessential refreshes should pause until reset.`});
+    alerts.push('Daily sportsbook budget reached; quota protection is active.');
+  }else{
+    checks.push({key:'daily_budget',ok:true,level:'OK',message:dailyBudget!==null&&dailyUsed!==null?`Daily usage ${dailyUsed}/${dailyBudget}.`:'Daily usage telemetry is not available in this status payload.'});
+  }
+
+  if(monthlyBudget!==null&&monthlyUsed!==null&&monthlyBudget>0&&monthlyUsed>=monthlyBudget){
+    quotaProtected=true;
+    severity=Math.max(severity,1);
+    if(severity<2)mode='QUOTA_PROTECTED';
+    checks.push({key:'monthly_budget',ok:false,level:'PROTECTED',message:`Monthly sportsbook budget is protected at ${monthlyUsed}/${monthlyBudget}.`});
+    alerts.push('Monthly sportsbook budget reached; quota protection is active.');
+  }else{
+    checks.push({key:'monthly_budget',ok:true,level:'OK',message:monthlyBudget!==null&&monthlyUsed!==null?`Monthly usage ${monthlyUsed}/${monthlyBudget}.`:'Monthly usage telemetry is not available in this status payload.'});
+  }
+
+  if(severity===2){
+    mode='ACTION_REQUIRED';
+    interventionRequired=true;
+  }else if(!insideWindow&&severity===0){
+    mode='SLEEP_WINDOW';
+  }else if(severity===0){
+    mode='AUTONOMOUS';
+  }
+
+  const status=severity===2?'RED':severity===1?'DEGRADED':'GREEN';
+  const nextAction=status==='RED'
+    ?'Open Command Center diagnostics and restore the failed scheduler, persistence, or Autopilot dependency.'
+    :quotaProtected
+      ?'No manual action required unless you intentionally want to change quota policy; AEGIS is protecting the remaining API budget.'
+      :recoveryArmed
+        ?'No manual action yet. The next scheduled workflow will retry/recover automatically; intervene only if status becomes RED.'
+        :insideWindow
+          ?'No action required. AEGIS is operating autonomously.'
+          :'No action required. AEGIS is outside its scheduled operating window.';
+
+  return {
+    status,
+    mode,
+    intervention_required:interventionRequired,
+    recovery_armed:recoveryArmed,
+    quota_protected:quotaProtected,
+    operating_window_et:'07:00–23:00',
+    inside_operating_window:insideWindow,
+    expected_schedule_minutes:scheduleMinutes,
+    stale_after_minutes:staleAfter,
+    action_after_minutes:actionAfter,
+    last_success_at:lastSuccess,
+    last_success_age_minutes:lastAge===null?null:+lastAge.toFixed(1),
+    usage:{today:dailyUsed,daily_budget:dailyBudget,month:monthlyUsed,monthly_budget:monthlyBudget},
+    safeguards:{
+      scheduler_recovery:'armed',
+      persistent_state:storage.persistent===true,
+      auto_lock_minutes:autoLockMinutes,
+      grade_delay_hours:gradeDelayHours,
+      quota_governor:true,
+      release_sports:Array.isArray(config.releaseSports)?config.releaseSports:[]
+    },
+    checks,
+    alerts:Array.from(new Set(alerts)).slice(-8),
+    next_action:nextAction,
+    evaluated_at:new Date(nowMs).toISOString()
+  };
+}
+
+module.exports={ageMinutes,etHour,evaluate};

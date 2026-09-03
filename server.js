@@ -7,6 +7,7 @@ const engine = require('./src/engine');
 const autopilot = require('./src/autopilot');
 const store = require('./src/store');
 const release = require('./src/release');
+const operations = require('./src/operations');
 
 const PORT = Number(process.env.PORT || 3000);
 const ROOT = __dirname;
@@ -70,6 +71,21 @@ const server=http.createServer(async(req,res)=>{
     const c=engine.config(),
 storage=await store.health(),
 auto=await safeStatus();
+              const ops=operations.evaluate({
+                auto,
+                storage,
+                config:{
+                  autopilotEnabled:auto.enabled,
+                  dailyBudget:autopilot.config.DAILY_BUDGET,
+                  monthlyBudget:autopilot.config.MONTHLY_BUDGET,
+                  scheduleMinutes:15,
+                  autoLockMinutes:Number(process.env.AEGIS_AUTO_LOCK_MINUTES||30),
+                  gradeDelayHours:Number(process.env.AEGIS_GRADE_DELAY_HOURS||2),
+                  releaseSports:autopilot.config.RELEASE_SPORTS
+                },
+                production:process.env.NODE_ENV==='production',
+                uptimeSeconds:process.uptime()
+              });
 
     const health=release.buildHealth({
       storage,
@@ -83,6 +99,7 @@ auto=await safeStatus();
 
     return send(res,200,{
       ...health,
+                operations:ops,
 
       version:release.APP_VERSION,
 
@@ -127,7 +144,36 @@ auto=await safeStatus();
         autopilot.config.AUTO_DEEP_CREDIT_CAP
     });
   }
-    if(req.method==='POST'&&u.pathname==='/api/login'){
+                if(req.method==='GET'&&u.pathname==='/api/operations/status'){
+              const c=engine.config(),
+                    storage=await store.health(),
+                    auto=await safeStatus();
+
+              const ops=operations.evaluate({
+                auto,
+                storage,
+                config:{
+                  autopilotEnabled:auto.enabled,
+                  dailyBudget:autopilot.config.DAILY_BUDGET,
+                  monthlyBudget:autopilot.config.MONTHLY_BUDGET,
+                  scheduleMinutes:15,
+                  autoLockMinutes:Number(process.env.AEGIS_AUTO_LOCK_MINUTES||30),
+                  gradeDelayHours:Number(process.env.AEGIS_GRADE_DELAY_HOURS||2),
+                  releaseSports:autopilot.config.RELEASE_SPORTS,
+                  oddsQuotaReserve:c.oddsQuotaReserve
+                },
+                production:process.env.NODE_ENV==='production',
+                uptimeSeconds:process.uptime()
+              });
+
+              return send(res,200,{
+                ok:ops.status!=='RED',
+                release_version:release.APP_VERSION,
+                engine_version:engine.VERSION,
+                operations:ops
+              });
+            }
+if(req.method==='POST'&&u.pathname==='/api/login'){
       if(!ACCESS_PIN)return send(res,200,{ok:true,auth_required:false});
       if(!rateLimit(req,res,'login',12,15*60e3))return;
       const body=JSON.parse(await readBody(req)||'{}');

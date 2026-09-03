@@ -1,12 +1,12 @@
 {
   "name": "aegis-command-center",
-  "version": "8.8.0",
+  "version": "8.9.0",
   "private": true,
   "description": "SB101 AEGIS v8 Autopilot — scheduled research, freshness gates, market history, card locking and server-side grading",
   "scripts": {
     "start": "node server.js",
     "test": "node --test tests/*.test.js",
-    "check": "node --check server.js && node --check src/engine.js && node --check src/decision.js && node --check src/store.js && node --check src/release.js && node --check src/autopilot.js && node --check public/app.js && node --check public/app-v8_2.js && node --check public/app-v8_3.js && node --check public/app-v8_3_1.js && node --check public/app-v8_3_2.js && node --check public/app-v8_4.js && node --check public/app-v8_6.js && npm test"
+    "check": "node --check server.js && node --check src/engine.js && node --check src/decision.js && node --check src/store.js && node --check src/release.js && node --check src/operations.js && node --check src/autopilot.js && node --check public/app.js && node --check public/app-v8_2.js && node --check public/app-v8_3.js && node --check public/app-v8_3_1.js && node --check public/app-v8_3_2.js && node --check public/app-v8_4.js && node --check public/app-v8_6.js && node --check public/app-v8_9.js && npm test"
   },
   "engines": {
     "node": ">=22 <23"

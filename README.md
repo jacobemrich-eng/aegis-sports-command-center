@@ -1,8 +1,8 @@
-# AEGIS Sports Command Center v8.8.0 — Decision Intelligence & Autopilot
+# AEGIS Sports Command Center v8.9.0 — Hands-Off Operations & Recovery
 
 AEGIS is a free-tier-first sports research operating system built around the SB101 AEGIS decision framework.
 
-**Version taxonomy:** platform release **v8.8.0**; canonical betting governance **SB101 AEGIS v1.1 — September Daily-Use Freeze**. Platform releases do not silently rewrite historical model versions. v8 turns the existing one-tap research engine into a scheduled, persistent daily workflow for **MLB and NCAAF**, while keeping the other registered sport systems available for research and validation.
+**Version taxonomy:** platform release **v8.9.0**; canonical betting governance **SB101 AEGIS v1.1 — September Daily-Use Freeze**. Platform releases do not silently rewrite historical model versions. v8 turns the existing one-tap research engine into a scheduled, persistent daily workflow for **MLB and NCAAF**, while keeping the other registered sport systems available for research and validation.
 
 ## What v8 automates
 
@@ -162,3 +162,15 @@ This is a decision-support and research system, not a guarantee of betting outco
 - Persists stress score, execution state and market-selection score into the audit ledger.
 
 The canonical betting governance remains **SB101 AEGIS v1.1 — September Daily-Use Freeze**; v8.8 operationalizes its existing rules rather than loosening release thresholds.
+
+
+## v8.9 Hands-Off Operations & Recovery
+
+- Adds an Operations Guardian contract that classifies live production as AUTONOMOUS, RECOVERY ARMED, QUOTA PROTECTED, SLEEP WINDOW, or ACTION REQUIRED.
+- Detects missed/stale Autopilot activity with a recovery window before asking for manual intervention.
+- Replaces the scheduled GitHub workflow with guarded cold-start handling, server-side completion detection, and one safe recovery attempt.
+- Treats quota exhaustion as a protected operating state rather than a false outage.
+- Surfaces persistence, recovery, scheduler freshness, quota state, auto-lock timing, grading delay, and active alerts in the Command Center.
+- Keeps the v8.8 Decision Intelligence engine frozen at `8.8.0-decision-intelligence`; v8.9 changes operations/reliability, not betting-model weights.
+
+The canonical betting governance remains **SB101 AEGIS v1.1 — September Daily-Use Freeze**.
