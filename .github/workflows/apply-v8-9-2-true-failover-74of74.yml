@@ -1,0 +1,335 @@
+name: Apply AEGIS v8.9.2 True Failover
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: aegis-v8-9-2-true-failover
+  cancel-in-progress: false
+
+jobs:
+  upgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Patch true failover execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          python <<'PY'
+          from pathlib import Path
+          import json
+
+          pkg_path=Path('package.json')
+          pkg=json.loads(pkg_path.read_text(encoding='utf-8'))
+          if pkg.get('version')!='8.9.1':
+              raise SystemExit(f"Expected v8.9.1 before v8.9.2; found {pkg.get('version')!r}. Refusing unsafe patch.")
+          pkg['version']='8.9.2'
+          pkg_path.write_text(json.dumps(pkg,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
+
+          hb_path=Path('src/heartbeat.js')
+          hb=hb_path.read_text(encoding='utf-8')
+
+          old_decide="""function decide({
+            operations={},
+            storage={},
+            secretReady=false,
+            autopilotSecretReady=false,
+            staleMinutes=35,
+            uptimeSeconds=null,
+            nowMs=Date.now()
+          }={}){"""
+          new_decide="""function decide({
+            operations={},
+            storage={},
+            secretReady=false,
+            autopilotSecretReady=false,
+            staleMinutes=35,
+            uptimeSeconds=null,
+            ignoreInFlight=false,
+            nowMs=Date.now()
+          }={}){"""
+          if hb.count(old_decide)!=1:
+              raise SystemExit(f'expected exactly one decide() signature block, found {hb.count(old_decide)}')
+          hb=hb.replace(old_decide,new_decide,1)
+
+          old_lock="else if(inFlight)reason='recovery_in_flight';"
+          new_lock="else if(inFlight&&!ignoreInFlight)reason='recovery_in_flight';"
+          if hb.count(old_lock)!=1:
+              raise SystemExit(f'expected exactly one heartbeat in-flight gate, found {hb.count(old_lock)}')
+          hb=hb.replace(old_lock,new_lock,1)
+          hb_path.write_text(hb,encoding='utf-8')
+
+          server_path=Path('server.js')
+          server=server_path.read_text(encoding='utf-8')
+
+          old_recheck="""      return heartbeat.decide({
+                  operations:ops2,
+                  storage:storage2,
+                  secretReady:!!heartbeatSecret,
+                  autopilotSecretReady:!!autopilotSecret,
+                  staleMinutes:Number(process.env.AEGIS_HEARTBEAT_STALE_MINUTES||35),
+                  uptimeSeconds:process.uptime()
+                });"""
+          new_recheck="""      return heartbeat.decide({
+                  operations:ops2,
+                  storage:storage2,
+                  ignoreInFlight:true,
+                  secretReady:!!heartbeatSecret,
+                  autopilotSecretReady:!!autopilotSecret,
+                  staleMinutes:Number(process.env.AEGIS_HEARTBEAT_STALE_MINUTES||35),
+                  uptimeSeconds:process.uptime()
+                });"""
+          if server.count(old_recheck)!=1:
+              raise SystemExit(f'expected exactly one post-debounce recovery recheck block, found {server.count(old_recheck)}')
+          if 'ignoreInFlight:true' in server:
+              raise SystemExit('ignoreInFlight already present unexpectedly')
+          server=server.replace(old_recheck,new_recheck,1)
+          if server.count('ignoreInFlight:true')!=1:
+              raise SystemExit('expected exactly one internal ignoreInFlight recheck after patch')
+          server_path.write_text(server,encoding='utf-8')
+
+          test_path=Path('tests/heartbeat.test.js')
+          tests=test_path.read_text(encoding='utf-8')
+          anchor="""test('debounced recheck suppresses recovery if primary recovered',async()=>{
+            let runs=0;
+            assert.equal(h.queueRecovery({delayMs:0,recheck:async()=>({trigger:false,reason:'fresh'}),run:async()=>{runs++;}}),true);
+            await h._waitForIdleForTest();
+            assert.equal(runs,0);
+            assert.equal(h.publicState({secretReady:true,autopilotSecretReady:true,uptimeSeconds:3600}).last_result,'suppressed:fresh');
+          });
+          """
+          if anchor not in tests:
+              marker="test('debounced recheck suppresses recovery if primary recovered'"
+              if marker not in tests:
+                  raise SystemExit('heartbeat debounce test anchor missing')
+              raise SystemExit('heartbeat debounce test exists but formatting changed; refusing ambiguous test insertion')
+          addition=anchor+"""
+          test('queued failover recheck may ignore its own in-flight lock and execute recovery',async()=>{
+            let runs=0;
+            assert.equal(h.queueRecovery({
+              delayMs:0,
+              recheck:async()=>h.decide({
+                operations:{inside_operating_window:true,last_success_age_minutes:56},
+                storage:{ok:true,persistent:true},
+                secretReady:true,
+                autopilotSecretReady:true,
+                staleMinutes:35,
+                uptimeSeconds:3600,
+                ignoreInFlight:true
+              }),
+              run:async()=>{runs++;return {ok:true};}
+            }),true);
+            await h._waitForIdleForTest();
+            assert.equal(runs,1);
+            const state=h.publicState({secretReady:true,autopilotSecretReady:true,uptimeSeconds:3600});
+            assert.equal(state.last_result,'success');
+            assert.ok(state.last_recovery_success_at);
+          });
+
+          test('external decisions still block duplicate recovery while one is in flight',async()=>{
+            assert.equal(h.queueRecovery({delayMs:20,recheck:async()=>({trigger:false,reason:'fresh'}),run:async()=>({ok:true})}),true);
+            const gate=h.decide({
+              operations:{inside_operating_window:true,last_success_age_minutes:56},
+              storage:{ok:true,persistent:true},
+              secretReady:true,
+              autopilotSecretReady:true,
+              staleMinutes:35,
+              uptimeSeconds:3600
+            });
+            assert.equal(gate.trigger,false);
+            assert.equal(gate.reason,'recovery_in_flight');
+            await h._waitForIdleForTest();
+          });
+          """
+          tests=tests.replace(anchor,addition,1)
+          old_repo="assert.match(server,/heartbeat\\.queueRecovery/);"
+          new_repo="assert.match(server,/heartbeat\\.queueRecovery/);\n  assert.match(server,/ignoreInFlight:true/);"
+          if old_repo not in tests:
+              raise SystemExit('repository wiring test anchor missing')
+          tests=tests.replace(old_repo,new_repo,1)
+
+          old_pill=r'v8\.9\.1 • REDUNDANT OPS'
+          new_pill=r'v8\.9\.2 • TRUE FAILOVER'
+          if tests.count(old_pill)!=1:
+              raise SystemExit(f'expected exactly one heartbeat UI-pill assertion, found {tests.count(old_pill)}')
+          tests=tests.replace(old_pill,new_pill,1)
+
+          test_path.write_text(tests,encoding='utf-8')
+
+          index_path=Path('public/index.html')
+          html=index_path.read_text(encoding='utf-8')
+          if 'v8.9.1 • REDUNDANT OPS' not in html:
+              raise SystemExit('v8.9.1 UI pill anchor missing')
+          html=html.replace('v8.9.1 • REDUNDANT OPS','v8.9.2 • TRUE FAILOVER',1)
+          html=html.replace('/app-v8_9.js?v=8.9.1','/app-v8_9.js?v=8.9.2',1)
+          html=html.replace('/visual-v8_9.css?v=8.9.1','/visual-v8_9.css?v=8.9.2',1)
+          index_path.write_text(html,encoding='utf-8')
+
+          ops_test_path=Path('tests/operations.test.js')
+          ot=ops_test_path.read_text(encoding='utf-8')
+          ot=ot.replace(r'v8\.9\.1 • REDUNDANT OPS',r'v8\.9\.2 • TRUE FAILOVER')
+          ot=ot.replace(r'/app-v8_9\.js\?v=8\.9\.1',r'/app-v8_9\.js\?v=8\.9\.2')
+          ot=ot.replace(r'/visual-v8_9\.css\?v=8\.9\.1',r'/visual-v8_9\.css\?v=8\.9\.2')
+          ot=ot.replace("assert.equal(pkg.version,'8.9.1');","assert.equal(pkg.version,'8.9.2');")
+          if "assert.equal(pkg.version,'8.9.2');" not in ot:
+              raise SystemExit('operations package version test anchor missing')
+          ops_test_path.write_text(ot,encoding='utf-8')
+
+          health_path=Path('tests/health-contract.test.js')
+          health=health_path.read_text(encoding='utf-8')
+          if '8.9.1' not in health:
+              raise SystemExit('v8.9.1 health version anchor missing')
+          health=health.replace('8.9.1','8.9.2')
+          health_path.write_text(health,encoding='utf-8')
+
+          front_path=Path('tests/frontend-stability.test.js')
+          front=front_path.read_text(encoding='utf-8')
+          if r'v8\.9\.1 • REDUNDANT OPS' not in front:
+              raise SystemExit('v8.9.1 frontend pill anchor missing')
+          front=front.replace(r'v8\.9\.1 • REDUNDANT OPS',r'v8\.9\.2 • TRUE FAILOVER',1)
+          front=front.replace('v8.9.1 redundant operations shell','v8.9.2 true-failover operations shell',1)
+          front_path.write_text(front,encoding='utf-8')
+
+          readme_path=Path('README.md')
+          readme=readme_path.read_text(encoding='utf-8')
+          readme=readme.replace(
+              '# AEGIS Sports Command Center v8.9.1 — Scheduler Redundancy & Hands-Off Recovery',
+              '# AEGIS Sports Command Center v8.9.2 — True Failover & Hands-Off Recovery',
+              1
+          )
+          readme=readme.replace('platform release **v8.9.1**','platform release **v8.9.2**',1)
+          if '## v8.9.2 True Failover' not in readme:
+              readme += """
+
+          ## v8.9.2 True Failover
+
+          - Fixes a self-suppression bug in v8.9.1 where the queued heartbeat recovery recheck saw its own in-flight lock and cancelled itself.
+          - The internal post-debounce recheck can now ignore only its own in-flight marker while normal external heartbeat calls still deduplicate concurrent recovery.
+          - Backup recovery continues to require stale primary state, healthy persistent storage, valid heartbeat authentication, and the normal AEGIS operating window.
+          - The recovery action still reuses the canonical protected `/api/autopilot/tick` execution path.
+          - The v8.8 Decision Intelligence engine remains frozen at `8.8.0-decision-intelligence`.
+          """
+          readme_path.write_text(readme,encoding='utf-8')
+
+          print('v8.9.2 true failover patch staged.')
+
+          PY
+
+      - name: Run full AEGIS validation
+        run: npm run check
+
+      - name: Commit tested v8.9.2 changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add \
+            package.json \
+            server.js \
+            src/heartbeat.js \
+            public/index.html \
+            tests/heartbeat.test.js \
+            tests/operations.test.js \
+            tests/health-contract.test.js \
+            tests/frontend-stability.test.js \
+            README.md
+
+          git diff --cached --check
+
+          if git diff --cached --quiet; then
+            echo "No changes needed."
+          else
+            git commit -m "Apply AEGIS v8.9.2 true failover hotfix"
+            git push origin HEAD:main
+          fi
+
+      - name: Verify live Render v8.9.2
+        shell: bash
+        env:
+          BASE_URL: https://aegis-sports-command-center.onrender.com
+        run: |
+          set -euo pipefail
+          EXPECTED_SHA="$(git rev-parse HEAD)"
+          EXPECTED_VERSION="$(node -p "require('./package.json').version")"
+          EXPECTED_ENGINE="8.8.0-decision-intelligence"
+
+          for attempt in $(seq 1 24); do
+            HEALTH="$(curl -fsS --max-time 20 "$BASE_URL/api/health" || true)"
+            HOME="$(curl -fsS --max-time 20 "$BASE_URL/" || true)"
+            HB_CODE="$(curl -sS -o /tmp/aegis-heartbeat-probe.json -w "%{http_code}" --max-time 20 -X POST "$BASE_URL/api/autopilot/heartbeat" || true)"
+
+            META="$(
+              printf '%s' "$HEALTH" |
+              node -e "
+                let s='';
+                process.stdin.on('data',d=>s+=d).on('end',()=>{
+                  try{
+                    const j=JSON.parse(s);
+                    console.log([
+                      j.release_version||'',
+                      j.engine_version||'',
+                      j.deploy?.git_commit||'',
+                      j.persistent_storage===true?'true':'false',
+                      j.autopilot_enabled===true?'true':'false',
+                      j.scheduler_redundancy&&typeof j.scheduler_redundancy==='object'?'present':'missing'
+                    ].join('|'));
+                  }catch{console.log('|||||');}
+                });
+              "
+            )"
+
+            IFS='|' read -r LIVE_VERSION LIVE_ENGINE LIVE_SHA LIVE_STORAGE LIVE_AUTOPILOT LIVE_REDUNDANCY <<< "$META"
+
+            UI_STATUS="$(
+              printf '%s' "$HOME" |
+              node -e "
+                let s='';
+                process.stdin.on('data',d=>s+=d).on('end',()=>{
+                  if(!s.includes('v8.9.2 • TRUE FAILOVER')) return console.log('STALE');
+                  if(!s.includes('/app-v8_9.js?v=8.9.2')) return console.log('OLD_CACHE');
+                  console.log('OK');
+                });
+              "
+            )"
+
+            echo "Attempt $attempt: release=${LIVE_VERSION:-unknown} engine=${LIVE_ENGINE:-unknown} commit=${LIVE_SHA:-unknown} storage=${LIVE_STORAGE:-unknown} autopilot=${LIVE_AUTOPILOT:-unknown} redundancy=${LIVE_REDUNDANCY:-unknown} heartbeat_auth=$HB_CODE ui=$UI_STATUS"
+
+            if \
+              [ "$LIVE_VERSION" = "$EXPECTED_VERSION" ] && \
+              [ "$LIVE_ENGINE" = "$EXPECTED_ENGINE" ] && \
+              [ "$LIVE_SHA" = "$EXPECTED_SHA" ] && \
+              [ "$LIVE_STORAGE" = "true" ] && \
+              [ "$LIVE_AUTOPILOT" = "true" ] && \
+              [ "$LIVE_REDUNDANCY" = "present" ] && \
+              [ "$HB_CODE" = "401" ] && \
+              [ "$UI_STATUS" = "OK" ]
+            then
+              echo "AEGIS v8.9.2 True Failover production verification passed."
+              exit 0
+            fi
+
+            sleep 15
+          done
+
+          echo "Production did not prove the expected v8.9.2 true failover release."
+          exit 1
