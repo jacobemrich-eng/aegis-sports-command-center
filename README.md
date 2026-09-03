@@ -1,8 +1,8 @@
-# AEGIS Sports Command Center v8.9.2 — True Failover & Hands-Off Recovery
+# AEGIS Sports Command Center v8.9.3 — Canonical Operations Status
 
 AEGIS is a free-tier-first sports research operating system built around the SB101 AEGIS decision framework.
 
-**Version taxonomy:** platform release **v8.9.2**; canonical betting governance **SB101 AEGIS v1.1 — September Daily-Use Freeze**. Platform releases do not silently rewrite historical model versions. v8 turns the existing one-tap research engine into a scheduled, persistent daily workflow for **MLB and NCAAF**, while keeping the other registered sport systems available for research and validation.
+**Version taxonomy:** platform release **v8.9.3**; canonical betting governance **SB101 AEGIS v1.1 — September Daily-Use Freeze**. Platform releases do not silently rewrite historical model versions. v8 turns the existing one-tap research engine into a scheduled, persistent daily workflow for **MLB and NCAAF**, while keeping the other registered sport systems available for research and validation.
 
 ## What v8 automates
 
@@ -196,4 +196,13 @@ Recommended external heartbeat cadence: every 10 minutes during 07:00–23:00 Am
 - The internal post-debounce recheck can now ignore only its own in-flight marker while normal external heartbeat calls still deduplicate concurrent recovery.
 - Backup recovery continues to require stale primary state, healthy persistent storage, valid heartbeat authentication, and the normal AEGIS operating window.
 - The recovery action still reuses the canonical protected `/api/autopilot/tick` execution path.
+- The v8.8 Decision Intelligence engine remains frozen at `8.8.0-decision-intelligence`.
+
+
+## v8.9.3 Status Canonicalization
+
+- Reconciles Operations Guardian with the newest successful Autopilot activity instead of trusting a stale legacy success field when fresher successful run evidence exists.
+- A newer successful run/tick may refresh canonical scheduler health; a failed newer run cannot falsely mark the system fresh.
+- Adds `last_success_source` to the Operations contract for auditability.
+- Does not modify scheduler cadence, backup heartbeat behavior, sportsbook quota policy, release sports, betting models, or SB101 AEGIS governance.
 - The v8.8 Decision Intelligence engine remains frozen at `8.8.0-decision-intelligence`.

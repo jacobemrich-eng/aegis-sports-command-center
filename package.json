@@ -1,6 +1,6 @@
 {
   "name": "aegis-command-center",
-  "version": "8.9.2",
+  "version": "8.9.3",
   "private": true,
   "description": "SB101 AEGIS v8 Autopilot — scheduled research, freshness gates, market history, card locking and server-side grading",
   "scripts": {

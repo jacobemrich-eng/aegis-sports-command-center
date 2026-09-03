@@ -90,14 +90,66 @@ test('v8.9.1 UI is additive, redundant, cache-busted, and free of common mojibak
   assert.doesNotMatch(js,/MutationObserver/);
   assert.doesNotMatch(js,/[ÃÂ�â]|[\u0080-\u009f]/u);
   assert.match(js,/AEGIS IS OPERATING HANDS-OFF/);
-  assert.match(html,/v8\.9\.2 • TRUE FAILOVER/);
-  assert.match(html,/\/app-v8_9\.js\?v=8\.9\.2/);
-  assert.match(html,/\/visual-v8_9\.css\?v=8\.9\.2/);
+  assert.match(html,/v8\.9\.3 • STATUS SYNC/);
+  assert.match(html,/\/app-v8_9\.js\?v=8\.9\.3/);
+  assert.match(html,/\/visual-v8_9\.css\?v=8\.9\.3/);
 });
 
 test('v8.9.1 platform release does not rewrite the v8.8 Decision Intelligence engine',()=>{
   const pkg=require('../package.json');
   const engine=require('../src/engine');
-  assert.equal(pkg.version,'8.9.2');
+  assert.equal(pkg.version,'8.9.3');
   assert.equal(engine.VERSION,'8.8.0-decision-intelligence');
+});
+
+
+test('canonical status prefers the newest successful Autopilot activity',()=>{
+  const x=operations.evaluate({
+    ...good,
+    auto:{
+      enabled:true,
+      last_success_at:isoAgo(194),
+      last_run_at:isoAgo(2),
+      last_error:null,
+      usage:{today:15,month:44}
+    }
+  });
+  assert.equal(x.status,'GREEN');
+  assert.ok(x.last_success_age_minutes>=1&&x.last_success_age_minutes<=3);
+  assert.equal(x.last_success_source,'auto.last_run_at');
+});
+
+test('canonical status discovers a nested successful run record',()=>{
+  const x=operations.evaluate({
+    ...good,
+    auto:{
+      enabled:true,
+      last_success_at:isoAgo(194),
+      last_error:null,
+      runs:[
+        {sport:'baseball_mlb',status:'success',finished_at:isoAgo(3)}
+      ]
+    }
+  });
+  assert.equal(x.status,'GREEN');
+  assert.ok(x.last_success_age_minutes>=2&&x.last_success_age_minutes<=4);
+  assert.match(String(x.last_success_source),/runs\[0\]\.finished_at/);
+});
+
+test('failed newer activity cannot falsely refresh canonical success',()=>{
+  const x=operations.evaluate({
+    ...good,
+    auto:{
+      enabled:true,
+      last_success_at:isoAgo(48),
+      last_error:'latest run failed',
+      last_run_at:isoAgo(1),
+      runs:[
+        {status:'failed',finished_at:isoAgo(1),error:'failure'}
+      ]
+    }
+  });
+  assert.ok(x.last_success_age_minutes>=47&&x.last_success_age_minutes<=49);
+  assert.equal(x.last_success_source,'auto.last_success_at');
+  assert.notEqual(x.status,'GREEN');
 });

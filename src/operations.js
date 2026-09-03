@@ -44,6 +44,130 @@ function normalizedAlerts(auto){
   }).filter(Boolean);
 }
 
+function timestampMs(value){
+  if(value===null||value===undefined||value==='')return null;
+  let ms=null;
+  if(typeof value==='number'){
+    ms=value<1e12?value*1000:value;
+  }else{
+    ms=new Date(value).getTime();
+  }
+  return Number.isFinite(ms)?ms:null;
+}
+
+function canonicalSuccess(auto={},nowMs=Date.now()){
+  const candidates=[];
+  const seen=new Set();
+  const futureAllowanceMs=5*60000;
+
+  function add(value,source){
+    const ms=timestampMs(value);
+    if(ms===null||ms>nowMs+futureAllowanceMs)return;
+    candidates.push({ms,source});
+  }
+
+  [
+    ['auto.last_success_at',auto.last_success_at],
+    ['auto.lastSuccessAt',auto.lastSuccessAt],
+    ['auto.last_successful_run_at',auto.last_successful_run_at],
+    ['auto.lastSuccessfulRunAt',auto.lastSuccessfulRunAt],
+    ['auto.last_successful_tick_at',auto.last_successful_tick_at],
+    ['auto.lastSuccessfulTickAt',auto.lastSuccessfulTickAt]
+  ].forEach(([source,value])=>add(value,source));
+
+  const topLevelFailure=Boolean(auto.last_error||auto.lastError);
+  if(!topLevelFailure){
+    [
+      ['auto.last_run_at',auto.last_run_at],
+      ['auto.lastRunAt',auto.lastRunAt],
+      ['auto.last_tick_at',auto.last_tick_at],
+      ['auto.lastTickAt',auto.lastTickAt],
+      ['auto.last_completed_at',auto.last_completed_at],
+      ['auto.lastCompletedAt',auto.lastCompletedAt]
+    ].forEach(([source,value])=>add(value,source));
+  }
+
+  function walk(value,path='auto',depth=0){
+    if(value===null||value===undefined||depth>4)return;
+    if(typeof value!=='object')return;
+    if(seen.has(value))return;
+    seen.add(value);
+
+    if(Array.isArray(value)){
+      for(let i=0;i<Math.min(value.length,50);i++)walk(value[i],`${path}[${i}]`,depth+1);
+      return;
+    }
+
+    const entries=Object.entries(value);
+
+    for(const [key,item] of entries){
+      if(item===null||item===undefined||typeof item==='object')continue;
+      const normalized=String(key).toLowerCase().replace(/[^a-z0-9]/g,'');
+      if(
+        normalized.includes('success')&&
+        (normalized.includes('at')||normalized.includes('time')||normalized.includes('date'))
+      ){
+        add(item,`${path}.${key}`);
+      }
+    }
+
+    const state=String(
+      value.status??value.state??value.conclusion??value.result??''
+    ).trim().toLowerCase();
+
+    const failed=
+      value.ok===false||
+      value.success===false||
+      Boolean(value.error||value.last_error||value.lastError)||
+      ['error','failed','failure','cancelled','canceled'].includes(state);
+
+    const successful=
+      !failed&&(
+        value.ok===true||
+        value.success===true||
+        ['success','succeeded','ok','completed','complete','passed'].includes(state)
+      );
+
+    const operationalPath=/(run|tick|autopilot|history|recent|sport)/i.test(path);
+
+    if(operationalPath&&!failed){
+      const runKeys=[
+        'last_run_at','lastRunAt','run_at','runAt',
+        'finished_at','finishedAt','completed_at','completedAt',
+        'ended_at','endedAt'
+      ];
+      for(const key of runKeys){
+        if(Object.prototype.hasOwnProperty.call(value,key)){
+          if(successful||key.startsWith('last_')||key.startsWith('lastR')){
+            add(value[key],`${path}.${key}`);
+          }
+        }
+      }
+
+      if(successful){
+        for(const key of ['at','timestamp','time','updated_at','updatedAt']){
+          if(Object.prototype.hasOwnProperty.call(value,key)){
+            add(value[key],`${path}.${key}`);
+          }
+        }
+      }
+    }
+
+    for(const [key,item] of entries){
+      if(item&&typeof item==='object')walk(item,`${path}.${key}`,depth+1);
+    }
+  }
+
+  walk(auto);
+
+  if(!candidates.length)return {at:null,source:null};
+  candidates.sort((a,b)=>b.ms-a.ms);
+  return {
+    at:new Date(candidates[0].ms).toISOString(),
+    source:candidates[0].source
+  };
+}
+
 function evaluate({
   auto={},
   storage={},
@@ -57,7 +181,8 @@ function evaluate({
   const actionAfter=firstFinite(config.actionAfterMinutes,75)??75;
   const hour=etHour(nowMs);
   const insideWindow=hour===null?true:(hour>=7&&hour<23);
-  const lastSuccess=auto.last_success_at||auto.lastSuccessAt||null;
+  const successInfo=canonicalSuccess(auto,nowMs);
+  const lastSuccess=successInfo.at;
   const lastAge=ageMinutes(lastSuccess,nowMs);
   const enabled=auto.enabled!==false&&config.autopilotEnabled!==false;
   const dailyBudget=firstFinite(config.dailyBudget,auto.daily_budget,auto.usage?.daily_budget);
@@ -209,6 +334,7 @@ function evaluate({
     stale_after_minutes:staleAfter,
     action_after_minutes:actionAfter,
     last_success_at:lastSuccess,
+    last_success_source:successInfo.source,
     last_success_age_minutes:lastAge===null?null:+lastAge.toFixed(1),
     usage:{today:dailyUsed,daily_budget:dailyBudget,month:monthlyUsed,monthly_budget:monthlyBudget},
     safeguards:{

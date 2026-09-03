@@ -130,5 +130,5 @@ test('Operations Guardian and UI surface scheduler redundancy',()=>{
   assert.match(operations,/scheduler_redundancy/);
   assert.match(operations,/primary-only/);
   assert.match(ui,/REDUNDANT/);
-  assert.match(html,/v8\.9\.2 • TRUE FAILOVER/);
+  assert.match(html,/v8\.9\.3 • STATUS SYNC/);
 });
