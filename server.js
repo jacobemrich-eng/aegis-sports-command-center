@@ -368,7 +368,8 @@ if(req.method==='POST'&&u.pathname==='/api/autopilot/heartbeat'){
       if(!validShadowIngest(req)&&!(ACCESS_PIN&&validSession(req)))return send(res,401,{error:'Shadow ingestion authorization failed.'});
       if(!rateLimit(req,res,'shadow-ingest',120))return;
       const body=JSON.parse(await readBody(req)||'{}');
-      return send(res,201,{ok:true,...await shadow.ingest(body)});
+      try{return send(res,201,{ok:true,...await shadow.ingest(body)});}
+      catch(e){return send(res,400,{error:e.message||'Shadow projection rejected.',shadow_saved:false,production_fallback:true});}
     }
 
     if(u.pathname.startsWith('/api/')&&!requireAuth(req,res))return;

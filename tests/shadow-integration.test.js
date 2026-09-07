@@ -17,6 +17,7 @@ const contract = require('../src/sport-engines/contract');
 const flags = require('../src/sport-engines/feature-flags');
 const registry = require('../src/sport-engines/registry');
 const nfl = require('../src/sport-engines/adapters/nfl-adapter');
+const nflMarket = require('../src/sport-engines/nfl-market-challenger');
 const shadow = require('../src/shadow-service');
 const store = require('../src/store');
 
@@ -24,7 +25,8 @@ function nflOutput(overrides = {}) {
   return {
     schema_version: 'AEGIS_STANDARD_GAME_OUTPUT_v1',
     sport: 'NFL',
-    engine_version: 'NFL_v0.9_MARKET_CHALLENGER_CALIBRATION',
+    engine_version: 'NFL_v1.0_FEATURE_ABLATION',
+    generated_at: '2026-09-13T12:00:00Z',
     game: { id: 'nfl-game-1', home: 'Buffalo Bills', away: 'Miami Dolphins', start_time: '2026-09-13T17:00:00Z' },
     blind_features: ['home_epa_prior', 'away_pressure_rate_prior', 'qb_availability'],
     projection: {
@@ -34,6 +36,8 @@ function nflOutput(overrides = {}) {
       mean_total: 50,
       home_ml: 0.62,
       away_ml: 0.38,
+      spread_probabilities: { home: 0.57, away: 0.43 },
+      total_probabilities: { over: 0.54, under: 0.46 },
       percentiles: { margin: { p10: -12, p50: 4, p90: 19 } }
     },
     quality: {
@@ -42,10 +46,6 @@ function nflOutput(overrides = {}) {
       ensemble_dispersion: 2.2,
       ensemble_agreement: 'MODERATE',
       simulation_uncertainty_multiplier: 1.08
-    },
-    decision: {
-      primary: { name: 'Buffalo -3', market_type: 'spreads', point: -3, odds: -110, aegis_release_status: 'CORE_CANDIDATE' },
-      bet_now_wait_pass: 'BET_NOW'
     },
     diagnostics: {
       why_it_wins: ['Pressure advantage creates short fields.'],
@@ -57,7 +57,11 @@ function nflOutput(overrides = {}) {
 }
 
 const market = {
+  captured_at: '2026-09-13T12:05:00Z',
   challenger_projection: { margin: 2, total: 48 },
+  best_market_expression: { name: 'Buffalo -3', market_type: 'spreads', point: -3, odds: -110 },
+  decision_status: 'CORE_CANDIDATE',
+  execution_status: 'BET_NOW',
   implied_probability: 0.524,
   fair_probability: 0.55,
   ev: 0.05,
@@ -70,6 +74,11 @@ test('NFL adapter emits the shared schema with permanent shadow release guards',
   assert.equal(checked.ok, true, checked.errors.join(','));
   assert.equal(row.schema_version, contract.SCHEMA_VERSION);
   assert.equal(row.decision.status, 'CORE_CANDIDATE');
+  assert.equal(row.engine_version, 'NFL_v1.0_FEATURE_ABLATION');
+  assert.equal(row.governance.internal_champion, 'NFL_v1.0_FEATURE_ABLATION');
+  assert.equal(row.governance.historical_predecessor, 'NFL_v0.8_FEATURE_HYGIENE');
+  assert.equal(row.governance.internal_promotion_gate, 'PROMOTE_V10_INTERNAL_CHALLENGER');
+  assert.equal(row.market.challenger_engine_version, 'NFL_v0.9_MARKET_CHALLENGER_CALIBRATION');
   assert.equal(row.governance.official_final_card_eligible, false);
   assert.equal(row.governance.official_bankroll_eligible, false);
   assert.equal(row.governance.auto_release_allowed, false);
@@ -80,6 +89,38 @@ test('NFL adapter emits the shared schema with permanent shadow release guards',
     'disagreement_firewall',
     'aegis_governance'
   ]);
+});
+
+test('committed v0.9 calibration runs only after v1.0 blind output', () => {
+  const row = nfl.adapt(nflOutput(), { market });
+  const marginWeight = nflMarket.learnedWeights('1-2').margin;
+  const totalWeight = nflMarket.learnedWeights('1-2').total;
+  assert.ok(Math.abs(row.market.post_model_projection.margin - (marginWeight * 4 + (1 - marginWeight) * 2)) < 1e-12);
+  assert.ok(Math.abs(row.market.post_model_projection.total - (totalWeight * 50 + (1 - totalWeight) * 48)) < 1e-12);
+  assert.equal(row.diagnostics.sport_specific.market_challenger.market_remains_independent_challenger, true);
+  assert.deepEqual(row.governance.pipeline_timestamps, {
+    blind_generated_at: '2026-09-13T12:00:00.000Z',
+    market_captured_at: '2026-09-13T12:05:00.000Z'
+  });
+});
+
+test('adapter rejects predecessor, mixed payloads, and market-before-model ordering', () => {
+  assert.throws(
+    () => nfl.adapt(nflOutput({ engine_version: 'NFL_v0.8_FEATURE_HYGIENE' }), { market }),
+    /current internal Champion/
+  );
+  assert.throws(
+    () => nfl.adapt(nflOutput({ market: { challenger_projection: { margin: 2, total: 48 } } }), { market }),
+    /contains post-model market data/
+  );
+  assert.throws(
+    () => nfl.adapt(nflOutput(), { market: { ...market, captured_at: '2026-09-13T11:59:00Z' } }),
+    /must run after the blind/
+  );
+  assert.throws(
+    () => nfl.adapt(nflOutput(), { market: { ...market, challenger_projection: null } }),
+    /Market Challenger margin and total are required/
+  );
 });
 
 test('NFL disagreement firewall preserves PASS and Core caps', () => {
@@ -176,7 +217,9 @@ test('server, Render, and mobile UI retain explicit shadow isolation', () => {
   const html = fs.readFileSync(path.join(root, 'public/index.html'), 'utf8');
   const ui = fs.readFileSync(path.join(root, 'public/nfl-shadow-integration.js'), 'utf8');
   const css = fs.readFileSync(path.join(root, 'public/nfl-shadow-integration.css'), 'utf8');
+  const publisher = fs.readFileSync(path.join(root, 'modeling/nfl/aegis_nfl_shadow_publisher.py'), 'utf8');
   assert.match(server, /\/api\/shadow\/games/);
+  assert.match(server, /shadow_saved:false,production_fallback:true/);
   assert.match(render, /NFL_SIM_SHADOW_ONLY[\s\S]+value: "true"/);
   assert.match(render, /AEGIS_NEW_ENGINE_AUTO_RELEASE[\s\S]+value: "false"/);
   assert.match(html, /nfl-shadow-integration\.js/);
@@ -185,5 +228,11 @@ test('server, Render, and mobile UI retain explicit shadow isolation', () => {
   assert.match(ui, /MARKET PROJECTION/);
   assert.match(ui, /cannot enter the official Final Card or bankroll ledger/);
   assert.match(ui, /Missing or failed shadow data falls back cleanly/);
+  assert.match(ui, /NFL v1\.0 internal shadow Champion/);
+  assert.match(ui, /v0\.8 HISTORICAL PREDECESSOR/);
+  assert.match(publisher, /NFL_v1\.0_FEATURE_ABLATION/);
+  assert.match(publisher, /Market Challenger capture must occur after the blind internal projection/);
+  assert.match(publisher, /NFL shadow publish failed safely/);
+  assert.doesNotMatch(publisher, /print\s*\([^\n]*token/);
   assert.match(css, /@media\(max-width:720px\)/);
 });

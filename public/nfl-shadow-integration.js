@@ -52,7 +52,7 @@
       '<div class="shadow-compare">'+
         '<div class="shadow-source production"><span>PRODUCTION</span><b>CURRENT AEGIS</b><strong>'+projection(production.projected_score)+'</strong><small>Margin '+n(production.projected_margin_home)+' · Total '+n(production.projected_total)+'</small></div>'+
         '<div class="shadow-source challenger"><span>SHADOW / CHALLENGER</span><b>NFL SIMULATOR</b><strong>'+projection(shadow.projection?.projected_score)+'</strong><small>Margin '+n(shadow.projection?.margin)+' · Total '+n(shadow.projection?.total)+'</small></div>'+
-        '<div class="shadow-source market"><span>INDEPENDENT MARKET</span><b>MARKET PROJECTION</b><strong>Margin '+n(challenger.margin)+'</strong><small>Total '+n(challenger.total)+' · Implied '+p(market.implied_probability)+'</small></div>'+
+        '<div class="shadow-source market"><span>INDEPENDENT MARKET</span><b>MARKET PROJECTION</b><strong>Margin '+n(challenger.margin)+'</strong><small>Total '+n(challenger.total)+' · Post-model '+n(market.post_model_projection?.margin)+' / '+n(market.post_model_projection?.total)+'</small></div>'+
       '</div>'+
       '<div class="shadow-metrics">'+
         '<div><span>MODEL AGREEMENT</span><b>'+e(shadow.quality?.ensemble_agreement||'—')+'</b></div>'+
@@ -97,7 +97,7 @@
     if(!page||currentSport()!==NFL)return;
     var panel=document.createElement('div');
     panel.id='nflShadowRegistry';panel.className='panel nfl-shadow-panel';
-    panel.innerHTML='<div class="eyebrow">CHAMPION / CHALLENGER</div><h2>NFL v0.9 shadow integration</h2><div class="counterline"><span class="chip warn">SHADOW ONLY</span><span class="chip">AEGIS_STANDARD_GAME_OUTPUT_v1</span><span class="chip">AUTO-RELEASE BLOCKED</span></div><p class="subtle">Drive simulator, QB/injury, pressure/trenches, PROE/pace/coaching, independent periods, key-number calibration and Market Challenger feed the shared adapter. The disagreement firewall remains 7+ PASS, 5–7 Secondary maximum, and 3–5 Core blocked.</p><a class="btn ghost" href="/nfl-v09-calibration.html" target="_blank" rel="noopener">OPEN v0.9 CALIBRATION AUDIT</a>';
+    panel.innerHTML='<div class="eyebrow">CHAMPION / CHALLENGER</div><h2>NFL v1.0 internal shadow Champion</h2><div class="counterline"><span class="chip warn">SHADOW ONLY</span><span class="chip">v0.8 HISTORICAL PREDECESSOR</span><span class="chip">AUTO-RELEASE BLOCKED</span></div><p class="subtle">The untouched 2025 gate promoted the v1.0 internal challenger. Its blind projection is produced first; the independent v0.9 Market Challenger, calibrated blend and disagreement firewall run afterward. The firewall remains 7+ PASS, 5–7 Secondary maximum, and 3–5 Core blocked.</p><a class="btn ghost" href="/nfl-v10-feature-lab.html" target="_blank" rel="noopener">OPEN v1.0 FEATURE LAB</a>';
     page.appendChild(panel);
   };
 

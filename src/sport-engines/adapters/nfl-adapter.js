@@ -1,6 +1,7 @@
 'use strict';
 
 const { finiteOrNull, normalizeStandardOutput, validateStandardOutput } = require('../contract');
+const marketChallenger = require('../nfl-market-challenger');
 
 const SPORT_KEY = 'americanfootball_nfl';
 const FORBIDDEN_BLIND_FEATURES = [
@@ -28,6 +29,32 @@ function assertBlindIntegrity(raw) {
   }
 }
 
+function assertBlindPayloadSeparation(raw) {
+  const violations = [];
+  if (raw.market != null) violations.push('market');
+  if (raw.market_expressions != null) violations.push('market_expressions');
+  if (raw.decision?.primary != null) violations.push('decision.primary');
+  if (raw.decision?.best_market_expression != null) violations.push('decision.best_market_expression');
+  if (violations.length) {
+    const error = new Error(`NFL blind payload contains post-model market data: ${violations.join(', ')}`);
+    error.code = 'NFL_BLIND_MARKET_SEPARATION';
+    error.violations = violations;
+    throw error;
+  }
+}
+
+function assertPipelineOrder(raw, context) {
+  const blindAt = Date.parse(raw.generated_at || '');
+  const marketAt = Date.parse(context.market?.captured_at || '');
+  if (!Number.isFinite(blindAt)) throw new Error('NFL blind generated_at is required to prove pipeline order');
+  if (!Number.isFinite(marketAt)) throw new Error('NFL market captured_at is required to prove pipeline order');
+  if (marketAt < blindAt) throw new Error('NFL Market Challenger must run after the blind internal projection');
+  return {
+    blind_generated_at: new Date(blindAt).toISOString(),
+    market_captured_at: new Date(marketAt).toISOString()
+  };
+}
+
 function score(raw) {
   const projection = raw?.projection || {};
   return {
@@ -36,8 +63,8 @@ function score(raw) {
   };
 }
 
-function primaryExpression(raw) {
-  return raw?.decision?.best_market_expression || raw?.decision?.primary || null;
+function primaryExpression(context) {
+  return context?.market?.best_market_expression || null;
 }
 
 function disagreementFirewall(internalMargin, internalTotal, challenger) {
@@ -62,7 +89,12 @@ function adapt(raw, context = {}) {
   if (!raw || typeof raw !== 'object') throw new Error('NFL engine output is required');
   const declared = String(raw.sport || context.sport || '').toLowerCase();
   if (!['nfl', SPORT_KEY].includes(declared)) throw new Error(`NFL adapter cannot accept sport: ${raw.sport || context.sport || 'missing'}`);
+  if (raw.engine_version !== marketChallenger.INTERNAL_CHAMPION) {
+    throw new Error(`NFL shadow publisher requires current internal Champion ${marketChallenger.INTERNAL_CHAMPION}`);
+  }
   assertBlindIntegrity(raw);
+  assertBlindPayloadSeparation(raw);
+  const pipelineTimestamps = assertPipelineOrder(raw, context);
 
   const projectedScore = score(raw);
   const internalMargin = finiteOrNull(raw.projection?.margin ?? raw.projection?.mean_home_margin ?? (
@@ -71,18 +103,24 @@ function adapt(raw, context = {}) {
   const internalTotal = finiteOrNull(raw.projection?.total ?? raw.projection?.mean_total ?? (
     projectedScore.home != null && projectedScore.away != null ? projectedScore.home + projectedScore.away : null
   ));
-  const expression = primaryExpression(raw);
-  const challenger = context.market?.challenger_projection || raw.market?.challenger_projection || {
-    margin: raw.quality?.market_challenger_margin,
-    total: raw.quality?.market_challenger_total
-  };
+  const expression = primaryExpression(context);
+  const internalCoverProbability = finiteOrNull(raw.projection?.spread_probabilities?.home ?? raw.projection?.home_cover_probability ?? raw.projection?.challenger_cover_prob);
+  const internalOverProbability = finiteOrNull(raw.projection?.total_probabilities?.over ?? raw.projection?.over_probability ?? raw.projection?.challenger_over_prob);
+  const postMarket = marketChallenger.run({
+    internal_margin: internalMargin,
+    internal_total: internalTotal,
+    internal_cover_probability: internalCoverProbability,
+    internal_over_probability: internalOverProbability,
+    market: context.market
+  });
+  const challenger = postMarket.challenger_projection;
   const firewall = disagreementFirewall(internalMargin, internalTotal, challenger);
-  const requested = expression?.aegis_release_status || expression?.release_status || raw.decision?.status || raw.decision?.release_status || 'PASS';
+  const requested = context.market?.decision_status || expression?.aegis_release_status || expression?.release_status || 'PASS';
   const status = capDecision(requested, firewall);
-  const executionRequested = raw.decision?.execution_status || raw.decision?.bet_now_wait_pass || 'PASS';
+  const executionRequested = context.market?.execution_status || 'PASS';
   const execution = status === 'PASS' ? 'PASS' : (['BET_NOW', 'WAIT'].includes(executionRequested) ? executionRequested : 'WAIT');
   const quality = raw.quality || {};
-  const market = { ...(raw.market || {}), ...(context.market || {}), challenger_projection: challenger || {} };
+  const market = { ...(context.market || {}), challenger_projection: challenger, post_model_projection: postMarket.post_model_projection, challenger_engine_version: postMarket.engine_version };
   const game = { ...(raw.game || {}), ...(context.game || {}) };
 
   const standard = normalizeStandardOutput({
@@ -145,7 +183,8 @@ function adapt(raw, context = {}) {
       sport_specific: {
         nfl: raw.matchup || raw.diagnostics?.sport_specific?.nfl || {},
         disagreement_firewall: firewall,
-        blocked_same_thesis_expressions: raw.decision?.blocked_same_thesis_expressions || []
+        market_challenger: postMarket,
+        blocked_same_thesis_expressions: context.market?.blocked_same_thesis_expressions || []
       }
     },
     governance: {
@@ -157,7 +196,14 @@ function adapt(raw, context = {}) {
       disagreement_firewall: firewall,
       market_challenger_is_post_model: true,
       pipeline_order: ['blind_internal_projection', 'market_challenger', 'post_model_calibration', 'disagreement_firewall', 'aegis_governance'],
-      source_release_status: requested
+      source_release_status: requested,
+      internal_champion: marketChallenger.INTERNAL_CHAMPION,
+      historical_predecessor: marketChallenger.HISTORICAL_PREDECESSOR,
+      internal_promotion_gate: 'PROMOTE_V10_INTERNAL_CHALLENGER',
+      market_challenger_version: marketChallenger.ENGINE_VERSION,
+      pipeline_timestamps: pipelineTimestamps,
+      publisher: context.publisher || null,
+      production_release_allowed: false
     }
   });
 
@@ -166,4 +212,4 @@ function adapt(raw, context = {}) {
   return checked.value;
 }
 
-module.exports = { SPORT_KEY, FORBIDDEN_BLIND_FEATURES, assertBlindIntegrity, disagreementFirewall, adapt };
+module.exports = { SPORT_KEY, FORBIDDEN_BLIND_FEATURES, assertBlindIntegrity, assertBlindPayloadSeparation, assertPipelineOrder, disagreementFirewall, adapt };

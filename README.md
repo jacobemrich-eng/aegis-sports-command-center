@@ -80,9 +80,12 @@ MLB simulator  -> MLB adapter   -> shared shadow governance (reserved stub)
 NCAAF simulator -> NCAAF adapter -> shared shadow governance (reserved stub)
 ```
 
-The NFL adapter accepts simulator output only after the blind projection has
-been produced. Market projection and pricing are supplied separately, then the
-adapter applies post-model comparison and the v0.9 disagreement firewall:
+The NFL adapter accepts completed `NFL_v1.0_FEATURE_ABLATION` simulator output
+only after the blind projection has been produced. v1.0 is the current internal
+shadow Champion following its untouched 2025 promotion gate; v0.8 is preserved
+as the historical predecessor. Market projection and pricing are supplied
+separately, then the adapter applies the committed v0.9 learned market blend and
+disagreement firewall:
 
 - 7+ points: PASS.
 - 5–7 points: Secondary maximum.
@@ -99,6 +102,11 @@ the existing Supabase state document and never enter `latest_cards`, `audit`,
 The Game Lab displays Current AEGIS, NFL Simulator, and Market projections
 side-by-side when a matching NFL shadow record exists. Missing or failed
 simulator data leaves Current AEGIS unchanged.
+
+`modeling/nfl/aegis_nfl_shadow_publisher.py` is the publisher-side connector.
+It requires separate, ordered blind-output and market-input files, refuses
+mixed/leaky payloads, and fails without mutating production state. The server
+independently revalidates the same ordering before it writes a shadow record.
 
 ## One-time production setup
 

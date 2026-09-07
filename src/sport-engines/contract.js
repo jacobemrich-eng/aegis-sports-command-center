@@ -72,6 +72,8 @@ function normalizeStandardOutput(input) {
     market: {
       current_price: object(market.current_price),
       challenger_projection: object(market.challenger_projection),
+      post_model_projection: object(market.post_model_projection),
+      challenger_engine_version: stringOrNull(market.challenger_engine_version),
       implied_probability: finiteOrNull(market.implied_probability),
       fair_probability: finiteOrNull(market.fair_probability),
       ev: finiteOrNull(market.ev),

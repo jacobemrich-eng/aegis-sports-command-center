@@ -60,5 +60,6 @@ NFL math remains here, while shared schema validation, governance metadata,
 Supabase persistence, and UI presentation live under `src/sport-engines` and
 `src/shadow-service.js`.
 
-There is no v1.0 ablation/coefficient-calibration implementation or committed
-v1.0 result in this branch. v0.9 remains the latest verified NFL calibration.
+After the untouched 2025 v1.0 promotion gate passed, v0.9 remains the required
+post-model Market Challenger and disagreement firewall. It now evaluates the
+v1.0 blind internal Champion; v0.8 remains the historical internal predecessor.

@@ -36,9 +36,9 @@ function sanitizeRecord(output, recordedAt = new Date().toISOString()) {
   };
 }
 
-async function ingest({ sport, engine_output: engineOutput, game, market, source = 'nfl-simulator' } = {}) {
+async function ingest({ sport, engine_output: engineOutput, game, market, publisher, source = 'nfl-simulator' } = {}) {
   assertShadowEnabled(sport);
-  const output = registry.adapt(sport, engineOutput, { game, market });
+  const output = registry.adapt(sport, engineOutput, { game, market, publisher });
   const record = sanitizeRecord(output);
 
   const result = await store.mutate(async state => {
