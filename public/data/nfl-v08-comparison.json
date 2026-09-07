@@ -1,0 +1,30 @@
+{
+  "v07": {
+    "holdout_games": 766,
+    "feature_count": 97,
+    "margin_mae": 10.945088480745321,
+    "total_mae": 11.112509666494683,
+    "status": "SHADOW_READY_RESEARCH",
+    "audit_valid_for_promotion": false,
+    "reason": "v0.7 audit found sportsbook price columns, postgame overtime, numeric identifiers, and push-scoring bug."
+  },
+  "v08": {
+    "holdout_games": 766,
+    "feature_count": 89,
+    "margin_mae": 10.866052765642468,
+    "total_mae": 11.259129454525452,
+    "cover_brier": 0.2760762364105715,
+    "over_brier": 0.27861254339116465,
+    "status": "SHADOW_RECALIBRATION_REQUIRED",
+    "feature_hygiene_passed": true
+  },
+  "governance": {
+    "production_release_allowed": false,
+    "v08_is_clean_shadow_baseline": true,
+    "next_action": "Calibrate coefficients and disagreement gates using v0.8 clean holdout results."
+  },
+  "delta_v08_minus_v07": {
+    "margin_mae": -0.07903571510285268,
+    "total_mae": 0.14661978803076892
+  }
+}

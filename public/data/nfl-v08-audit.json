@@ -1,0 +1,612 @@
+{
+  "audit_version": "NFL_v0.8_RESIDUAL_AUDIT",
+  "source_engine": "NFL_v0.8_FEATURE_HYGIENE",
+  "holdout_games": 766,
+  "seasons": [
+    2023,
+    2024,
+    2025
+  ],
+  "feature_hygiene": {
+    "unsafe_features_found": [],
+    "unsafe_count": 0
+  },
+  "corrected_probability_metrics": {
+    "cover_brier": 0.2760762364105715,
+    "cover_logloss": 0.7558766417007692,
+    "over_brier": 0.27861254339116465,
+    "over_logloss": 0.7657922214035,
+    "cover_push_rate": 0.024804177545691905,
+    "total_push_rate": 0.006527415143603133
+  },
+  "overall": {
+    "margin_mae_model": 10.866052765642468,
+    "margin_mae_market": 9.817232375979112,
+    "margin_model_beat_rate": 0.4073107049608355,
+    "total_mae_model": 11.259129454525455,
+    "total_mae_market": 10.114882506527415,
+    "total_model_beat_rate": 0.4007832898172324,
+    "model_home_margin_bias_pred_minus_actual": -0.215674344706231,
+    "model_total_bias_pred_minus_actual": -0.37436778002427396,
+    "mean_model_vs_market_margin_edge": 0.5101742192624373,
+    "mean_model_vs_market_total_edge": 0.8775904445188069
+  },
+  "segments": {
+    "season": [
+      {
+        "season": "2023",
+        "n": 254,
+        "margin_mae_model": 11.2744358433834,
+        "margin_mae_market": 9.844488188976378,
+        "margin_delta_model_minus_market": 1.429947654407023,
+        "margin_model_beat_rate": 0.39763779527559057,
+        "total_mae_model": 11.923091250091014,
+        "total_mae_market": 10.362204724409448,
+        "total_delta_model_minus_market": 1.5608865256815658,
+        "total_model_beat_rate": 0.3858267716535433
+      },
+      {
+        "season": "2024",
+        "n": 256,
+        "margin_mae_model": 10.43828076802965,
+        "margin_mae_market": 9.6484375,
+        "margin_delta_model_minus_market": 0.7898432680296494,
+        "margin_model_beat_rate": 0.40625,
+        "total_mae_model": 10.700439770755162,
+        "total_mae_market": 9.72265625,
+        "total_delta_model_minus_market": 0.9777835207551622,
+        "total_model_beat_rate": 0.40625
+      },
+      {
+        "season": "2025",
+        "n": 256,
+        "margin_mae_model": 10.888632178309201,
+        "margin_mae_market": 9.958984375,
+        "margin_delta_model_minus_market": 0.9296478033092015,
+        "margin_model_beat_rate": 0.41796875,
+        "total_mae_model": 11.159044544258037,
+        "total_mae_market": 10.26171875,
+        "total_delta_model_minus_market": 0.8973257942580375,
+        "total_model_beat_rate": 0.41015625
+      }
+    ],
+    "spread_bucket": [
+      {
+        "spread_bucket": "PK-2.5",
+        "n": 188,
+        "margin_mae_model": 10.221749670293503,
+        "margin_mae_market": 9.170212765957446,
+        "margin_delta_model_minus_market": 1.0515369043360572,
+        "margin_model_beat_rate": 0.4574468085106383,
+        "total_mae_model": 10.88706350303879,
+        "total_mae_market": 9.789893617021276,
+        "total_delta_model_minus_market": 1.0971698860175145,
+        "total_model_beat_rate": 0.40425531914893614
+      },
+      {
+        "spread_bucket": "3-5.5",
+        "n": 301,
+        "margin_mae_model": 10.662724346808828,
+        "margin_mae_market": 9.450166112956811,
+        "margin_delta_model_minus_market": 1.2125582338520164,
+        "margin_model_beat_rate": 0.3654485049833887,
+        "total_mae_model": 12.016389968579729,
+        "total_mae_market": 10.661129568106313,
+        "total_delta_model_minus_market": 1.3552604004734157,
+        "total_model_beat_rate": 0.37209302325581395
+      },
+      {
+        "spread_bucket": "6-8.5",
+        "n": 174,
+        "margin_mae_model": 11.721634763493583,
+        "margin_mae_market": 11.048850574712644,
+        "margin_delta_model_minus_market": 0.6727841887809394,
+        "margin_model_beat_rate": 0.43103448275862066,
+        "total_mae_model": 10.897504220090298,
+        "total_mae_market": 10.155172413793103,
+        "total_delta_model_minus_market": 0.7423318062971944,
+        "total_model_beat_rate": 0.43103448275862066
+      },
+      {
+        "spread_bucket": "9-13.5",
+        "n": 76,
+        "margin_mae_model": 11.749447105209834,
+        "margin_mae_market": 10.493421052631579,
+        "margin_delta_model_minus_market": 1.256026052578255,
+        "margin_model_beat_rate": 0.3684210526315789,
+        "total_mae_model": 10.696663690660893,
+        "total_mae_market": 9.243421052631579,
+        "total_delta_model_minus_market": 1.4532426380293142,
+        "total_model_beat_rate": 0.40789473684210525
+      },
+      {
+        "spread_bucket": "14+",
+        "n": 27,
+        "margin_mae_model": 9.61870456420975,
+        "margin_mae_market": 8.574074074074074,
+        "margin_delta_model_minus_market": 1.0446304901356758,
+        "margin_model_beat_rate": 0.48148148148148145,
+        "total_mae_model": 9.321469195065422,
+        "total_mae_market": 8.481481481481481,
+        "total_delta_model_minus_market": 0.8399877135839411,
+        "total_model_beat_rate": 0.48148148148148145
+      }
+    ],
+    "total_bucket": [
+      {
+        "total_bucket": "<=41.5",
+        "n": 236,
+        "margin_mae_model": 11.211034158445539,
+        "margin_mae_market": 10.209745762711865,
+        "margin_delta_model_minus_market": 1.001288395733674,
+        "margin_model_beat_rate": 0.3855932203389831,
+        "total_mae_model": 11.348852430035375,
+        "total_mae_market": 10.286016949152541,
+        "total_delta_model_minus_market": 1.0628354808828337,
+        "total_model_beat_rate": 0.4322033898305085
+      },
+      {
+        "total_bucket": "42-44.5",
+        "n": 212,
+        "margin_mae_model": 10.5119211758453,
+        "margin_mae_market": 9.846698113207546,
+        "margin_delta_model_minus_market": 0.6652230626377538,
+        "margin_model_beat_rate": 0.46226415094339623,
+        "total_mae_model": 10.393518796112847,
+        "total_mae_market": 9.18867924528302,
+        "total_delta_model_minus_market": 1.2048395508298277,
+        "total_model_beat_rate": 0.4056603773584906
+      },
+      {
+        "total_bucket": "45-47.5",
+        "n": 174,
+        "margin_mae_model": 11.242588049887772,
+        "margin_mae_market": 10.204022988505747,
+        "margin_delta_model_minus_market": 1.038565061382025,
+        "margin_model_beat_rate": 0.41954022988505746,
+        "total_mae_model": 11.631165645074036,
+        "total_mae_market": 10.488505747126437,
+        "total_delta_model_minus_market": 1.142659897947599,
+        "total_model_beat_rate": 0.39080459770114945
+      },
+      {
+        "total_bucket": "48-50.5",
+        "n": 102,
+        "margin_mae_model": 9.776419908418662,
+        "margin_mae_market": 7.911764705882353,
+        "margin_delta_model_minus_market": 1.8646552025363086,
+        "margin_model_beat_rate": 0.3235294117647059,
+        "total_mae_model": 11.639810138566922,
+        "total_mae_market": 10.127450980392156,
+        "total_delta_model_minus_market": 1.5123591581747657,
+        "total_model_beat_rate": 0.3137254901960784
+      },
+      {
+        "total_bucket": "51+",
+        "n": 42,
+        "margin_mae_model": 11.801426582633432,
+        "margin_mae_market": 10.488095238095237,
+        "margin_delta_model_minus_market": 1.3133313445381951,
+        "margin_model_beat_rate": 0.40476190476190477,
+        "total_mae_model": 12.658441607750412,
+        "total_mae_market": 12.25,
+        "total_delta_model_minus_market": 0.4084416077504116,
+        "total_model_beat_rate": 0.4523809523809524
+      }
+    ],
+    "margin_disagreement": [
+      {
+        "margin_disagreement_bucket": "<=1",
+        "n": 130,
+        "margin_mae_model": 9.4720597811725,
+        "margin_mae_market": 9.496153846153845,
+        "margin_delta_model_minus_market": -0.024094064981344587,
+        "margin_model_beat_rate": 0.5307692307692308,
+        "total_mae_model": 11.670046480209066,
+        "total_mae_market": 10.742307692307692,
+        "total_delta_model_minus_market": 0.9277387879013741,
+        "total_model_beat_rate": 0.38461538461538464
+      },
+      {
+        "margin_disagreement_bucket": "1-2",
+        "n": 106,
+        "margin_mae_model": 10.139147120823143,
+        "margin_mae_market": 9.910377358490566,
+        "margin_delta_model_minus_market": 0.2287697623325773,
+        "margin_model_beat_rate": 0.41509433962264153,
+        "total_mae_model": 10.666283955977335,
+        "total_mae_market": 9.40566037735849,
+        "total_delta_model_minus_market": 1.2606235786188442,
+        "total_model_beat_rate": 0.3867924528301887
+      },
+      {
+        "margin_disagreement_bucket": "2-3",
+        "n": 122,
+        "margin_mae_model": 11.02571494447862,
+        "margin_mae_market": 10.360655737704919,
+        "margin_delta_model_minus_market": 0.6650592067737016,
+        "margin_model_beat_rate": 0.36885245901639346,
+        "total_mae_model": 11.406047360908852,
+        "total_mae_market": 10.475409836065573,
+        "total_delta_model_minus_market": 0.930637524843279,
+        "total_model_beat_rate": 0.3524590163934426
+      },
+      {
+        "margin_disagreement_bucket": "3-5",
+        "n": 176,
+        "margin_mae_model": 10.23164716958865,
+        "margin_mae_market": 9.650568181818182,
+        "margin_delta_model_minus_market": 0.5810789877704678,
+        "margin_model_beat_rate": 0.4318181818181818,
+        "total_mae_model": 10.794610532455613,
+        "total_mae_market": 9.985795454545455,
+        "total_delta_model_minus_market": 0.8088150779101575,
+        "total_model_beat_rate": 0.4375
+      },
+      {
+        "margin_disagreement_bucket": "5-7",
+        "n": 96,
+        "margin_mae_model": 10.705974142671442,
+        "margin_mae_market": 9.130208333333334,
+        "margin_delta_model_minus_market": 1.5757658093381082,
+        "margin_model_beat_rate": 0.34375,
+        "total_mae_model": 9.486536750780948,
+        "total_mae_market": 8.817708333333334,
+        "total_delta_model_minus_market": 0.6688284174476138,
+        "total_model_beat_rate": 0.4479166666666667
+      },
+      {
+        "margin_disagreement_bucket": "7+",
+        "n": 136,
+        "margin_mae_model": 13.555870657,
+        "margin_mae_market": 10.264705882352942,
+        "margin_delta_model_minus_market": 3.291164774647058,
+        "margin_model_beat_rate": 0.33088235294117646,
+        "total_mae_model": 13.049001916085903,
+        "total_mae_market": 10.827205882352942,
+        "total_delta_model_minus_market": 2.2217960337329608,
+        "total_model_beat_rate": 0.3897058823529412
+      }
+    ],
+    "total_disagreement": [
+      {
+        "total_disagreement_bucket": "<=1",
+        "n": 127,
+        "margin_mae_model": 10.518646502847492,
+        "margin_mae_market": 9.582677165354331,
+        "margin_delta_model_minus_market": 0.9359693374931606,
+        "margin_model_beat_rate": 0.3858267716535433,
+        "total_mae_model": 9.198036896494298,
+        "total_mae_market": 9.11023622047244,
+        "total_delta_model_minus_market": 0.08780067602185682,
+        "total_model_beat_rate": 0.4251968503937008
+      },
+      {
+        "total_disagreement_bucket": "1-2",
+        "n": 133,
+        "margin_mae_model": 10.176521021933986,
+        "margin_mae_market": 9.763157894736842,
+        "margin_delta_model_minus_market": 0.41336312719714385,
+        "margin_model_beat_rate": 0.47368421052631576,
+        "total_mae_model": 10.816536138377352,
+        "total_mae_market": 10.56766917293233,
+        "total_delta_model_minus_market": 0.2488669654450213,
+        "total_model_beat_rate": 0.43609022556390975
+      },
+      {
+        "total_disagreement_bucket": "2-3",
+        "n": 117,
+        "margin_mae_model": 10.92522827426977,
+        "margin_mae_market": 10.444444444444445,
+        "margin_delta_model_minus_market": 0.4807838298253255,
+        "margin_model_beat_rate": 0.4700854700854701,
+        "total_mae_model": 11.01115404161763,
+        "total_mae_market": 10.850427350427351,
+        "total_delta_model_minus_market": 0.16072669119027871,
+        "total_model_beat_rate": 0.47863247863247865
+      },
+      {
+        "total_disagreement_bucket": "3-5",
+        "n": 158,
+        "margin_mae_model": 10.038539678290105,
+        "margin_mae_market": 8.895569620253164,
+        "margin_delta_model_minus_market": 1.1429700580369406,
+        "margin_model_beat_rate": 0.3860759493670886,
+        "total_mae_model": 10.889671515955328,
+        "total_mae_market": 9.962025316455696,
+        "total_delta_model_minus_market": 0.9276461994996321,
+        "total_model_beat_rate": 0.3987341772151899
+      },
+      {
+        "total_disagreement_bucket": "5-7",
+        "n": 118,
+        "margin_mae_model": 10.672125567715348,
+        "margin_mae_market": 9.76271186440678,
+        "margin_delta_model_minus_market": 0.9094137033085676,
+        "margin_model_beat_rate": 0.4322033898305085,
+        "total_mae_model": 11.578979043894037,
+        "total_mae_market": 9.936440677966102,
+        "total_delta_model_minus_market": 1.6425383659279351,
+        "total_model_beat_rate": 0.3559322033898305
+      },
+      {
+        "total_disagreement_bucket": "7+",
+        "n": 113,
+        "margin_mae_model": 13.36636480047317,
+        "margin_mae_market": 10.84070796460177,
+        "margin_delta_model_minus_market": 2.5256568358714,
+        "margin_model_beat_rate": 0.2920353982300885,
+        "total_mae_model": 14.53584531272419,
+        "total_mae_market": 10.349557522123893,
+        "total_delta_model_minus_market": 4.186287790600296,
+        "total_model_beat_rate": 0.3008849557522124
+      }
+    ]
+  },
+  "directional_edge_diagnostic_flat_minus110": [
+    {
+      "direction": "home",
+      "threshold_points": 1,
+      "n": 353,
+      "wins": 169,
+      "losses": 184,
+      "win_rate": 0.47875354107648727,
+      "flat_minus110_roi": -0.0860159670357971
+    },
+    {
+      "direction": "away",
+      "threshold_points": 1,
+      "n": 265,
+      "wins": 127,
+      "losses": 138,
+      "win_rate": 0.47924528301886793,
+      "flat_minus110_roi": -0.08507718696397942
+    },
+    {
+      "direction": "over",
+      "threshold_points": 1,
+      "n": 387,
+      "wins": 188,
+      "losses": 199,
+      "win_rate": 0.48578811369509045,
+      "flat_minus110_roi": -0.0725863284002819
+    },
+    {
+      "direction": "under",
+      "threshold_points": 1,
+      "n": 247,
+      "wins": 108,
+      "losses": 139,
+      "win_rate": 0.43724696356275305,
+      "flat_minus110_roi": -0.16525579683474423
+    },
+    {
+      "direction": "home",
+      "threshold_points": 2,
+      "n": 297,
+      "wins": 140,
+      "losses": 157,
+      "win_rate": 0.4713804713804714,
+      "flat_minus110_roi": -0.10009182736455466
+    },
+    {
+      "direction": "away",
+      "threshold_points": 2,
+      "n": 220,
+      "wins": 107,
+      "losses": 113,
+      "win_rate": 0.4863636363636364,
+      "flat_minus110_roi": -0.07148760330578516
+    },
+    {
+      "direction": "over",
+      "threshold_points": 2,
+      "n": 311,
+      "wins": 154,
+      "losses": 157,
+      "win_rate": 0.49517684887459806,
+      "flat_minus110_roi": -0.05466237942122187
+    },
+    {
+      "direction": "under",
+      "threshold_points": 2,
+      "n": 191,
+      "wins": 83,
+      "losses": 108,
+      "win_rate": 0.43455497382198954,
+      "flat_minus110_roi": -0.1703950499762018
+    },
+    {
+      "direction": "home",
+      "threshold_points": 3,
+      "n": 231,
+      "wins": 116,
+      "losses": 115,
+      "win_rate": 0.5021645021645021,
+      "flat_minus110_roi": -0.041322314049586785
+    },
+    {
+      "direction": "away",
+      "threshold_points": 3,
+      "n": 169,
+      "wins": 83,
+      "losses": 86,
+      "win_rate": 0.4911242603550296,
+      "flat_minus110_roi": -0.06239913932221625
+    },
+    {
+      "direction": "over",
+      "threshold_points": 3,
+      "n": 238,
+      "wins": 111,
+      "losses": 127,
+      "win_rate": 0.46638655462184875,
+      "flat_minus110_roi": -0.10962566844919787
+    },
+    {
+      "direction": "under",
+      "threshold_points": 3,
+      "n": 148,
+      "wins": 66,
+      "losses": 82,
+      "win_rate": 0.44594594594594594,
+      "flat_minus110_roi": -0.14864864864864866
+    },
+    {
+      "direction": "home",
+      "threshold_points": 4,
+      "n": 172,
+      "wins": 85,
+      "losses": 87,
+      "win_rate": 0.4941860465116279,
+      "flat_minus110_roi": -0.05655391120507403
+    },
+    {
+      "direction": "away",
+      "threshold_points": 4,
+      "n": 136,
+      "wins": 68,
+      "losses": 68,
+      "win_rate": 0.5,
+      "flat_minus110_roi": -0.04545454545454549
+    },
+    {
+      "direction": "over",
+      "threshold_points": 4,
+      "n": 199,
+      "wins": 95,
+      "losses": 104,
+      "win_rate": 0.47738693467336685,
+      "flat_minus110_roi": -0.0886249428962997
+    },
+    {
+      "direction": "under",
+      "threshold_points": 4,
+      "n": 117,
+      "wins": 53,
+      "losses": 64,
+      "win_rate": 0.452991452991453,
+      "flat_minus110_roi": -0.13519813519813523
+    },
+    {
+      "direction": "home",
+      "threshold_points": 5,
+      "n": 122,
+      "wins": 57,
+      "losses": 65,
+      "win_rate": 0.4672131147540984,
+      "flat_minus110_roi": -0.10804769001490318
+    },
+    {
+      "direction": "away",
+      "threshold_points": 5,
+      "n": 106,
+      "wins": 54,
+      "losses": 52,
+      "win_rate": 0.5094339622641509,
+      "flat_minus110_roi": -0.02744425385934824
+    },
+    {
+      "direction": "over",
+      "threshold_points": 5,
+      "n": 141,
+      "wins": 67,
+      "losses": 74,
+      "win_rate": 0.475177304964539,
+      "flat_minus110_roi": -0.0928433268858801
+    },
+    {
+      "direction": "under",
+      "threshold_points": 5,
+      "n": 87,
+      "wins": 43,
+      "losses": 44,
+      "win_rate": 0.4942528735632184,
+      "flat_minus110_roi": -0.056426332288401305
+    },
+    {
+      "direction": "home",
+      "threshold_points": 7,
+      "n": 72,
+      "wins": 33,
+      "losses": 39,
+      "win_rate": 0.4583333333333333,
+      "flat_minus110_roi": -0.125
+    },
+    {
+      "direction": "away",
+      "threshold_points": 7,
+      "n": 62,
+      "wins": 31,
+      "losses": 31,
+      "win_rate": 0.5,
+      "flat_minus110_roi": -0.045454545454545484
+    },
+    {
+      "direction": "over",
+      "threshold_points": 7,
+      "n": 66,
+      "wins": 32,
+      "losses": 34,
+      "win_rate": 0.48484848484848486,
+      "flat_minus110_roi": -0.07438016528925621
+    },
+    {
+      "direction": "under",
+      "threshold_points": 7,
+      "n": 47,
+      "wins": 23,
+      "losses": 24,
+      "win_rate": 0.48936170212765956,
+      "flat_minus110_roi": -0.0657640232108317
+    }
+  ],
+  "flags": [
+    {
+      "severity": "HIGH",
+      "code": "LARGE_MARGIN_DISAGREEMENT",
+      "message": "When internal margin disagrees with market by 7+ points, the model is materially less accurate than the market.",
+      "segment": {
+        "margin_disagreement_bucket": "7+",
+        "n": 136,
+        "margin_mae_model": 13.555870657,
+        "margin_mae_market": 10.264705882352942,
+        "margin_delta_model_minus_market": 3.291164774647058,
+        "margin_model_beat_rate": 0.33088235294117646,
+        "total_mae_model": 13.049001916085903,
+        "total_mae_market": 10.827205882352942,
+        "total_delta_model_minus_market": 2.2217960337329608,
+        "total_model_beat_rate": 0.3897058823529412
+      }
+    },
+    {
+      "severity": "HIGH",
+      "code": "LARGE_TOTAL_DISAGREEMENT",
+      "message": "When internal total disagrees with market by 7+ points, the model is materially less accurate than the market.",
+      "segment": {
+        "total_disagreement_bucket": "7+",
+        "n": 113,
+        "margin_mae_model": 13.36636480047317,
+        "margin_mae_market": 10.84070796460177,
+        "margin_delta_model_minus_market": 2.5256568358714,
+        "margin_model_beat_rate": 0.2920353982300885,
+        "total_mae_model": 14.53584531272419,
+        "total_mae_market": 10.349557522123893,
+        "total_delta_model_minus_market": 4.186287790600296,
+        "total_model_beat_rate": 0.3008849557522124
+      }
+    }
+  ],
+  "governance": {
+    "production_promotion_allowed": false,
+    "recommended_status": "SHADOW_RECALIBRATION_REQUIRED",
+    "required_actions": [
+      "Remove sportsbook prices from blind-model features.",
+      "Remove postgame overtime outcome from features.",
+      "Remove numeric identifiers from features.",
+      "Score Brier/log-loss after excluding pushes.",
+      "Rerun 2021-2025 walk-forward after feature hygiene.",
+      "Apply a Core block or uncertainty penalty when blind margin/total disagreement exceeds 7 points until out-of-sample evidence supports otherwise."
+    ]
+  }
+}

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>AEGIS NFL v0.8 Audit</title>
+  <style>
+    :root{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color-scheme:dark;background:#07111f;color:#eef5ff}
+    body{margin:0;background:linear-gradient(180deg,#07111f,#0b1626);min-height:100vh}
+    main{max-width:1080px;margin:0 auto;padding:26px 16px 60px}
+    h1{font-size:clamp(28px,5vw,48px);margin:8px 0}.sub{color:#9fb0c9;line-height:1.55}
+    .pill{display:inline-flex;padding:7px 11px;border:1px solid #34445f;border-radius:999px;background:#101d30;font-weight:800;font-size:12px}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:18px}
+    .card{background:#0e1b2d;border:1px solid #24354d;border-radius:16px;padding:15px}
+    .wide{grid-column:1/-1}.k{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#8798b2}
+    .v{font-size:24px;font-weight:800;margin-top:5px}.good{color:#78dfa7}.warn{color:#ffd27a}.bad{color:#ff8585}
+    table{width:100%;border-collapse:collapse;margin-top:10px}td,th{text-align:left;border-bottom:1px solid #26364d;padding:9px 5px;font-size:13px}th{color:#8fa0b8}
+    ul{color:#c7d2e4;line-height:1.6}.muted{color:#8292aa;font-size:12px}
+  </style>
+</head>
+<body>
+<main>
+  <span class="pill">NFL v0.8 · SHADOW RECALIBRATION</span>
+  <h1>AEGIS NFL Residual & Feature-Hygiene Audit</h1>
+  <p class="sub">Real 2021–2025 walk-forward diagnostics. This page is research-only and does not auto-release bets.</p>
+  <div id="root" class="grid"><div class="card wide"><div class="k">Status</div><div class="v">Loading…</div></div></div>
+</main>
+<script>
+const fmt=(x,d=2)=>Number.isFinite(Number(x))?Number(x).toFixed(d):'—';
+fetch('/data/nfl-v08-shadow-status.json').then(r=>r.json()).then(s=>{
+  const r=s.historical_report||{},a=s.residual_audit||{},o=a.overall||{},c=a.corrected_probability_metrics||{};
+  const flags=a.flags||[],status=(r.shadow_readiness||{}).status||'UNKNOWN';
+  const cls=status.includes('HIGH_INTEREST')?'good':status.includes('REQUIRED')?'warn':'bad';
+  let h=`
+  <div class="card"><div class="k">Shadow status</div><div class="v ${cls}">${status}</div></div>
+  <div class="card"><div class="k">Holdout games</div><div class="v">${a.holdout_games||r.holdout_games||'—'}</div></div>
+  <div class="card"><div class="k">Feature count</div><div class="v">${r.feature_count??'—'}</div></div>
+  <div class="card"><div class="k">Unsafe features</div><div class="v ${((a.feature_hygiene||{}).unsafe_count||0)===0?'good':'bad'}">${(a.feature_hygiene||{}).unsafe_count??'—'}</div></div>
+  <div class="card"><div class="k">Margin MAE · model</div><div class="v">${fmt(o.margin_mae_model)}</div></div>
+  <div class="card"><div class="k">Margin MAE · market</div><div class="v">${fmt(o.margin_mae_market)}</div></div>
+  <div class="card"><div class="k">Total MAE · model</div><div class="v">${fmt(o.total_mae_model)}</div></div>
+  <div class="card"><div class="k">Total MAE · market</div><div class="v">${fmt(o.total_mae_market)}</div></div>
+  <div class="card"><div class="k">Cover Brier</div><div class="v">${fmt(c.cover_brier,4)}</div></div>
+  <div class="card"><div class="k">Over Brier</div><div class="v">${fmt(c.over_brier,4)}</div></div>
+  <div class="card wide"><div class="k">Audit flags</div><ul>${flags.length?flags.map(f=>`<li><b>${f.severity}</b> · ${f.code}: ${f.message}</li>`).join(''):'<li>No critical audit flags.</li>'}</ul></div>`;
+  const seg=((a.segments||{}).margin_disagreement||[]);
+  if(seg.length){
+    h+=`<div class="card wide"><div class="k">Model vs market margin disagreement</div><table><thead><tr><th>Bucket</th><th>N</th><th>Model MAE</th><th>Market MAE</th><th>Δ</th></tr></thead><tbody>${seg.map(x=>`<tr><td>${x.margin_disagreement_bucket}</td><td>${x.n}</td><td>${fmt(x.margin_mae_model)}</td><td>${fmt(x.margin_mae_market)}</td><td>${fmt(x.margin_delta_model_minus_market)}</td></tr>`).join('')}</tbody></table><div class="muted">Positive Δ means the blind model was less accurate than the market.</div></div>`;
+  }
+  document.getElementById('root').innerHTML=h;
+}).catch(e=>{document.getElementById('root').innerHTML=`<div class="card wide"><div class="k">Load error</div><div class="v bad">${e}</div></div>`;});
+</script>
+</body>
+</html>
