@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AEGIS NFL v1.0 Feature Lab</title>
+<style>
+:root{font-family:Inter,system-ui,-apple-system,sans-serif;color-scheme:dark;background:#07111f;color:#eef5ff}
+body{margin:0;background:linear-gradient(#07111f,#0b1626);min-height:100vh}main{max-width:1120px;margin:auto;padding:24px 16px 64px}
+.pill{display:inline-block;padding:7px 11px;border:1px solid #36506f;border-radius:999px;background:#102139;font-weight:800;font-size:12px}
+h1{font-size:clamp(30px,5vw,50px);margin:12px 0}.sub{color:#9eb0c8;line-height:1.55}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:18px}
+.card{background:#0e1c2f;border:1px solid #253a55;border-radius:16px;padding:15px}.wide{grid-column:1/-1}
+.k{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#8799b2}.v{font-size:24px;font-weight:850;margin-top:5px}
+.good{color:#78dfa7}.warn{color:#ffd27a}.bad{color:#ff8585}
+table{width:100%;border-collapse:collapse;margin-top:10px}th,td{padding:9px 5px;border-bottom:1px solid #273950;text-align:left;font-size:13px}th{color:#93a5be}
+.muted{font-size:12px;color:#8293ab}
+</style></head><body><main>
+<span class="pill">NFL v1.0 · FEATURE ABLATION</span>
+<h1>What Actually Helps the Blind NFL Model?</h1>
+<p class="sub">Feature selection and hyperparameter tuning use 2023–2024 only. The 2025 season is untouched until the final promotion gate.</p>
+<div id="root" class="grid"><div class="card wide"><div class="v">Loading…</div></div></div>
+<script>
+const f=(x,d=3)=>Number.isFinite(Number(x))?Number(x).toFixed(d):'—';
+fetch('/data/nfl-v10-shadow-status.json').then(r=>r.json()).then(s=>{
+ const x=s.report||{},u=x.untouched_2025||{},b=u.v08_internal_champion||{},c=u.v10_internal_challenger||{},m=u.market_challenger||{},p=u.promotion_gate||{};
+ const cls=(p.decision||'').startsWith('PROMOTE')?'good':'warn';
+ let h=`
+ <div class="card"><div class="k">Promotion gate</div><div class="v ${cls}">${p.decision||'—'}</div></div>
+ <div class="card"><div class="k">Features</div><div class="v">${x.baseline_feature_count||'—'} → ${x.selected_feature_count||'—'}</div></div>
+ <div class="card"><div class="k">2025 margin MAE · v1.0</div><div class="v">${f(c.margin_mae)}</div></div>
+ <div class="card"><div class="k">2025 margin MAE · v0.8</div><div class="v">${f(b.margin_mae)}</div></div>
+ <div class="card"><div class="k">2025 margin MAE · market</div><div class="v">${f(m.margin_mae)}</div></div>
+ <div class="card"><div class="k">2025 total MAE · v1.0</div><div class="v">${f(c.total_mae)}</div></div>
+ <div class="card"><div class="k">2025 total MAE · v0.8</div><div class="v">${f(b.total_mae)}</div></div>
+ <div class="card"><div class="k">2025 total MAE · market</div><div class="v">${f(m.total_mae)}</div></div>
+ <div class="card wide"><div class="k">Removed feature families</div><div class="v">${(x.removed_groups||[]).join(', ')||'None'}</div></div>`;
+ const fam=x.family_ablation||{};
+ h+=`<div class="card wide"><div class="k">Development ablation · leave one family out</div><table><thead><tr><th>Family</th><th>Features</th><th>Δ margin MAE</th><th>Δ total MAE</th><th>Δ cover Brier</th><th>Remove?</th></tr></thead><tbody>${
+ Object.entries(fam).map(([name,v])=>`<tr><td>${name}</td><td>${v.feature_count}</td><td>${f(v.delta_vs_all_features.margin_mae,4)}</td><td>${f(v.delta_vs_all_features.total_mae,4)}</td><td>${f(v.delta_vs_all_features.cover_brier,5)}</td><td>${v.safe_removal_candidate?'YES':'NO'}</td></tr>`).join('')
+ }</tbody></table><div class="muted">Negative deltas mean the model improved when that family was removed.</div></div>`;
+ document.getElementById('root').innerHTML=h;
+}).catch(e=>document.getElementById('root').innerHTML=`<div class="card wide"><div class="v bad">${e}</div></div>`);
+</script></main></body></html>
