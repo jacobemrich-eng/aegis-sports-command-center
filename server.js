@@ -11,6 +11,12 @@ const operations = require('./src/operations');
 const heartbeat = require('./src/heartbeat');
 const shadow = require('./src/shadow-service');
 const { flags: sportEngineFlags } = require('./src/sport-engines/feature-flags');
+const deploymentSafety = require('./src/deployment-safety');
+
+// A staging service must fail closed at process startup. Production and local
+// deployments retain their existing behavior unless they explicitly identify
+// themselves as the NFL shadow staging environment.
+const DEPLOYMENT_IDENTITY = deploymentSafety.assertStagingConfiguration(process.env);
 
 const PORT = Number(process.env.PORT || 3000);
 const ROOT = __dirname;
@@ -164,7 +170,12 @@ auto=await safeStatus();
       monthly_odds_budget:autopilot.config.MONTHLY_BUDGET,
       auto_deep_credit_cap:
         autopilot.config.AUTO_DEEP_CREDIT_CAP,
-      sport_engine_flags:sportEngineFlags()
+      sport_engine_flags:sportEngineFlags(),
+      environment:DEPLOYMENT_IDENTITY.environment,
+      state_id:DEPLOYMENT_IDENTITY.state_id,
+      shadow_only:DEPLOYMENT_IDENTITY.shadow_only,
+      production_release_allowed:DEPLOYMENT_IDENTITY.production_release_allowed,
+      deployment_identity:DEPLOYMENT_IDENTITY
     });
   }
                 if(req.method==='GET'&&u.pathname==='/api/operations/status'){
@@ -364,6 +375,34 @@ if(req.method==='POST'&&u.pathname==='/api/autopilot/heartbeat'){
     // Simulator ingestion is isolated from the production scan/release route.
     // A challenger bearer token or authenticated operator may write shadow data,
     // but the service always strips Final Card and bankroll eligibility.
+    if(req.method==='GET'&&u.pathname==='/api/shadow/readiness'){
+      if(!validShadowIngest(req)&&!(ACCESS_PIN&&validSession(req)))return send(res,401,{error:'Shadow readiness authorization failed.'});
+      const storage=await store.health(),auto=await safeStatus(),flags=sportEngineFlags();
+      const failures=[];
+      if(!DEPLOYMENT_IDENTITY.nfl_shadow_staging)failures.push('environment is not nfl-shadow-staging');
+      if(DEPLOYMENT_IDENTITY.state_id==='main')failures.push('state_id is main');
+      if(auto.enabled)failures.push('Autopilot is enabled');
+      if(flags.AEGIS_NEW_ENGINE_AUTO_RELEASE)failures.push('new-engine auto-release is enabled');
+      if(!flags.NFL_SIM_ENABLED)failures.push('NFL shadow simulator is disabled');
+      if(!flags.NFL_SIM_SHADOW_ONLY)failures.push('NFL simulator is not shadow-only');
+      if(DEPLOYMENT_IDENTITY.production_release_allowed)failures.push('production release is allowed');
+      if(!storage.persistent||!storage.ok)failures.push('persistent staging storage is unhealthy');
+      return send(res,failures.length?503:200,{
+        ready:failures.length===0,
+        authenticated:true,
+        environment:DEPLOYMENT_IDENTITY.environment,
+        state_id:DEPLOYMENT_IDENTITY.state_id,
+        shadow_only:DEPLOYMENT_IDENTITY.shadow_only,
+        production_release_allowed:DEPLOYMENT_IDENTITY.production_release_allowed,
+        autopilot_enabled:!!auto.enabled,
+        release_sports:autopilot.config.RELEASE_SPORTS,
+        sport_engine_flags:flags,
+        persistence:{ok:!!storage.ok,persistent:!!storage.persistent,backend:storage.backend,key_mode:storage.key_mode||'none'},
+        endpoints:{ingest:true,grading:true,error_log:true},
+        failures
+      });
+    }
+
     if(req.method==='POST'&&u.pathname==='/api/shadow/games'){
       if(!validShadowIngest(req)&&!(ACCESS_PIN&&validSession(req)))return send(res,401,{error:'Shadow ingestion authorization failed.'});
       if(!rateLimit(req,res,'shadow-ingest',120))return;

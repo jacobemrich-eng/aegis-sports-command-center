@@ -28,12 +28,15 @@ concurrency:
 
 jobs:
   validate-shadow:
+    environment: nfl-shadow-staging
     runs-on: ubuntu-latest
     timeout-minutes: 55
     env:
       ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
       AEGIS_SHADOW_INGEST_SECRET: ${{ secrets.AEGIS_SHADOW_INGEST_SECRET }}
-      AEGIS_SHADOW_ENDPOINT: https://aegis-sports-command-center.onrender.com/api/shadow/games
+      AEGIS_SHADOW_ENDPOINT: ${{ vars.AEGIS_SHADOW_ENDPOINT }}
+      AEGIS_NFL_SHADOW_ALLOWED_HOST: ${{ vars.AEGIS_NFL_SHADOW_ALLOWED_HOST }}
+      NFL_SHADOW_SCHEDULED_PUBLISH: ${{ vars.NFL_SHADOW_SCHEDULED_PUBLISH }}
       ODDS_BOOKMAKERS: hardrockbet_fl,fanduel,draftkings,bovada,betmgm,espnbet,fanatics
 
     steps:
@@ -63,11 +66,16 @@ jobs:
         run: python -m unittest modeling/nfl/test_aegis_nfl_live_pipeline.py
 
       - name: Validate required publish secrets
-        if: github.event_name == 'schedule' || inputs.publish
+        if: (github.event_name == 'workflow_dispatch' && inputs.publish) || (github.event_name == 'schedule' && vars.NFL_SHADOW_SCHEDULED_PUBLISH == 'true')
         shell: bash
         run: |
           test -n "$ODDS_API_KEY" || { echo "ODDS_API_KEY is required"; exit 1; }
           test -n "$AEGIS_SHADOW_INGEST_SECRET" || { echo "AEGIS_SHADOW_INGEST_SECRET is required"; exit 1; }
+          test -n "$AEGIS_SHADOW_ENDPOINT" || { echo "AEGIS_SHADOW_ENDPOINT is required for publish mode"; exit 1; }
+
+      - name: Refuse publish unless isolated staging is ready
+        if: (github.event_name == 'workflow_dispatch' && inputs.publish) || (github.event_name == 'schedule' && vars.NFL_SHADOW_SCHEDULED_PUBLISH == 'true')
+        run: python modeling/nfl/aegis_nfl_staging_readiness.py
 
       - name: Build blind slate, capture market afterward, publish, and grade
         shell: bash
@@ -75,7 +83,7 @@ jobs:
           MODE="${{ inputs.mode }}"
           if [ -z "$MODE" ]; then MODE="all"; fi
           PUBLISH=""
-          if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ inputs.publish }}" = "true" ]; then PUBLISH="--publish"; fi
+          if [ "${{ inputs.publish }}" = "true" ] || { [ "${{ github.event_name }}" = "schedule" ] && [ "$NFL_SHADOW_SCHEDULED_PUBLISH" = "true" ]; }; then PUBLISH="--publish"; fi
           python modeling/nfl/aegis_nfl_live_pipeline.py \
             --season 2026 \
             --lookahead-days 10 \

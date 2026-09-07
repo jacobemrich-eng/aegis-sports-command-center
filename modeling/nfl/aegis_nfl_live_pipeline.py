@@ -20,6 +20,8 @@ from aegis_nfl_shadow_publisher import (
     build_envelope,
     publish,
     validate_blind_output,
+    validate_shadow_endpoint,
+    verify_staging_readiness,
 )
 
 
@@ -402,6 +404,10 @@ def build_market_input(blind: Mapping[str, object], event: dict, captured_at: da
 def post_shadow_error(endpoint: str, token: str, row: Mapping[str, object]) -> None:
     if not endpoint or not token:
         return
+    try:
+        endpoint = validate_shadow_endpoint(endpoint)
+    except ValueError:
+        return
     url = endpoint.rsplit("/games", 1)[0] + "/errors"
     request = Request(url, data=json.dumps(row).encode(), headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}, method="POST")
     try:
@@ -495,6 +501,7 @@ def settled_results(season: int) -> List[Dict[str, object]]:
 
 
 def publish_grades(endpoint: str, token: str, season: int) -> Dict[str, object]:
+    endpoint = validate_shadow_endpoint(endpoint)
     url = endpoint.rsplit("/games", 1)[0] + "/grade"
     body = {"sport": SPORT_KEY, "source": "nflverse-settled-results", "results": settled_results(season)}
     request = Request(url, data=json.dumps(body).encode(), headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}, method="POST")
@@ -520,6 +527,20 @@ def main() -> int:
     output_dir = Path(args.output_dir)
     report: Dict[str, object] = {"mode": args.mode, "publish": args.publish, "season": args.season, "shadow_only": True}
     try:
+        if args.publish:
+            readiness = verify_staging_readiness(args.endpoint, token)
+            output_dir.mkdir(parents=True, exist_ok=True)
+            atomic_json(output_dir / "staging-readiness.json", {
+                "checked_at": iso(utc_now()),
+                "ready": True,
+                "environment": readiness.get("environment"),
+                "state_id": readiness.get("state_id"),
+                "shadow_only": readiness.get("shadow_only"),
+                "production_release_allowed": readiness.get("production_release_allowed"),
+                "persistence": readiness.get("persistence"),
+                "endpoints": readiness.get("endpoints"),
+            })
+            report["staging_readiness"] = {"ready": True, "environment": readiness.get("environment"), "state_id": readiness.get("state_id")}
         if args.mode in {"project", "all"}:
             now = utc_now()
             games = upcoming_schedule(args.season, args.lookahead_days, now)[:args.max_games]

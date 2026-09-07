@@ -2,17 +2,25 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import json
+import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 NFL_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(NFL_DIR))
 
 from aegis_nfl_live_pipeline import process_slate, selected_v10, validate_pregame_game
-from aegis_nfl_shadow_publisher import build_envelope, validate_blind_output
+from aegis_nfl_shadow_publisher import (
+    build_envelope,
+    validate_blind_output,
+    validate_shadow_endpoint,
+    verify_staging_readiness,
+)
 
 
 NOW = datetime(2026, 9, 7, 12, 0, tzinfo=timezone.utc)
@@ -47,6 +55,57 @@ def market_for(rows: list[dict]) -> dict:
 
 
 class LivePipelineTests(unittest.TestCase):
+    def test_publish_endpoint_rejects_production_and_unrelated_hosts(self):
+        with self.assertRaisesRegex(ValueError, "required"):
+            validate_shadow_endpoint("")
+        with self.assertRaisesRegex(ValueError, "Production AEGIS endpoint is forbidden"):
+            validate_shadow_endpoint("https://aegis-sports-command-center.onrender.com/api/shadow/games")
+        with self.assertRaisesRegex(ValueError, "not the NFL staging host"):
+            validate_shadow_endpoint("https://unrelated.example/api/shadow/games")
+        self.assertEqual(
+            validate_shadow_endpoint("https://aegis-nfl-shadow-staging.onrender.com/api/shadow/games"),
+            "https://aegis-nfl-shadow-staging.onrender.com/api/shadow/games",
+        )
+        self.assertEqual(validate_shadow_endpoint("http://localhost:3000/api/shadow/games"), "http://localhost:3000/api/shadow/games")
+
+    def test_readiness_requires_isolated_state_and_all_release_guards(self):
+        payload = {
+            "ready": True, "environment": "nfl-shadow-staging", "state_id": "nfl-shadow-staging",
+            "shadow_only": True, "production_release_allowed": False, "autopilot_enabled": False,
+            "sport_engine_flags": {"NFL_SIM_ENABLED": True, "NFL_SIM_SHADOW_ONLY": True, "AEGIS_NEW_ENGINE_AUTO_RELEASE": False},
+            "persistence": {"ok": True, "persistent": True},
+            "endpoints": {"ingest": True, "grading": True},
+        }
+
+        class Response:
+            def __enter__(self): return self
+            def __exit__(self, *_): return False
+            def read(self): return json.dumps(payload).encode()
+
+        with patch("aegis_nfl_shadow_publisher.urlopen", return_value=Response()):
+            result = verify_staging_readiness("https://aegis-nfl-shadow-staging.onrender.com/api/shadow/games", "test-token")
+        self.assertEqual(result["state_id"], "nfl-shadow-staging")
+        payload["state_id"] = "main"
+        with patch("aegis_nfl_shadow_publisher.urlopen", return_value=Response()):
+            with self.assertRaisesRegex(RuntimeError, "state_id"):
+                verify_staging_readiness("https://aegis-nfl-shadow-staging.onrender.com/api/shadow/games", "test-token")
+
+    def test_publisher_dry_run_needs_no_endpoint_or_secret(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            blind_path, market_path = root / "blind.json", root / "market.json"
+            blind_path.write_text(json.dumps(blind(game("dry-run"))), encoding="utf-8")
+            market_path.write_text(json.dumps(market_for([blind(game("dry-run"))])["dry-run"]), encoding="utf-8")
+            environment = os.environ.copy()
+            environment.pop("AEGIS_SHADOW_ENDPOINT", None)
+            environment.pop("AEGIS_SHADOW_INGEST_SECRET", None)
+            result = subprocess.run(
+                [sys.executable, str(NFL_DIR / "aegis_nfl_shadow_publisher.py"), "--blind-output", str(blind_path), "--market-input", str(market_path), "--dry-run"],
+                capture_output=True, text=True, env=environment, check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('"shadow_only": true', result.stdout)
+
     def test_committed_v10_champion_contract_is_loaded(self):
         features, hyper = selected_v10()
         self.assertEqual(len(features), 25)
