@@ -1,0 +1,717 @@
+{
+  "engine_version": "NFL_v1.0_FEATURE_ABLATION",
+  "mode": "SHADOW",
+  "config": {
+    "min_train_games": 500,
+    "dev_seasons": [
+      2023,
+      2024
+    ],
+    "final_holdout_season": 2025,
+    "ridge_grid": [
+      3,
+      7,
+      14,
+      25,
+      45,
+      80
+    ],
+    "logistic_c_grid": [
+      0.08,
+      0.15,
+      0.25,
+      0.35,
+      0.55,
+      0.85
+    ],
+    "mae_material_regression": 0.12,
+    "brier_material_regression": 0.0018,
+    "min_composite_improvement": 0.0005,
+    "final_min_mae_improvement": 0.1,
+    "final_min_brier_improvement": 0.002,
+    "final_max_mae_regression": 0.2,
+    "final_max_brier_regression": 0.003
+  },
+  "integrity": {
+    "development_seasons": [
+      2023,
+      2024
+    ],
+    "untouched_final_holdout_season": 2025,
+    "market_used_in_blind_feature_selection": false,
+    "2025_used_for_feature_selection": false,
+    "2025_used_for_hyperparameter_tuning": false,
+    "production_release_allowed": false
+  },
+  "feature_groups": {
+    "drives_finishing": [
+      "away_def_allowed_drives",
+      "away_def_allowed_points_per_drive",
+      "away_def_allowed_red_zone_epa",
+      "away_drives",
+      "away_points_per_drive",
+      "away_red_zone_epa",
+      "home_def_allowed_drives",
+      "home_def_allowed_points_per_drive",
+      "home_def_allowed_red_zone_epa",
+      "home_drives",
+      "home_points_per_drive",
+      "home_red_zone_epa"
+    ],
+    "efficiency_success": [
+      "away_def_allowed_early_down_epa",
+      "away_def_allowed_early_down_success",
+      "away_def_allowed_epa_per_play",
+      "away_def_allowed_success_rate",
+      "away_early_down_epa",
+      "away_early_down_success",
+      "away_epa_per_play",
+      "away_success_rate",
+      "home_def_allowed_early_down_epa",
+      "home_def_allowed_early_down_success",
+      "home_def_allowed_epa_per_play",
+      "home_def_allowed_success_rate",
+      "home_early_down_epa",
+      "home_early_down_success",
+      "home_epa_per_play",
+      "home_success_rate"
+    ],
+    "explosiveness": [
+      "away_def_allowed_explosive_pass_rate",
+      "away_def_allowed_explosive_rush_rate",
+      "away_explosive_pass_rate",
+      "away_explosive_rush_rate",
+      "home_def_allowed_explosive_pass_rate",
+      "home_def_allowed_explosive_rush_rate",
+      "home_explosive_pass_rate",
+      "home_explosive_rush_rate"
+    ],
+    "pace_pass_tendency": [
+      "away_def_allowed_neutral_pass_rate",
+      "away_neutral_pass_rate",
+      "home_def_allowed_neutral_pass_rate",
+      "home_neutral_pass_rate"
+    ],
+    "pressure_sacks": [
+      "away_def_allowed_pressure_proxy_rate",
+      "away_def_allowed_qb_hit_rate",
+      "away_def_allowed_sack_rate",
+      "away_pressure_proxy_rate",
+      "away_qb_hit_rate",
+      "away_sack_rate",
+      "home_def_allowed_pressure_proxy_rate",
+      "home_def_allowed_qb_hit_rate",
+      "home_def_allowed_sack_rate",
+      "home_pressure_proxy_rate",
+      "home_qb_hit_rate",
+      "home_sack_rate"
+    ],
+    "qb_passing": [
+      "away_air_yards_per_attempt",
+      "away_cpoe",
+      "away_def_allowed_air_yards_per_attempt",
+      "away_def_allowed_cpoe",
+      "away_def_allowed_pass_epa_per_play",
+      "away_def_allowed_qb_epa",
+      "away_def_allowed_yac_per_completion_proxy",
+      "away_pass_epa_per_play",
+      "away_qb_epa",
+      "away_yac_per_completion_proxy",
+      "home_air_yards_per_attempt",
+      "home_cpoe",
+      "home_def_allowed_air_yards_per_attempt",
+      "home_def_allowed_cpoe",
+      "home_def_allowed_pass_epa_per_play",
+      "home_def_allowed_qb_epa",
+      "home_def_allowed_yac_per_completion_proxy",
+      "home_pass_epa_per_play",
+      "home_qb_epa",
+      "home_yac_per_completion_proxy"
+    ],
+    "rest_context": [
+      "away_rest",
+      "div_game",
+      "home_rest"
+    ],
+    "rushing": [
+      "away_def_allowed_rush_epa_per_play",
+      "away_rush_epa_per_play",
+      "home_def_allowed_rush_epa_per_play",
+      "home_rush_epa_per_play"
+    ],
+    "turnovers": [
+      "away_def_allowed_turnover_play_rate",
+      "away_turnover_play_rate",
+      "home_def_allowed_turnover_play_rate",
+      "home_turnover_play_rate"
+    ],
+    "volume_sample": [
+      "away_def_allowed_off_plays",
+      "away_games_in_sample",
+      "away_off_plays",
+      "home_def_allowed_off_plays",
+      "home_games_in_sample",
+      "home_off_plays"
+    ]
+  },
+  "baseline_feature_count": 89,
+  "selected_feature_count": 25,
+  "selected_features": [
+    "away_def_allowed_early_down_epa",
+    "away_def_allowed_early_down_success",
+    "away_def_allowed_epa_per_play",
+    "away_def_allowed_off_plays",
+    "away_def_allowed_success_rate",
+    "away_early_down_epa",
+    "away_early_down_success",
+    "away_epa_per_play",
+    "away_games_in_sample",
+    "away_off_plays",
+    "away_rest",
+    "away_success_rate",
+    "div_game",
+    "home_def_allowed_early_down_epa",
+    "home_def_allowed_early_down_success",
+    "home_def_allowed_epa_per_play",
+    "home_def_allowed_off_plays",
+    "home_def_allowed_success_rate",
+    "home_early_down_epa",
+    "home_early_down_success",
+    "home_epa_per_play",
+    "home_games_in_sample",
+    "home_off_plays",
+    "home_rest",
+    "home_success_rate"
+  ],
+  "removed_groups": [
+    "drives_finishing",
+    "pressure_sacks",
+    "qb_passing",
+    "explosiveness",
+    "rushing",
+    "pace_pass_tendency",
+    "turnovers"
+  ],
+  "family_ablation": {
+    "drives_finishing": {
+      "feature_count": 12,
+      "features": [
+        "away_def_allowed_drives",
+        "away_def_allowed_points_per_drive",
+        "away_def_allowed_red_zone_epa",
+        "away_drives",
+        "away_points_per_drive",
+        "away_red_zone_epa",
+        "home_def_allowed_drives",
+        "home_def_allowed_points_per_drive",
+        "home_def_allowed_red_zone_epa",
+        "home_drives",
+        "home_points_per_drive",
+        "home_red_zone_epa"
+      ],
+      "leave_one_group_out": {
+        "n": 512,
+        "margin_mae": 10.682001927497947,
+        "margin_rmse": 13.78250948775831,
+        "total_mae": 11.147976223606001,
+        "total_rmse": 14.24707134609443,
+        "cover_brier": 0.2698702684802391,
+        "cover_logloss": 0.7422188719823716,
+        "over_brier": 0.28121325371711237,
+        "over_logloss": 0.7728757648019912
+      },
+      "delta_vs_all_features": {
+        "margin_mae": -0.17271685845298457,
+        "total_mae": -0.1613919309752525,
+        "cover_brier": -0.010741023205698697,
+        "over_brier": -0.0052180024826701255
+      },
+      "safe_removal_candidate": true
+    },
+    "efficiency_success": {
+      "feature_count": 16,
+      "features": [
+        "away_def_allowed_early_down_epa",
+        "away_def_allowed_early_down_success",
+        "away_def_allowed_epa_per_play",
+        "away_def_allowed_success_rate",
+        "away_early_down_epa",
+        "away_early_down_success",
+        "away_epa_per_play",
+        "away_success_rate",
+        "home_def_allowed_early_down_epa",
+        "home_def_allowed_early_down_success",
+        "home_def_allowed_epa_per_play",
+        "home_def_allowed_success_rate",
+        "home_early_down_epa",
+        "home_early_down_success",
+        "home_epa_per_play",
+        "home_success_rate"
+      ],
+      "leave_one_group_out": {
+        "n": 510,
+        "margin_mae": 10.825870107187047,
+        "margin_rmse": 13.907732041461335,
+        "total_mae": 11.123513618573163,
+        "total_rmse": 14.180410099287464,
+        "cover_brier": 0.27834000878827314,
+        "cover_logloss": 0.7619222409123648,
+        "over_brier": 0.27892253491049424,
+        "over_logloss": 0.7629333574710562
+      },
+      "delta_vs_all_features": {
+        "margin_mae": -0.028848678763884195,
+        "total_mae": -0.18585453600809032,
+        "cover_brier": -0.0022712828976646504,
+        "over_brier": -0.007508721289288256
+      },
+      "safe_removal_candidate": true
+    },
+    "explosiveness": {
+      "feature_count": 8,
+      "features": [
+        "away_def_allowed_explosive_pass_rate",
+        "away_def_allowed_explosive_rush_rate",
+        "away_explosive_pass_rate",
+        "away_explosive_rush_rate",
+        "home_def_allowed_explosive_pass_rate",
+        "home_def_allowed_explosive_rush_rate",
+        "home_explosive_pass_rate",
+        "home_explosive_rush_rate"
+      ],
+      "leave_one_group_out": {
+        "n": 510,
+        "margin_mae": 10.76813214823549,
+        "margin_rmse": 13.737845386042867,
+        "total_mae": 11.241924278010394,
+        "total_rmse": 14.264911307020075,
+        "cover_brier": 0.2763114363561054,
+        "cover_logloss": 0.7553084639216895,
+        "over_brier": 0.28108814703447493,
+        "over_logloss": 0.7723056355230897
+      },
+      "delta_vs_all_features": {
+        "margin_mae": -0.08658663771544184,
+        "total_mae": -0.06744387657085937,
+        "cover_brier": -0.004299855329832403,
+        "over_brier": -0.005343109165307558
+      },
+      "safe_removal_candidate": true
+    },
+    "pace_pass_tendency": {
+      "feature_count": 4,
+      "features": [
+        "away_def_allowed_neutral_pass_rate",
+        "away_neutral_pass_rate",
+        "home_def_allowed_neutral_pass_rate",
+        "home_neutral_pass_rate"
+      ],
+      "leave_one_group_out": {
+        "n": 510,
+        "margin_mae": 10.78057937117132,
+        "margin_rmse": 13.768591715319369,
+        "total_mae": 11.228104139341847,
+        "total_rmse": 14.242568570480548,
+        "cover_brier": 0.28008008953618707,
+        "cover_logloss": 0.7633643172279159,
+        "over_brier": 0.2831967421994485,
+        "over_logloss": 0.7772179490019216
+      },
+      "delta_vs_all_features": {
+        "margin_mae": -0.07413941477961039,
+        "total_mae": -0.08126401523940707,
+        "cover_brier": -0.0005312021497507202,
+        "over_brier": -0.0032345140003339767
+      },
+      "safe_removal_candidate": true
+    },
+    "pressure_sacks": {
+      "feature_count": 12,
+      "features": [
+        "away_def_allowed_pressure_proxy_rate",
+        "away_def_allowed_qb_hit_rate",
+        "away_def_allowed_sack_rate",
+        "away_pressure_proxy_rate",
+        "away_qb_hit_rate",
+        "away_sack_rate",
+        "home_def_allowed_pressure_proxy_rate",
+        "home_def_allowed_qb_hit_rate",
+        "home_def_allowed_sack_rate",
+        "home_pressure_proxy_rate",
+        "home_qb_hit_rate",
+        "home_sack_rate"
+      ],
+      "leave_one_group_out": {
+        "n": 510,
+        "margin_mae": 10.857073813028045,
+        "margin_rmse": 13.862779620386966,
+        "total_mae": 11.030574851925609,
+        "total_rmse": 14.11122121920984,
+        "cover_brier": 0.27812184084464875,
+        "cover_logloss": 0.7605225410426165,
+        "over_brier": 0.27657248940519813,
+        "over_logloss": 0.7605140532087005
+      },
+      "delta_vs_all_features": {
+        "margin_mae": 0.0023550270771135473,
+        "total_mae": -0.27879330265564484,
+        "cover_brier": -0.0024894508412890426,
+        "over_brier": -0.009858766794584362
+      },
+      "safe_removal_candidate": true
+    },
+    "qb_passing": {
+      "feature_count": 20,
+      "features": [
+        "away_air_yards_per_attempt",
+        "away_cpoe",
+        "away_def_allowed_air_yards_per_attempt",
+        "away_def_allowed_cpoe",
+        "away_def_allowed_pass_epa_per_play",
+        "away_def_allowed_qb_epa",
+        "away_def_allowed_yac_per_completion_proxy",
+        "away_pass_epa_per_play",
+        "away_qb_epa",
+        "away_yac_per_completion_proxy",
+        "home_air_yards_per_attempt",
+        "home_cpoe",
+        "home_def_allowed_air_yards_per_attempt",
+        "home_def_allowed_cpoe",
+        "home_def_allowed_pass_epa_per_play",
+        "home_def_allowed_qb_epa",
+        "home_def_allowed_yac_per_completion_proxy",
+        "home_pass_epa_per_play",
+        "home_qb_epa",
+        "home_yac_per_completion_proxy"
+      ],
+      "leave_one_group_out": {
+        "n": 510,
+        "margin_mae": 10.850747001885688,
+        "margin_rmse": 13.829601326348902,
+        "total_mae": 11.042967137889578,
+        "total_rmse": 14.101810933676019,
+        "cover_brier": 0.27620764303161566,
+        "cover_logloss": 0.7504964013221275,
+        "over_brier": 0.2788566723628773,
+        "over_logloss": 0.7638690954464104
+      },
+      "delta_vs_all_features": {
+        "margin_mae": -0.0039717840652429,
+        "total_mae": -0.2664010166916757,
+        "cover_brier": -0.004403648654322134,
+        "over_brier": -0.00757458383690518
+      },
+      "safe_removal_candidate": true
+    },
+    "rest_context": {
+      "feature_count": 3,
+      "features": [
+        "away_rest",
+        "div_game",
+        "home_rest"
+      ],
+      "leave_one_group_out": {
+        "n": 510,
+        "margin_mae": 10.866968300774596,
+        "margin_rmse": 13.84745251614529,
+        "total_mae": 11.30904579151452,
+        "total_rmse": 14.321114500337888,
+        "cover_brier": 0.27996266836258854,
+        "cover_logloss": 0.7654363610652032,
+        "over_brier": 0.28630345193421985,
+        "over_logloss": 0.7857424859318004
+      },
+      "delta_vs_all_features": {
+        "margin_mae": 0.012249514823665208,
+        "total_mae": -0.00032236306673283366,
+        "cover_brier": -0.0006486233233492511,
+        "over_brier": -0.00012780426556263658
+      },
+      "safe_removal_candidate": false
+    },
+    "rushing": {
+      "feature_count": 4,
+      "features": [
+        "away_def_allowed_rush_epa_per_play",
+        "away_rush_epa_per_play",
+        "home_def_allowed_rush_epa_per_play",
+        "home_rush_epa_per_play"
+      ],
+      "leave_one_group_out": {
+        "n": 510,
+        "margin_mae": 10.813776247421423,
+        "margin_rmse": 13.817386697484038,
+        "total_mae": 11.224134742486386,
+        "total_rmse": 14.230965846632804,
+        "cover_brier": 0.27790975052320593,
+        "cover_logloss": 0.7600896890228234,
+        "over_brier": 0.28289066719472966,
+        "over_logloss": 0.776520517327957
+      },
+      "delta_vs_all_features": {
+        "margin_mae": -0.040942538529508354,
+        "total_mae": -0.08523341209486723,
+        "cover_brier": -0.0027015411627318575,
+        "over_brier": -0.00354058900505283
+      },
+      "safe_removal_candidate": true
+    },
+    "turnovers": {
+      "feature_count": 4,
+      "features": [
+        "away_def_allowed_turnover_play_rate",
+        "away_turnover_play_rate",
+        "home_def_allowed_turnover_play_rate",
+        "home_turnover_play_rate"
+      ],
+      "leave_one_group_out": {
+        "n": 510,
+        "margin_mae": 10.916412743337451,
+        "margin_rmse": 13.862102057599547,
+        "total_mae": 11.206801631825165,
+        "total_rmse": 14.212259120225983,
+        "cover_brier": 0.279425533611844,
+        "cover_logloss": 0.7611438987882022,
+        "over_brier": 0.2824255193339879,
+        "over_logloss": 0.7754888379113306
+      },
+      "delta_vs_all_features": {
+        "margin_mae": 0.06169395738652028,
+        "total_mae": -0.10256652275608857,
+        "cover_brier": -0.0011857580740937679,
+        "over_brier": -0.004005736865794585
+      },
+      "safe_removal_candidate": true
+    },
+    "volume_sample": {
+      "feature_count": 6,
+      "features": [
+        "away_def_allowed_off_plays",
+        "away_games_in_sample",
+        "away_off_plays",
+        "home_def_allowed_off_plays",
+        "home_games_in_sample",
+        "home_off_plays"
+      ],
+      "leave_one_group_out": {
+        "n": 510,
+        "margin_mae": 10.840865405583905,
+        "margin_rmse": 13.835710833668072,
+        "total_mae": 11.26909995964097,
+        "total_rmse": 14.300389059042127,
+        "cover_brier": 0.27748302784463064,
+        "cover_logloss": 0.7611758427566676,
+        "over_brier": 0.28672913229030483,
+        "over_logloss": 0.7863893754946926
+      },
+      "delta_vs_all_features": {
+        "margin_mae": -0.013853380367025991,
+        "total_mae": -0.040268194940283664,
+        "cover_brier": -0.003128263841307155,
+        "over_brier": 0.0002978760905223421
+      },
+      "safe_removal_candidate": true
+    }
+  },
+  "hyperparameter_search": {
+    "margin_alpha": [
+      {
+        "value": 3.0,
+        "margin_mae": 10.594703663428085
+      },
+      {
+        "value": 7.0,
+        "margin_mae": 10.590850638791494
+      },
+      {
+        "value": 14.0,
+        "margin_mae": 10.587450756470453
+      },
+      {
+        "value": 25.0,
+        "margin_mae": 10.583917884476536
+      },
+      {
+        "value": 45.0,
+        "margin_mae": 10.577504072173827
+      },
+      {
+        "value": 80.0,
+        "margin_mae": 10.567356571037545
+      }
+    ],
+    "total_alpha": [
+      {
+        "value": 3.0,
+        "total_mae": 10.633579262324242
+      },
+      {
+        "value": 7.0,
+        "total_mae": 10.585999993480497
+      },
+      {
+        "value": 14.0,
+        "total_mae": 10.543113032328932
+      },
+      {
+        "value": 25.0,
+        "total_mae": 10.506461562339016
+      },
+      {
+        "value": 45.0,
+        "total_mae": 10.470329634003138
+      },
+      {
+        "value": 80.0,
+        "total_mae": 10.431647771485604
+      }
+    ],
+    "cover_c": [
+      {
+        "value": 0.08,
+        "cover_brier": 0.2548352021058627
+      },
+      {
+        "value": 0.15,
+        "cover_brier": 0.25528713600622005
+      },
+      {
+        "value": 0.25,
+        "cover_brier": 0.2555059323029557
+      },
+      {
+        "value": 0.35,
+        "cover_brier": 0.2556030945812375
+      },
+      {
+        "value": 0.55,
+        "cover_brier": 0.25568786763302026
+      },
+      {
+        "value": 0.85,
+        "cover_brier": 0.25576237233950955
+      }
+    ],
+    "over_c": [
+      {
+        "value": 0.08,
+        "over_brier": 0.2538972428788172
+      },
+      {
+        "value": 0.15,
+        "over_brier": 0.25487713635832704
+      },
+      {
+        "value": 0.25,
+        "over_brier": 0.2556257568774233
+      },
+      {
+        "value": 0.35,
+        "over_brier": 0.2561118690381895
+      },
+      {
+        "value": 0.55,
+        "over_brier": 0.256805561648266
+      },
+      {
+        "value": 0.85,
+        "over_brier": 0.2574793866359437
+      }
+    ]
+  },
+  "selected_hyperparameters": {
+    "margin_alpha": 80.0,
+    "total_alpha": 80.0,
+    "cover_c": 0.08,
+    "over_c": 0.08
+  },
+  "development": {
+    "baseline_all_features": {
+      "n": 510,
+      "margin_mae": 10.854718785950931,
+      "margin_rmse": 13.876813612513276,
+      "total_mae": 11.309368154581254,
+      "total_rmse": 14.341751389564095,
+      "cover_brier": 0.2806112916859378,
+      "cover_logloss": 0.7673618918869292,
+      "over_brier": 0.2864312561997825,
+      "over_logloss": 0.7870369497520429
+    },
+    "post_removal_pre_tuning": {
+      "n": 512,
+      "margin_mae": 10.587450756470453,
+      "margin_rmse": 13.553745451114892,
+      "total_mae": 10.543113032328932,
+      "total_rmse": 13.53613692494278,
+      "cover_brier": 0.2556030945812375,
+      "cover_logloss": 0.7057533535342327,
+      "over_brier": 0.2561118690381895,
+      "over_logloss": 0.7067545226071579
+    },
+    "tuned_challenger": {
+      "n": 512,
+      "margin_mae": 10.567356571037545,
+      "margin_rmse": 13.546955424659352,
+      "total_mae": 10.431647771485604,
+      "total_rmse": 13.452604557315894,
+      "cover_brier": 0.2548352021058627,
+      "cover_logloss": 0.7038378590306632,
+      "over_brier": 0.2538972428788172,
+      "over_logloss": 0.7016680768643561
+    }
+  },
+  "untouched_2025": {
+    "v08_internal_champion": {
+      "n": 256,
+      "margin_mae": 10.888632178309201,
+      "margin_rmse": 13.88285958970657,
+      "total_mae": 11.159044544258037,
+      "total_rmse": 14.039305775511957,
+      "cover_brier": 0.2673262474086881,
+      "cover_logloss": 0.733716864871002,
+      "over_brier": 0.26318891070228967,
+      "over_logloss": 0.7238836752471947
+    },
+    "v10_internal_challenger": {
+      "n": 256,
+      "margin_mae": 10.577596082461005,
+      "margin_rmse": 13.513448267300651,
+      "total_mae": 10.86623728793799,
+      "total_rmse": 13.72024950229474,
+      "cover_brier": 0.25114529495839516,
+      "cover_logloss": 0.695324993504036,
+      "over_brier": 0.25885466444381516,
+      "over_logloss": 0.7112485814714948
+    },
+    "market_challenger": {
+      "n": 256,
+      "margin_mae": 9.958984375,
+      "margin_rmse": 12.469846443020058,
+      "total_mae": 10.26171875,
+      "total_rmse": 13.069824501499628
+    },
+    "promotion_gate": {
+      "decision": "PROMOTE_V10_INTERNAL_CHALLENGER",
+      "improvement": {
+        "margin_mae": 0.3110360958481966,
+        "total_mae": 0.29280725632004767,
+        "cover_brier": 0.01618095245029294,
+        "over_brier": 0.004334246258474506
+      },
+      "material_improvement": true,
+      "no_material_regression": true
+    },
+    "v10_plus_v09_postmarket": {
+      "n": 256,
+      "margin_mae": 9.956681933752535,
+      "total_mae": 10.338934258192893,
+      "cover_brier": 0.24992073504357823,
+      "over_brier": 0.25138591903236185
+    }
+  },
+  "shadow_readiness": {
+    "status": "V10_INTERNAL_CHALLENGER_PROMOTABLE",
+    "production_release_allowed": false,
+    "manual_verification_required": true
+  }
+}
