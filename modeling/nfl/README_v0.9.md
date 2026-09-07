@@ -1,0 +1,48 @@
+# SB101 AEGIS NFL v0.9 — Market Challenger Calibration + Disagreement Firewall
+
+v0.9 does not put sportsbook information into the blind NFL model.
+
+The sequence remains:
+
+blind NFL projection
+→ independent consensus market projection
+→ post-model calibration
+→ disagreement firewall
+→ AEGIS governance.
+
+## Learned blend
+
+For each future historical week, v0.9 uses only earlier out-of-sample predictions to learn how much weight the internal model deserves relative to the market.
+
+It learns separate weights for:
+- margin mean,
+- total mean,
+- ATS probability,
+- over/under probability,
+
+with disagreement buckets:
+- <=1
+- 1–2
+- 2–3
+- 3–5
+- 5–7
+- 7+
+
+Bucket estimates are shrunk toward the global learned weight.
+
+## Disagreement Firewall
+
+Grounded in the clean v0.8 audit:
+
+- 7+ points: PASS
+- 5–7: Secondary maximum
+- 3–5: Core blocked unless reliability supports otherwise
+- poor historical buckets automatically cap internal-model weight
+
+This prevents "AEGIS disagrees by 8, therefore huge edge" behavior.
+
+## Promotion
+
+Production release remains disabled.
+
+v0.9 is promoted only if the clean post-model calibration improves out-of-sample performance without compromising probability calibration.

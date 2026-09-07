@@ -1,0 +1,135 @@
+{
+  "sport": "NFL",
+  "engine_version": "NFL_v0.9_MARKET_CHALLENGER_CALIBRATION",
+  "mode": "SHADOW",
+  "report": {
+    "engine_version": "NFL_v0.9_MARKET_CHALLENGER_CALIBRATION",
+    "mode": "SHADOW",
+    "config": {
+      "min_prior_oos_games": 150,
+      "min_bucket_games": 45,
+      "shrinkage_games": 80.0,
+      "weight_grid_step": 0.025,
+      "pass_disagreement_points": 7.0,
+      "secondary_max_disagreement_points": 5.0,
+      "core_block_disagreement_points": 3.0,
+      "poor_bucket_beat_rate": 0.45,
+      "poor_bucket_mae_delta": 1.0,
+      "severe_bucket_beat_rate": 0.4,
+      "severe_bucket_mae_delta": 2.0,
+      "poor_bucket_weight_cap": 0.25,
+      "severe_bucket_weight_cap": 0.1,
+      "normal_weight_cap": 0.7
+    },
+    "metrics": {
+      "holdout_games": 604,
+      "v08_internal": {
+        "margin_mae": 10.689975104401702,
+        "margin_rmse": 13.66222741251639,
+        "total_mae": 11.082881923882729,
+        "total_rmse": 14.144664135671322,
+        "cover_brier": 0.2704154367794069,
+        "cover_logloss": 0.740290035815987,
+        "over_brier": 0.2749506125897778,
+        "over_logloss": 0.7536306887462304
+      },
+      "market": {
+        "margin_mae": 9.892384105960264,
+        "margin_rmse": 12.679701669877177,
+        "total_mae": 10.156456953642385,
+        "total_rmse": 13.077947035964653
+      },
+      "v09_calibrated": {
+        "margin_mae": 9.897582650912588,
+        "margin_rmse": 12.688996307398842,
+        "total_mae": 10.165606722555303,
+        "total_rmse": 13.08124393286888,
+        "cover_brier": 0.24979592859972657,
+        "cover_logloss": 0.6927391722405202,
+        "over_brier": 0.25022524497556925,
+        "over_logloss": 0.6935984931568534
+      },
+      "improvement_v09_vs_v08": {
+        "margin_mae": 0.7923924534891142,
+        "total_mae": 0.9172752013274259,
+        "cover_brier": 0.020619508179680307,
+        "over_brier": 0.02472536761420857
+      },
+      "improvement_v09_vs_market": {
+        "margin_mae": -0.005198544952323303,
+        "total_mae": -0.009149768912918077
+      }
+    },
+    "firewall_counts": {
+      "margin": {
+        "SECONDARY_MAX": 186,
+        "PASS": 176,
+        "NORMAL": 153,
+        "CORE_BLOCK": 89
+      },
+      "total": {
+        "SECONDARY_MAX": 231,
+        "PASS": 187,
+        "NORMAL": 171,
+        "CORE_BLOCK": 15
+      }
+    },
+    "learned_weight_summary": {
+      "<=1": {
+        "margin_n": 112,
+        "mean_internal_margin_weight": 0.3217849117533311,
+        "mean_internal_cover_probability_weight": 0.04499083211709661,
+        "total_n": 104,
+        "mean_internal_total_weight": 0.006441374159820762,
+        "mean_internal_over_probability_weight": 0.006471277203415244
+      },
+      "1-2": {
+        "margin_n": 79,
+        "mean_internal_margin_weight": 0.0035222891420651978,
+        "mean_internal_cover_probability_weight": 0.0,
+        "total_n": 106,
+        "mean_internal_total_weight": 0.0,
+        "mean_internal_over_probability_weight": 0.009486275590822296
+      },
+      "2-3": {
+        "margin_n": 98,
+        "mean_internal_margin_weight": 0.003935857636303594,
+        "mean_internal_cover_probability_weight": 0.0039260139059872036,
+        "total_n": 95,
+        "mean_internal_total_weight": 0.010977473523779079,
+        "mean_internal_over_probability_weight": 0.04057272239260204
+      },
+      "3-5": {
+        "margin_n": 142,
+        "mean_internal_margin_weight": 0.04831403808418541,
+        "mean_internal_cover_probability_weight": 0.0,
+        "total_n": 126,
+        "mean_internal_total_weight": 0.0,
+        "mean_internal_over_probability_weight": 0.008274824230538326
+      },
+      "5-7": {
+        "margin_n": 72,
+        "mean_internal_margin_weight": 0.011139532637503984,
+        "mean_internal_cover_probability_weight": 0.19106429636997943,
+        "total_n": 96,
+        "mean_internal_total_weight": 0.02105452777455968,
+        "mean_internal_over_probability_weight": 0.01745876637478953
+      },
+      "7+": {
+        "margin_n": 101,
+        "mean_internal_margin_weight": 0.019227559712050916,
+        "mean_internal_cover_probability_weight": 0.025396650502912895,
+        "total_n": 77,
+        "mean_internal_total_weight": 0.007638221786989689,
+        "mean_internal_over_probability_weight": 0.061841997413998304
+      }
+    },
+    "shadow_readiness": {
+      "status": "SHADOW_CHALLENGER_IMPROVED",
+      "production_release_allowed": false,
+      "manual_verification_required": true,
+      "market_remains_independent_challenger": true,
+      "large_disagreement_is_not_treated_as_automatic_edge": true
+    }
+  }
+}

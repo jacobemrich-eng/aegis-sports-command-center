@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AEGIS NFL v0.9 Calibration</title>
+<style>
+:root{font-family:Inter,system-ui,-apple-system,sans-serif;color-scheme:dark;background:#07111f;color:#eef5ff}
+body{margin:0;background:linear-gradient(180deg,#07111f,#0b1626);min-height:100vh}
+main{max-width:1100px;margin:auto;padding:24px 16px 64px}
+.pill{display:inline-block;border:1px solid #36506f;background:#102139;padding:7px 10px;border-radius:999px;font-weight:800;font-size:12px}
+h1{font-size:clamp(30px,5vw,50px);margin:12px 0}.sub{color:#9eb0c8;line-height:1.55}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(205px,1fr));gap:12px;margin-top:18px}
+.card{border:1px solid #253a55;background:#0e1c2f;border-radius:16px;padding:15px}.wide{grid-column:1/-1}
+.k{font-size:11px;color:#8799b2;letter-spacing:.08em;text-transform:uppercase}.v{font-weight:850;font-size:24px;margin-top:5px}
+.good{color:#7ae1a9}.warn{color:#ffd27a}.bad{color:#ff8585}
+table{width:100%;border-collapse:collapse;margin-top:10px}th,td{padding:9px 5px;border-bottom:1px solid #273950;text-align:left;font-size:13px}
+th{color:#93a5be}.muted{color:#8293ab;font-size:12px}
+</style></head>
+<body><main>
+<span class="pill">NFL v0.9 · MARKET CHALLENGER CALIBRATION</span>
+<h1>Disagreement Firewall + Learned Market Blend</h1>
+<p class="sub">The market remains independent. v0.9 learns how much to trust the blind model only after both projections exist, using prior out-of-sample games only.</p>
+<div class="grid" id="root"><div class="card wide"><div class="k">Status</div><div class="v">Loading…</div></div></div>
+<script>
+const f=(x,d=3)=>Number.isFinite(Number(x))?Number(x).toFixed(d):'—';
+fetch('/data/nfl-v09-shadow-status.json').then(r=>r.json()).then(s=>{
+ const r=s.report||{},m=r.metrics||{},v=m.v09_calibrated||{},mk=m.market||{},old=m.v08_internal||{},ready=r.shadow_readiness||{};
+ const cls=(ready.status||'').includes('HIGH_INTEREST')?'good':(ready.status||'').includes('IMPROVED')?'warn':'bad';
+ let h=`
+ <div class="card"><div class="k">Shadow status</div><div class="v ${cls}">${ready.status||'—'}</div></div>
+ <div class="card"><div class="k">Calibration holdout</div><div class="v">${m.holdout_games||'—'}</div></div>
+ <div class="card"><div class="k">v0.9 margin MAE</div><div class="v">${f(v.margin_mae)}</div></div>
+ <div class="card"><div class="k">Market margin MAE</div><div class="v">${f(mk.margin_mae)}</div></div>
+ <div class="card"><div class="k">v0.9 total MAE</div><div class="v">${f(v.total_mae)}</div></div>
+ <div class="card"><div class="k">Market total MAE</div><div class="v">${f(mk.total_mae)}</div></div>
+ <div class="card"><div class="k">v0.9 cover Brier</div><div class="v">${f(v.cover_brier,4)}</div></div>
+ <div class="card"><div class="k">v0.8 cover Brier</div><div class="v">${f(old.cover_brier,4)}</div></div>
+ <div class="card wide"><div class="k">Firewall</div><div class="muted">7+ points disagreement = PASS. 5–7 = Secondary maximum. 3–5 = Core blocked unless later evidence supports loosening.</div></div>`;
+ const w=r.learned_weight_summary||{};
+ h+=`<div class="card wide"><div class="k">Learned internal-model weights by disagreement</div><table><thead><tr><th>Bucket</th><th>Margin N</th><th>Margin weight</th><th>Total N</th><th>Total weight</th></tr></thead><tbody>${
+ Object.entries(w).map(([b,x])=>`<tr><td>${b}</td><td>${x.margin_n}</td><td>${f(x.mean_internal_margin_weight,2)}</td><td>${x.total_n}</td><td>${f(x.mean_internal_total_weight,2)}</td></tr>`).join('')
+ }</tbody></table></div>`;
+ document.getElementById('root').innerHTML=h;
+}).catch(e=>{document.getElementById('root').innerHTML=`<div class="card wide"><div class="v bad">${e}</div></div>`});
+</script></main></body></html>
