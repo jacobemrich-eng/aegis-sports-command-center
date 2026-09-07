@@ -36,6 +36,21 @@ function probabilityBlend(internal, weight) {
   return Math.max(0.01, Math.min(0.99, 0.5 + w * (value - 0.5)));
 }
 
+function normalCdf(value) {
+  const x = Number(value);
+  if (!Number.isFinite(x)) return null;
+  const t = 1 / (1 + 0.2316419 * Math.abs(x));
+  const density = 0.3989422804014327 * Math.exp(-0.5 * x * x);
+  const tail = density * t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
+  return x >= 0 ? 1 - tail : tail;
+}
+
+function probabilityAbove(mean, threshold, standardDeviation) {
+  const mu = finite(mean), line = finite(threshold), sigma = finite(standardDeviation);
+  if (mu == null || line == null || sigma == null || sigma <= 0) return null;
+  return normalCdf((mu - line) / sigma);
+}
+
 function learnedWeights(bucket) {
   const row = calibration.learned_weight_summary?.[bucket];
   if (!row) throw new Error(`Missing committed v0.9 calibration bucket: ${bucket}`);
@@ -47,7 +62,7 @@ function learnedWeights(bucket) {
   };
 }
 
-function run({ internal_margin, internal_total, internal_cover_probability, internal_over_probability, market } = {}) {
+function run({ internal_margin, internal_total, internal_cover_probability, internal_over_probability, margin_standard_deviation, total_standard_deviation, market } = {}) {
   const challenger = market?.challenger_projection || {};
   const marketMargin = finite(challenger.margin);
   const marketTotal = finite(challenger.total);
@@ -62,6 +77,11 @@ function run({ internal_margin, internal_total, internal_cover_probability, inte
   const totalBucket = bucketName(totalDisagreement);
   const marginWeights = learnedWeights(marginBucket);
   const totalWeights = learnedWeights(totalBucket);
+  const current = market?.current_price || {};
+  const homeSpread = finite(current.spread?.home?.point ?? current.home_spread);
+  const totalLine = finite(current.total?.point ?? current.total_line);
+  const coverProbability = finite(internal_cover_probability) ?? probabilityAbove(internalMargin, homeSpread == null ? null : -homeSpread, margin_standard_deviation);
+  const overProbability = finite(internal_over_probability) ?? probabilityAbove(internalTotal, totalLine, total_standard_deviation);
 
   return {
     engine_version: ENGINE_VERSION,
@@ -71,8 +91,8 @@ function run({ internal_margin, internal_total, internal_cover_probability, inte
     post_model_projection: {
       margin: blend(internalMargin, marketMargin, marginWeights.margin),
       total: blend(internalTotal, marketTotal, totalWeights.total),
-      cover_probability: probabilityBlend(internal_cover_probability, marginWeights.cover_probability),
-      over_probability: probabilityBlend(internal_over_probability, totalWeights.over_probability)
+      cover_probability: probabilityBlend(coverProbability, marginWeights.cover_probability),
+      over_probability: probabilityBlend(overProbability, totalWeights.over_probability)
     },
     disagreement: {
       margin: marginDisagreement,
@@ -97,5 +117,7 @@ module.exports = {
   HISTORICAL_PREDECESSOR,
   bucketName,
   learnedWeights,
+  normalCdf,
+  probabilityAbove,
   run
 };

@@ -1,0 +1,92 @@
+name: NFL 2026 Shadow Validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish to the protected SHADOW_ONLY endpoints
+        required: true
+        default: false
+        type: boolean
+      mode:
+        description: Pipeline phase
+        required: true
+        default: all
+        type: choice
+        options: [all, project, grade]
+  schedule:
+    # Low-frequency snapshots preserve odds quota: pre-weekend, pre-kickoff, post-week.
+    - cron: "17 14 * * 2,5"
+    - cron: "17 12 * * 0"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nfl-shadow-validation-2026
+  cancel-in-progress: false
+
+jobs:
+  validate-shadow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+      AEGIS_SHADOW_INGEST_SECRET: ${{ secrets.AEGIS_SHADOW_INGEST_SECRET }}
+      AEGIS_SHADOW_ENDPOINT: https://aegis-sports-command-center.onrender.com/api/shadow/games
+      ODDS_BOOKMAKERS: hardrockbet_fl,fanduel,draftkings,bovada,betmgm,espnbet,fanatics
+
+    steps:
+      - name: Checkout requested revision
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache public NFL source data and immutable blind outputs
+        uses: actions/cache@v4
+        with:
+          path: |
+            data/nflverse
+            data/nfl_shadow_live/blind
+            data/nfl_shadow_live/market
+          key: nfl-shadow-2026-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            nfl-shadow-2026-${{ runner.os }}-
+
+      - name: Install locked modeling dependencies
+        run: pip install -r modeling/nfl/requirements.txt
+
+      - name: Run pipeline unit tests
+        run: python -m unittest modeling/nfl/test_aegis_nfl_live_pipeline.py
+
+      - name: Validate required publish secrets
+        if: github.event_name == 'schedule' || inputs.publish
+        shell: bash
+        run: |
+          test -n "$ODDS_API_KEY" || { echo "ODDS_API_KEY is required"; exit 1; }
+          test -n "$AEGIS_SHADOW_INGEST_SECRET" || { echo "AEGIS_SHADOW_INGEST_SECRET is required"; exit 1; }
+
+      - name: Build blind slate, capture market afterward, publish, and grade
+        shell: bash
+        run: |
+          MODE="${{ inputs.mode }}"
+          if [ -z "$MODE" ]; then MODE="all"; fi
+          PUBLISH=""
+          if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ inputs.publish }}" = "true" ]; then PUBLISH="--publish"; fi
+          python modeling/nfl/aegis_nfl_live_pipeline.py \
+            --season 2026 \
+            --lookahead-days 10 \
+            --mode "$MODE" \
+            $PUBLISH
+
+      - name: Retain research artifacts and isolated errors
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nfl-shadow-validation-${{ github.run_id }}
+          path: data/nfl_shadow_live
+          if-no-files-found: ignore
+          retention-days: 30

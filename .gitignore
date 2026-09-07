@@ -1,2 +1,4 @@
 __pycache__/
 *.py[cod]
+data/nflverse/
+data/nfl_shadow_live/

@@ -4,6 +4,7 @@ const store = require('./store');
 const registry = require('./sport-engines/registry');
 const { flags } = require('./sport-engines/feature-flags');
 const { POSTGAME_AUDIT_LABELS, validateStandardOutput } = require('./sport-engines/contract');
+const grading = require('./shadow-grading');
 
 const SPORT_FLAGS = Object.freeze({
   americanfootball_nfl: ['NFL_SIM_ENABLED', 'NFL_SIM_SHADOW_ONLY'],
@@ -46,6 +47,24 @@ async function ingest({ sport, engine_output: engineOutput, game, market, publis
     state.shadow_engines.games = state.shadow_engines.games || {};
     state.shadow_engines.audit = Array.isArray(state.shadow_engines.audit) ? state.shadow_engines.audit : [];
     const games = state.shadow_engines.games[sport] || (state.shadow_engines.games[sport] = {});
+    const existing = games[record.game_id];
+    const blindAt = record.governance?.pipeline_timestamps?.blind_generated_at;
+    const marketAt = record.governance?.pipeline_timestamps?.market_captured_at;
+    if (existing) {
+      const existingBlindAt = existing.governance?.pipeline_timestamps?.blind_generated_at;
+      const existingMarketAt = existing.governance?.pipeline_timestamps?.market_captured_at;
+      if (blindAt !== existingBlindAt) throw new Error('Existing NFL blind projection is immutable; reuse it for later market snapshots');
+      if (Date.parse(marketAt || '') < Date.parse(existingMarketAt || '')) throw new Error('NFL market snapshots must be chronological');
+      if (marketAt === existingMarketAt) return { saved: false, duplicate: true, persistent: store.persistent, record: existing };
+    }
+    const snapshot = {
+      captured_at: marketAt,
+      challenger_projection: record.market?.challenger_projection || {},
+      current_price: record.market?.current_price || {},
+      post_model_projection: record.market?.post_model_projection || {}
+    };
+    record.market_snapshots = [...(existing?.market_snapshots || []), snapshot].slice(-80);
+    if (existing?.shadow_grade) record.shadow_grade = existing.shadow_grade;
     games[record.game_id] = record;
     state.shadow_engines.audit.push({
       recorded_at: record.recorded_at,
@@ -60,6 +79,60 @@ async function ingest({ sport, engine_output: engineOutput, game, market, publis
     });
     state.shadow_engines.audit = state.shadow_engines.audit.slice(-2500);
     return { saved: true, persistent: store.persistent, record };
+  });
+  return result.result;
+}
+
+async function recordError({ sport, stage, game_id: gameId = null, error, occurred_at: occurredAt, source = 'nfl-shadow-automation' } = {}) {
+  assertShadowEnabled(sport);
+  const row = {
+    occurred_at: occurredAt || new Date().toISOString(),
+    sport,
+    stage: String(stage || 'unknown').slice(0, 80),
+    game_id: gameId == null ? null : String(gameId).slice(0, 160),
+    error: String(error || 'Unknown shadow error').slice(0, 500),
+    source: String(source).slice(0, 120),
+    shadow_only: true,
+    production_affected: false
+  };
+  const result = await store.mutate(async state => {
+    state.shadow_engines.errors = Array.isArray(state.shadow_engines?.errors) ? state.shadow_engines.errors : [];
+    state.shadow_engines.errors.push(row);
+    state.shadow_engines.errors = state.shadow_engines.errors.slice(-1000);
+    return { saved: true, persistent: store.persistent, error: row };
+  });
+  return result.result;
+}
+
+async function gradeMany({ sport, results = [], source = 'nfl-shadow-grader' } = {}) {
+  assertShadowEnabled(sport);
+  if (sport !== grading.NFL) throw new Error('Only NFL shadow grading is implemented');
+  if (!Array.isArray(results)) throw new Error('Shadow grading results must be an array');
+  const result = await store.mutate(async state => {
+    const games = state.shadow_engines?.games?.[sport] || {};
+    const graded = [], failures = [], skipped = [];
+    for (const supplied of results) {
+      const gameId = String(supplied?.game_id || '');
+      try {
+        if (!gameId) throw new Error('Shadow grading result requires game_id');
+        if (!games[gameId]) { skipped.push({ game_id: gameId, reason: 'NO_SHADOW_RECORD' }); continue; }
+        const grade = grading.gradeNFL(games[gameId], { ...supplied, source: supplied.source || source });
+        games[gameId].shadow_grade = grade;
+        graded.push({ game_id: gameId, grade });
+        state.shadow_engines.audit.push({
+          recorded_at: grade.graded_at, sport, game_id: gameId, event: 'SHADOW_GRADED',
+          classification: grade.aegis_postgame_classification, release_status: 'SHADOW_ONLY', official_bankroll_eligible: false
+        });
+      } catch (error) {
+        failures.push({ game_id: gameId || null, error: error.message });
+        state.shadow_engines.errors = Array.isArray(state.shadow_engines.errors) ? state.shadow_engines.errors : [];
+        state.shadow_engines.errors.push({
+          occurred_at: new Date().toISOString(), sport, stage: 'shadow_grade', game_id: gameId || null,
+          error: String(error.message || error).slice(0, 500), source, shadow_only: true, production_affected: false
+        });
+      }
+    }
+    return { graded, skipped, failures, persistent: store.persistent, shadow_only: true };
   });
   return result.result;
 }
@@ -86,4 +159,11 @@ async function audit({ sport } = {}) {
   return sport ? rows.filter(row => row.sport === sport) : rows;
 }
 
-module.exports = { SPORT_FLAGS, assertShadowEnabled, sanitizeRecord, ingest, list, audit };
+async function scoreboard({ sport = grading.NFL } = {}) {
+  const state = await store.load();
+  const games = Object.values(state.shadow_engines?.games?.[sport] || {});
+  const errors = (state.shadow_engines?.errors || []).filter(row => row.sport === sport);
+  return grading.summarize(games, errors);
+}
+
+module.exports = { SPORT_FLAGS, assertShadowEnabled, sanitizeRecord, ingest, recordError, gradeMany, list, audit, scoreboard };

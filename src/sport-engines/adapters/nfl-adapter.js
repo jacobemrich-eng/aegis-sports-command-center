@@ -11,6 +11,11 @@ const FORBIDDEN_BLIND_FEATURES = [
   /(^|_)(game_id|provider_id|numeric_id)(_|$)/i,
   /future.*injur/i
 ];
+const FORBIDDEN_BLIND_KEYS = new Set([
+  'sportsbook_spread', 'sportsbook_total', 'sportsbook_odds', 'spread_line', 'total_line',
+  'closing_line', 'market_price', 'final_score', 'home_score', 'away_score', 'result',
+  'postgame_overtime', 'future_injury_status', 'provider_id', 'numeric_id'
+]);
 
 function blindFeatureNames(raw) {
   const source = raw?.blind_features || raw?.diagnostics?.blind_features || raw?.metadata?.blind_features || [];
@@ -35,6 +40,16 @@ function assertBlindPayloadSeparation(raw) {
   if (raw.market_expressions != null) violations.push('market_expressions');
   if (raw.decision?.primary != null) violations.push('decision.primary');
   if (raw.decision?.best_market_expression != null) violations.push('decision.best_market_expression');
+  function inspect(value, prefix = '') {
+    if (Array.isArray(value)) return value.forEach((child, index) => inspect(child, `${prefix}[${index}]`));
+    if (!value || typeof value !== 'object') return;
+    for (const [key, child] of Object.entries(value)) {
+      const path = prefix ? `${prefix}.${key}` : key;
+      if (FORBIDDEN_BLIND_KEYS.has(key.toLowerCase())) violations.push(path);
+      inspect(child, path);
+    }
+  }
+  inspect(raw);
   if (violations.length) {
     const error = new Error(`NFL blind payload contains post-model market data: ${violations.join(', ')}`);
     error.code = 'NFL_BLIND_MARKET_SEPARATION';
@@ -48,7 +63,7 @@ function assertPipelineOrder(raw, context) {
   const marketAt = Date.parse(context.market?.captured_at || '');
   if (!Number.isFinite(blindAt)) throw new Error('NFL blind generated_at is required to prove pipeline order');
   if (!Number.isFinite(marketAt)) throw new Error('NFL market captured_at is required to prove pipeline order');
-  if (marketAt < blindAt) throw new Error('NFL Market Challenger must run after the blind internal projection');
+  if (marketAt <= blindAt) throw new Error('NFL Market Challenger must run after the blind internal projection');
   return {
     blind_generated_at: new Date(blindAt).toISOString(),
     market_captured_at: new Date(marketAt).toISOString()
@@ -111,6 +126,8 @@ function adapt(raw, context = {}) {
     internal_total: internalTotal,
     internal_cover_probability: internalCoverProbability,
     internal_over_probability: internalOverProbability,
+    margin_standard_deviation: raw.projection?.distribution?.margin_standard_deviation ?? raw.quality?.margin_standard_deviation,
+    total_standard_deviation: raw.projection?.distribution?.total_standard_deviation ?? raw.quality?.total_standard_deviation,
     market: context.market
   });
   const challenger = postMarket.challenger_projection;
@@ -212,4 +229,4 @@ function adapt(raw, context = {}) {
   return checked.value;
 }
 
-module.exports = { SPORT_KEY, FORBIDDEN_BLIND_FEATURES, assertBlindIntegrity, assertBlindPayloadSeparation, assertPipelineOrder, disagreementFirewall, adapt };
+module.exports = { SPORT_KEY, FORBIDDEN_BLIND_FEATURES, FORBIDDEN_BLIND_KEYS, assertBlindIntegrity, assertBlindPayloadSeparation, assertPipelineOrder, disagreementFirewall, adapt };

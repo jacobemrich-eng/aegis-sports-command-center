@@ -22,7 +22,7 @@ function freshState(){
     market_history: {},
     tier_history: [],
     alerts: [],
-    shadow_engines: { games: {}, audit: [] },
+    shadow_engines: { games: {}, audit: [], errors: [] },
     autopilot: {
       enabled: true,
       last_tick_at: null,
@@ -51,7 +51,8 @@ function normalizeState(s){
     alerts: Array.isArray(out.alerts)?out.alerts:[],
     shadow_engines: {
       games: (out.shadow_engines&&typeof out.shadow_engines.games==='object')?out.shadow_engines.games:{},
-      audit: Array.isArray(out.shadow_engines?.audit)?out.shadow_engines.audit:[]
+      audit: Array.isArray(out.shadow_engines?.audit)?out.shadow_engines.audit:[],
+      errors: Array.isArray(out.shadow_engines?.errors)?out.shadow_engines.errors:[]
     },
     autopilot: {...base.autopilot,...(out.autopilot||{}),sport_runs:{...(out.autopilot?.sport_runs||{})},daily_usage:{...(out.autopilot?.daily_usage||{})},monthly_usage:{...(out.autopilot?.monthly_usage||{})},grading:{...base.autopilot.grading,...(out.autopilot?.grading||{})},transitions:Array.isArray(out.autopilot?.transitions)?out.autopilot.transitions:[]}
   };
@@ -64,6 +65,7 @@ function compactState(s){
   out.tier_history=out.tier_history.slice(-1800);
   out.alerts=out.alerts.slice(-250);
   out.shadow_engines.audit=out.shadow_engines.audit.slice(-2500);
+  out.shadow_engines.errors=out.shadow_engines.errors.slice(-1000);
   for(const sport of Object.keys(out.shadow_engines.games||{})){
     const rows=Object.values(out.shadow_engines.games[sport]||{}).slice(-500);
     out.shadow_engines.games[sport]=Object.fromEntries(rows.map(row=>[row.game_id,row]));

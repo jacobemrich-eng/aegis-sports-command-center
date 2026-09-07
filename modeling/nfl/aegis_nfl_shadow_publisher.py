@@ -86,7 +86,7 @@ def validate_blind_output(blind: Dict[str, object]) -> datetime:
 
 def validate_market_input(market: Dict[str, object], blind_at: datetime) -> datetime:
     captured_at = _parse_time(market.get("captured_at"), "market captured_at")
-    if captured_at < blind_at:
+    if captured_at <= blind_at:
         raise ValueError("Market Challenger capture must occur after the blind internal projection")
     challenger = market.get("challenger_projection")
     if not isinstance(challenger, dict) or challenger.get("margin") is None or challenger.get("total") is None:

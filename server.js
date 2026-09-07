@@ -372,6 +372,22 @@ if(req.method==='POST'&&u.pathname==='/api/autopilot/heartbeat'){
       catch(e){return send(res,400,{error:e.message||'Shadow projection rejected.',shadow_saved:false,production_fallback:true});}
     }
 
+    if(req.method==='POST'&&u.pathname==='/api/shadow/grade'){
+      if(!validShadowIngest(req)&&!(ACCESS_PIN&&validSession(req)))return send(res,401,{error:'Shadow grading authorization failed.'});
+      if(!rateLimit(req,res,'shadow-grade',60))return;
+      const body=JSON.parse(await readBody(req)||'{}');
+      try{return send(res,200,{ok:true,...await shadow.gradeMany(body)});}
+      catch(e){return send(res,400,{error:e.message||'Shadow grading rejected.',production_fallback:true});}
+    }
+
+    if(req.method==='POST'&&u.pathname==='/api/shadow/errors'){
+      if(!validShadowIngest(req)&&!(ACCESS_PIN&&validSession(req)))return send(res,401,{error:'Shadow error-log authorization failed.'});
+      if(!rateLimit(req,res,'shadow-errors',120))return;
+      const body=JSON.parse(await readBody(req)||'{}');
+      try{return send(res,201,{ok:true,...await shadow.recordError(body)});}
+      catch(e){return send(res,400,{error:e.message||'Shadow error record rejected.',production_fallback:true});}
+    }
+
     if(u.pathname.startsWith('/api/')&&!requireAuth(req,res))return;
 
     if(req.method==='GET'&&u.pathname==='/api/autopilot/status')return send(res,200,await autopilot.status());
@@ -381,6 +397,7 @@ if(req.method==='POST'&&u.pathname==='/api/autopilot/heartbeat'){
     if(req.method==='GET'&&u.pathname==='/api/results/ledger')return send(res,200,await autopilot.results());
     if(req.method==='GET'&&u.pathname==='/api/shadow/games')return send(res,200,await shadow.list({sport:u.searchParams.get('sport')||null,game_id:u.searchParams.get('game_id')||null}));
     if(req.method==='GET'&&u.pathname==='/api/shadow/audit')return send(res,200,{shadow_only:true,audit:await shadow.audit({sport:u.searchParams.get('sport')||null})});
+    if(req.method==='GET'&&u.pathname==='/api/shadow/scoreboard')return send(res,200,await shadow.scoreboard({sport:u.searchParams.get('sport')||undefined}));
     if(req.method==='POST'&&u.pathname==='/api/results/grade'){
       if(!rateLimit(req,res,'grade',20))return;return send(res,200,{ok:true,...await autopilot.gradeNow()});
     }

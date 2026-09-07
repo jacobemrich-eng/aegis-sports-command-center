@@ -95,9 +95,11 @@ disagreement firewall:
 `POST /api/shadow/games` ingests a simulator envelope using
 `AEGIS_SHADOW_INGEST_SECRET` (falling back to the existing Autopilot secret).
 Authenticated Command Center clients read `GET /api/shadow/games` and
-`GET /api/shadow/audit`. Shadow records are stored under `shadow_engines` in
-the existing Supabase state document and never enter `latest_cards`, `audit`,
-`locks`, grading, or bankroll accounting.
+`GET /api/shadow/audit` and `GET /api/shadow/scoreboard`. Protected automation
+uses `POST /api/shadow/grade` and `POST /api/shadow/errors`. Shadow records,
+grades, market history, and failures are stored only under `shadow_engines` in
+the existing Supabase state document and never enter `latest_cards`, the
+official audit/results ledger, locks, or bankroll accounting.
 
 The Game Lab displays Current AEGIS, NFL Simulator, and Market projections
 side-by-side when a matching NFL shadow record exists. Missing or failed
@@ -107,6 +109,20 @@ simulator data leaves Current AEGIS unchanged.
 It requires separate, ordered blind-output and market-input files, refuses
 mixed/leaky payloads, and fails without mutating production state. The server
 independently revalidates the same ordering before it writes a shadow record.
+`modeling/nfl/aegis_nfl_live_pipeline.py` automates an entire 2026 slate. It
+builds rolling pregame nflverse features, fits the Champion using the locked
+v1.0 feature set and Ridge hyperparameters on completed pre-cutoff games, atomically persists all
+blind predictions, and only then requests an independent market snapshot from
+The Odds API. The command defaults to a local dry run:
+
+```bash
+python modeling/nfl/aegis_nfl_live_pipeline.py --season 2026 --mode all
+python modeling/nfl/aegis_nfl_live_pipeline.py --season 2026 --mode all --publish
+```
+
+The publish form requires `ODDS_API_KEY`, `AEGIS_SHADOW_INGEST_SECRET`, and
+`AEGIS_SHADOW_ENDPOINT`. The prepared `NFL 2026 Shadow Validation` workflow
+runs the same unit-tested command and retains immutable blind artifacts.
 
 ## One-time production setup
 
