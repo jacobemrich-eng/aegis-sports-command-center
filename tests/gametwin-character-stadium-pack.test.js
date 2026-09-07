@@ -1,0 +1,19 @@
+'use strict';
+const test=require('node:test');const assert=require('node:assert/strict');const fs=require('fs');const path=require('path');const {pathToFileURL}=require('url');
+const root=path.join(__dirname,'..');const read=p=>fs.readFileSync(path.join(root,p),'utf8');
+
+test('v1.7 character pack defines distinct baseball roles',async()=>{const mod=await import(pathToFileURL(path.join(root,'public/gametwin-character-pack.mjs')).href);for(const role of ['batter','pitcher','fielder','runner','catcher','umpire'])assert.equal(mod.roleProfile(role).role,role);assert.equal(mod.roleProfile('catcher').catcherGear,true);assert.equal(mod.roleProfile('umpire').umpireGear,true);});
+
+test('v1.7 character pack adds generic equipment without official team assets',()=>{const s=read('public/gametwin-character-pack.mjs');assert.match(s,/chestProtector/);assert.match(s,/helmetBrim/);assert.match(s,/jerseyNumber/);assert.match(s,/glove/);assert.match(s,/wireframe=true/);assert.doesNotMatch(s,/MLB The Show|official team logo|licensed player likeness/i);});
+
+test('v1.7 role-specific GLB manifest supports skeletal safe cloning and generic fallback',()=>{const s=read('public/gametwin-assets.mjs');for(const key of ['batter','pitcher','fielder','runner','catcher','umpire','stadium_modules'])assert.match(s,new RegExp(`${key}:null`));assert.match(s,/SkeletonUtils\.js/);assert.match(s,/instantiate\(kind\)/);assert.match(s,/ROLE_FALLBACK/);assert.match(s,/crossFadeTo/);});
+
+test('v1.7 3D scene builds catcher umpire role variants and blended procedural motion',()=>{const s=read('public/gametwin-3d.mjs');assert.match(s,/role:'catcher'/);assert.match(s,/role:'umpire'/);assert.match(s,/role:'pitcher'/);assert.match(s,/role:'batter'/);assert.match(s,/blendPose\(kind/);assert.match(s,/procedural_animation_blending:true/);assert.match(s,/catcherRig\?\.blendPose\('receive'/);});
+
+test('v1.7 external character assets normalize height and preserve procedural fallback',()=>{const s=read('public/gametwin-3d.mjs');assert.match(s,/attachExternalCharacter/);assert.match(s,/target=Number\(inst\.descriptor\?\.target_height_ft\)\|\|6\.7/);assert.match(s,/rig\.hips\.visible=false/);assert.match(s,/externalController/);assert.match(s,/if\(!rig\|\|!this\.assets\.has/);});
+
+test('v1.7 stadium pack adds original generic broadcast stadium modules',()=>{const s=read('public/gametwin-stadium-pack.mjs');assert.match(s,/Dugouts/);assert.match(s,/Bullpen zones/);assert.match(s,/Foul poles/);assert.match(s,/video board/i);assert.match(s,/Concourse ribbon/);assert.match(s,/Lighting trusses/);assert.match(s,/Backstop/);assert.match(s,/GAMETWIN_STADIUM_PACK_VERSION='1\.7\.0'/);});
+
+test('broadcast capabilities expose v1.7 fidelity without false photorealism claims',()=>{const b=require('../src/gametwin-broadcast');const row={broadcast_context:{gamePk:1,date:'2026-09-04T23:00:00Z',venue:{name:'Park',field:{}},weather:{},away:{name:'Away',lineup:[],starter:{name:'A',arsenal:[]},bullpen:[]},home:{name:'Home',lineup:[],starter:{name:'H',arsenal:[]},bullpen:[]}},representative_game:{final:{away:0,home:0},play_by_play:[]}};const out=b.buildBroadcast(row),c=out.capabilities;assert.equal(c.visual_fidelity_version,'1.9.0');assert.equal(c.character_pack_version,'1.7.0');assert.equal(c.stadium_pack_version,'1.7.0');assert.equal(c.role_specific_player_rigs,true);assert.equal(c.catcher_gear_variant,true);assert.equal(c.umpire_gear_variant,true);assert.equal(c.skeleton_safe_cloning,true);assert.equal(c.photorealistic_players,false);assert.equal(c.licensed_stadium_asset_models,false);assert.equal(out.presentation_only,true);});
+
+test('v1.7 loader advertises character and stadium packs while retaining WebGL fallback',()=>{const s=read('public/gametwin-3d-loader.js');assert.match(s,/visual_fidelity:'1\.9\.0'/);assert.match(s,/character_pack:'1\.7\.0'/);assert.match(s,/stadium_pack:'1\.7\.0'/);assert.match(s,/WebGL2RenderingContext/);assert.match(s,/Canvas2D/);});

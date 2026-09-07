@@ -1,0 +1,13 @@
+'use strict';
+const test=require('node:test');const assert=require('node:assert/strict');const fs=require('fs');const path=require('path');
+const root=path.join(__dirname,'..');const read=p=>fs.readFileSync(path.join(root,p),'utf8');
+
+test('v1.7 keeps PBR materials and generated field texture maps',()=>{const m=read('public/gametwin-materials.mjs');assert.match(m,/MeshPhysicalMaterial/);assert.match(m,/CanvasTexture/);assert.match(m,/grassMap/);assert.match(m,/dirtMap/);assert.match(m,/clearcoat/);assert.match(m,/gametwinShared/);});
+
+test('v1.7 GLB asset pipeline is optional and fails safely',()=>{const a=read('public/gametwin-assets.mjs');assert.match(a,/GLTFLoader\.js/);assert.match(a,/DEFAULT_GAMETWIN_ASSET_MANIFEST/);assert.match(a,/generic_player:null/);assert.match(a,/generic_stadium:null/);assert.match(a,/return null/);assert.match(a,/failures/);assert.match(a,/AnimationMixer/);});
+
+test('v1.7 3D scene wires PBR asset pipeline, instanced crowd and eased cameras',()=>{const s=read('public/gametwin-3d.mjs');assert.match(s,/createGameTwinMaterials/);assert.match(s,/createGameTwinAssetPipeline/);assert.match(s,/new THREE\.InstancedMesh/);assert.match(s,/cameraGoal/);assert.match(s,/cameraEaseAlpha/);assert.match(s,/cameraTrackTarget/);assert.match(s,/tryExternalAssets/);assert.match(s,/gametwin:asset-status/);});
+
+test('broadcast capabilities advertise visual-fidelity features without claiming photorealistic assets',()=>{const b=require('../src/gametwin-broadcast');const row={broadcast_context:{gamePk:1,date:'2026-09-04T23:00:00Z',venue:{name:'Park',field:{}},weather:{},away:{name:'Away',lineup:[],starter:{name:'A',arsenal:[]},bullpen:[]},home:{name:'Home',lineup:[],starter:{name:'H',arsenal:[]},bullpen:[]}},representative_game:{final:{away:0,home:0},play_by_play:[]}};const out=b.buildBroadcast(row);assert.equal(out.capabilities.visual_fidelity_version,'1.9.0');assert.equal(out.capabilities.pbr_materials,true);assert.equal(out.capabilities.glb_asset_pipeline,true);assert.equal(out.capabilities.external_asset_fail_safe,true);assert.equal(out.capabilities.eased_camera_transitions,true);assert.equal(out.capabilities.instanced_crowd,true);assert.equal(out.capabilities.photorealistic_players,false);assert.equal(out.presentation_only,true);});
+
+test('3D loader reports v1.7 visual fidelity and remains WebGL2 fallback safe',()=>{const l=read('public/gametwin-3d-loader.js');assert.match(l,/visual_fidelity:'1\.9\.0'/);assert.match(l,/pbr:true/);assert.match(l,/glb_ready:true/);assert.match(l,/WebGL2RenderingContext/);assert.match(l,/v0\.6 Canvas2D/);});

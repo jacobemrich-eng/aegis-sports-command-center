@@ -1,0 +1,5 @@
+'use strict';
+const test=require('node:test');const assert=require('node:assert/strict');const s=require('../src/gametwin-state');
+function memStore(){let state={};return {async load(){return structuredClone(state);},async mutate(fn){const w=structuredClone(state);const result=await fn(w);state=w;return {state,result};},peek(){return state;}};}
+test('production state store persists latest shadow slate without granting release authority',async()=>{const a=memStore(),st=s.createGameTwinStateStore(a);await st.saveSlate({date:'2026-09-04',summary:{total:1,ready:1},games:[{gamePk:1,status:'READY',away:'A',home:'H',integration:{aegis_weight:0,release_eligible:false}}]});const row=await st.latestSlate();assert.equal(row.games[0].gamePk,1);const status=await st.status();assert.equal(status.aegis_weight,0);assert.equal(status.release_eligible,false);});
+test('runtime errors are isolated inside GameTwin state',async()=>{const a=memStore(),st=s.createGameTwinStateStore(a);await st.recordError(new Error('feed down'),{phase:'scan'});const x=await st.status();assert.equal(x.runtime.last_error,'feed down');assert.equal(x.errors.length,1);});

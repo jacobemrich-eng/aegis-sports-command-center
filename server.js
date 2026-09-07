@@ -9,6 +9,8 @@ const store = require('./src/store');
 const release = require('./src/release');
 const operations = require('./src/operations');
 const heartbeat = require('./src/heartbeat');
+const { createGameTwinService } = require('./src/gametwin-service');
+const gametwin = createGameTwinService({ aegisStore: store });
 
 const PORT = Number(process.env.PORT || 3000);
 const ROOT = __dirname;
@@ -24,7 +26,7 @@ const SECURITY_HEADERS = {
   'Referrer-Policy':'same-origin',
   'X-Frame-Options':'DENY',
   'Permissions-Policy':'camera=(), microphone=(), geolocation=()',
-  'Content-Security-Policy':"default-src 'self'; connect-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+  'Content-Security-Policy':"default-src 'self'; connect-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' https://unpkg.com/three@0.185.1/ 'sha256-sajYutxbmkCrpvOFO0INFWU0inkP/YO5mNm+LQu3A4M='; font-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 };
 
 function send(res,status,data,type='application/json',headers={}){
@@ -42,7 +44,7 @@ function validAutopilot(req){return !!AUTOPILOT_SECRET&&secureEqual(bearer(req),
 function ip(req){return String(req.headers['x-forwarded-for']||req.socket.remoteAddress||'unknown').split(',')[0].trim();}
 function rateLimit(req,res,bucket,limit,windowMs=3600e3){const key=`${bucket}|${ip(req)}`,t=Date.now(),row=RATE.get(key)||{start:t,count:0};if(t-row.start>windowMs){row.start=t;row.count=0;}row.count++;RATE.set(key,row);if(row.count>limit){const retry=Math.ceil((row.start+windowMs-t)/1000);send(res,429,{error:`AEGIS rate limit reached for ${bucket}. Try again in ${Math.ceil(retry/60)} minute(s).`},'application/json',{'Retry-After':String(retry)});return false;}return true;}
 function requireAuth(req,res){if(validSession(req))return true;send(res,401,{error:'AEGIS access is locked. Enter the configured access PIN.',auth_required:true});return false;}
-function mime(file){const ext=path.extname(file).toLowerCase();return ({'.html':'text/html; charset=utf-8','.js':'application/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.ico':'image/x-icon'}[ext]||'application/octet-stream');}
+function mime(file){const ext=path.extname(file).toLowerCase();return ({'.html':'text/html; charset=utf-8','.js':'application/javascript; charset=utf-8','.mjs':'application/javascript; charset=utf-8','.glb':'model/gltf-binary','.gltf':'model/gltf+json','.css':'text/css; charset=utf-8','.json':'application/json','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.ico':'image/x-icon'}[ext]||'application/octet-stream');}
 function serveFile(res,file){try{const buf=fs.readFileSync(file);res.writeHead(200,{'Content-Type':mime(file),'Cache-Control':file.endsWith('.html')?'no-store':'public, max-age=180',...SECURITY_HEADERS});res.end(buf);}catch{send(res,404,{error:'Not found'});}}
 function publicFile(urlPath){
   try{
@@ -59,6 +61,13 @@ async function safeStatus(){try{return await autopilot.status();}catch(e){return
 const server=http.createServer(async(req,res)=>{
   try{
     const u=new URL(req.url,`http://${req.headers.host||'localhost'}`);
+
+    // AEGIS GAMETWIN API HOOK — shadow-only; browser-session auth required.
+    if(u.pathname.startsWith('/api/gametwin/')){
+      if(!requireAuth(req,res))return;
+      const gtRoute=await gametwin.api.route(req,u);
+      if(gtRoute.handled)return send(res,gtRoute.status,gtRoute.body);
+    }
     if(req.method==='GET'&&u.pathname==='/')return serveFile(res,path.join(PUBLIC,'index.html'));
 
     // Serve any real file inside /public. This keeps the frontend future-proof for
@@ -353,7 +362,11 @@ if(req.method==='POST'&&u.pathname==='/api/autopilot/heartbeat'){
       if(!validAutopilot(req)&&!(ACCESS_PIN&&validSession(req)))return send(res,401,{error:'Autopilot authorization failed. Configure AEGIS_AUTOPILOT_SECRET for scheduled runs.'});
       const body=JSON.parse(await readBody(req)||'{}'),sport=u.searchParams.get('sport')||body.sport||null,force=u.searchParams.get('force')==='1'||!!body.force;
       const result=await autopilot.tick({force,sports:sport?[sport]:body.sports,reason:body.reason||'scheduled autopilot'});
-      return send(res,200,result);
+      // AEGIS GAMETWIN AUTOPILOT HOOK — enqueue only; GameTwin circuit breaker is isolated from AEGIS.
+      let gametwinShadow=null;
+      try{const mlbCard=await autopilot.latestCard('baseball_mlb');if(mlbCard)gametwinShadow=gametwin.queueAegisCard(mlbCard);}
+      catch(e){gametwinShadow={queued:false,error:e.message,mode:'shadow',aegis_weight:0};}
+      return send(res,200,{...result,gametwin_shadow:gametwinShadow});
     }
 
     if(u.pathname.startsWith('/api/')&&!requireAuth(req,res))return;
@@ -397,6 +410,8 @@ if(req.method==='POST'&&u.pathname==='/api/autopilot/heartbeat'){
       if(!events.length)return send(res,400,{error:'No upcoming events were supplied or found.'});
       const out=await engine.scanSlate(events);out.board_refreshed=boardRefreshed;out.board_age_ms=boardRefreshed?0:Math.max(0,age);out.release_enabled=autopilot.config.RELEASE_SPORTS.includes(sport);out.autopilot={generated:false,reason:'manual in-depth scan',release_enabled:out.release_enabled};
       try{out.persistence=await autopilot.captureScan(sport,out,events,'manual in-depth scan');}catch(e){out.persistence={saved:false,error:e.message};}
+      // AEGIS GAMETWIN MANUAL-SCAN HOOK — MLB only, shadow-only.
+      if(sport==='baseball_mlb'){try{out.gametwin_shadow=gametwin.queueAegisCard(out);}catch(e){out.gametwin_shadow={queued:false,error:e.message,mode:'shadow',aegis_weight:0};}}
       return send(res,200,out);
     }
     return send(res,404,{error:'Not found'});

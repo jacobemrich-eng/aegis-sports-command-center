@@ -1,0 +1,15 @@
+'use strict';
+const test=require('node:test');const assert=require('node:assert/strict');const fs=require('fs');const path=require('path');const {parseGlb,triangleCount,verify}=require('../scripts/verify-generic-assets');
+const root=path.join(__dirname,'..');
+
+test('v1.7 ships original local LOD GLBs for every baseball role',()=>{const report=verify();for(const role of ['generic_player','batter','pitcher','fielder','runner','catcher','umpire']){assert.ok(report.characters[role]);for(const q of ['low','medium','high']){assert.ok(report.characters[role][q].bytes>1000);assert.ok(report.characters[role][q].triangles>0);assert.equal(report.characters[role][q].skins,1);}}});
+
+test('v1.7 character GLBs contain named baseball animation clips and skin data',()=>{const f=path.join(root,'public','gametwin-assets','characters','fielder-high.glb');const {j}=parseGlb(f);const names=new Set((j.animations||[]).map(a=>a.name));for(const x of ['idle','run','field','throw','catch','tag'])assert.ok(names.has(x),x);assert.ok((j.skins||[]).length>=1);const meshNode=(j.nodes||[]).find(n=>n.skin===0);assert.ok(meshNode);});
+
+test('v1.7 LODs increase detail without violating runtime budgets',()=>{for(const role of ['batter','pitcher','fielder','catcher']){const vals=['low','medium','high'].map(q=>{const {j}=parseGlb(path.join(root,'public','gametwin-assets','characters',`${role}-${q}.glb`));return triangleCount(j);});assert.ok(vals[0]<=vals[1]&&vals[1]<=vals[2],`${role}:${vals.join(',')}`);assert.ok(vals[2]<180000);}});
+
+test('v1.7 bundled manifest points only to local GameTwin asset paths and marks original license',()=>{const s=fs.readFileSync(path.join(root,'public','gametwin-asset-manifest.js'),'utf8');assert.match(s,/license:'original-gametwin'/);assert.match(s,/\/gametwin-assets\/characters\/batter-high\.glb/);assert.match(s,/\/gametwin-assets\/stadium\/generic_stadium-high\.glb/);assert.doesNotMatch(s,/https?:\/\//);});
+
+test('v1.7 renderer isolates imported materials and applies team tint hooks',()=>{const s=fs.readFileSync(path.join(root,'public','gametwin-3d.mjs'),'utf8');assert.match(s,/GT_Jersey_Primary/);assert.match(s,/m\.clone\(\)/);assert.match(s,/gametwinTeamTint=true/);assert.match(s,/primary=rig\.uniformMaterial/);});
+
+test('v1.7 broadcast exposes bundled original asset capabilities without photorealistic claims',()=>{const b=require('../src/gametwin-broadcast');const row={broadcast_context:{gamePk:1,date:'2026-09-04T23:00:00Z',venue:{name:'Park',field:{}},weather:{},away:{name:'Away',lineup:[],starter:{name:'A',arsenal:[]},bullpen:[]},home:{name:'Home',lineup:[],starter:{name:'H',arsenal:[]},bullpen:[]}},representative_game:{final:{away:0,home:0},play_by_play:[]}};const c=b.buildBroadcast(row).capabilities;assert.equal(c.visual_fidelity_version,'1.9.0');assert.equal(c.bundled_original_glb_assets,true);assert.equal(c.bundled_character_lods,true);assert.equal(c.bundled_stadium_lods,true);assert.equal(c.bundled_asset_license,'original-gametwin');assert.equal(c.external_team_color_tinting,true);assert.equal(c.photorealistic_players,false);assert.equal(c.licensed_stadium_asset_models,false);});
