@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<script type="importmap">{"imports":{"three":"https://unpkg.com/three@0.185.1/build/three.module.min.js","three/addons/":"https://unpkg.com/three@0.185.1/examples/jsm/"}}</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#06131d">
+<title>AEGIS GameTwin v2.1.0 Deployment-Ready Shadow Lab</title>
+<link rel="stylesheet" href="/gametwin.css?v=2.1.0">
+<link rel="stylesheet" href="/gametwin-production.css?v=2.1.0">
+</head>
+<body>
+<div class="shell">
+  <header class="hero">
+    <div><div class="eyebrow">SB101 AEGIS • MLB</div><h1>GameTwin v2.1.0 Deployment-Ready Shadow Lab</h1><p>Production shadow pilot, 25,000-game digital-twin projections, calibration and representative 3D broadcast. GameTwin cannot promote, size or create a bet.</p></div>
+    <a class="back" href="/">← Command Center</a>
+  </header>
+  <div class="guard" id="guard"><b>SHADOW MODE</b><span>AEGIS weight 0% • Release authority disabled</span></div>
+  <div class="demoBanner" id="demoBanner" hidden><b>PHONE DEMO MODE</b><span>Illustrative local fixture only — not a real MLB projection, bet, or calibration sample.</span></div>
+  <section class="metrics" id="metrics"></section>
+  <section class="panel controls"><button id="refresh">Refresh</button><button id="scan">Run Shadow Scan</button><button id="grade">Grade Finished Games</button><button id="pilotToggle">Pause Pilot</button><button id="pilotReset" style="display:none">Reset Circuit</button><span id="actionStatus"></span></section>
+  <section class="grid2">
+    <div class="panel"><div class="head"><div><div class="eyebrow">TODAY'S DIGITAL TWINS</div><h2>MLB slate</h2></div><span id="slateMeta"></span></div><div id="games" class="games"></div></div>
+    <div class="panel"><div class="head"><div><div class="eyebrow">MODEL SCOREBOARD</div><h2>Calibration</h2></div></div><div id="familyGrid" class="families"></div><div id="comparison"></div></div>
+  </section>
+  <section class="panel" id="gamePanel"><div class="empty">Select a READY game to open its GameTwin projection and representative simulation.</div></section>
+  <section class="panel"><div class="head"><div><div class="eyebrow">GOVERNANCE</div><h2>Promotion firewall</h2></div></div><div id="governance"></div></section>
+</div>
+<script src="/gametwin-demo-data.js?v=2.1.0" defer></script>
+<script src="/gametwin-broadcast.js?v=2.1.0" defer></script>
+<script src="/gametwin-asset-manifest.js?v=2.1.0" defer></script>
+<script src="/gametwin-3d-loader.js?v=2.1.0" defer></script>
+<script src="/gametwin-ui.js?v=2.1.0" defer></script>
+<script src="/gametwin-mobile-ux.js?v=2.1.0" defer></script>
+<script src="/gametwin-production-ui.js?v=2.1.0" defer></script>
+</body>
+</html>
