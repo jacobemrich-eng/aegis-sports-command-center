@@ -9,6 +9,8 @@ const store = require('./src/store');
 const release = require('./src/release');
 const operations = require('./src/operations');
 const heartbeat = require('./src/heartbeat');
+const shadow = require('./src/shadow-service');
+const { flags: sportEngineFlags } = require('./src/sport-engines/feature-flags');
 
 const PORT = Number(process.env.PORT || 3000);
 const ROOT = __dirname;
@@ -17,6 +19,7 @@ const PUBLIC_ROOT = path.resolve(PUBLIC);
 const ACCESS_PIN = String(process.env.AEGIS_ACCESS_PIN || '').trim();
 const SESSION_SECRET = String(process.env.AEGIS_SESSION_SECRET || ACCESS_PIN || 'aegis-local-development');
 const AUTOPILOT_SECRET = String(process.env.AEGIS_AUTOPILOT_SECRET || '').trim();
+const SHADOW_INGEST_SECRET = String(process.env.AEGIS_SHADOW_INGEST_SECRET || AUTOPILOT_SECRET).trim();
 const SESSION_DAYS = 30;
 const RATE = new Map();
 const SECURITY_HEADERS = {
@@ -39,6 +42,7 @@ function makeSession(){const exp=Date.now()+SESSION_DAYS*864e5,payload=String(ex
 function validSession(req){if(!ACCESS_PIN)return true;const token=cookies(req).aegis_session||'',parts=token.split('.');if(parts.length!==2)return false;const [exp,sig]=parts;if(!secureEqual(sig,sign(exp)))return false;return Number(exp)>Date.now();}
 function bearer(req){const h=String(req.headers.authorization||'');return h.startsWith('Bearer ')?h.slice(7).trim():'';}
 function validAutopilot(req){return !!AUTOPILOT_SECRET&&secureEqual(bearer(req),AUTOPILOT_SECRET);}
+function validShadowIngest(req){return !!SHADOW_INGEST_SECRET&&secureEqual(bearer(req),SHADOW_INGEST_SECRET);}
 function ip(req){return String(req.headers['x-forwarded-for']||req.socket.remoteAddress||'unknown').split(',')[0].trim();}
 function rateLimit(req,res,bucket,limit,windowMs=3600e3){const key=`${bucket}|${ip(req)}`,t=Date.now(),row=RATE.get(key)||{start:t,count:0};if(t-row.start>windowMs){row.start=t;row.count=0;}row.count++;RATE.set(key,row);if(row.count>limit){const retry=Math.ceil((row.start+windowMs-t)/1000);send(res,429,{error:`AEGIS rate limit reached for ${bucket}. Try again in ${Math.ceil(retry/60)} minute(s).`},'application/json',{'Retry-After':String(retry)});return false;}return true;}
 function requireAuth(req,res){if(validSession(req))return true;send(res,401,{error:'AEGIS access is locked. Enter the configured access PIN.',auth_required:true});return false;}
@@ -159,7 +163,8 @@ auto=await safeStatus();
       daily_odds_budget:autopilot.config.DAILY_BUDGET,
       monthly_odds_budget:autopilot.config.MONTHLY_BUDGET,
       auto_deep_credit_cap:
-        autopilot.config.AUTO_DEEP_CREDIT_CAP
+        autopilot.config.AUTO_DEEP_CREDIT_CAP,
+      sport_engine_flags:sportEngineFlags()
     });
   }
                 if(req.method==='GET'&&u.pathname==='/api/operations/status'){
@@ -356,6 +361,16 @@ if(req.method==='POST'&&u.pathname==='/api/autopilot/heartbeat'){
       return send(res,200,result);
     }
 
+    // Simulator ingestion is isolated from the production scan/release route.
+    // A challenger bearer token or authenticated operator may write shadow data,
+    // but the service always strips Final Card and bankroll eligibility.
+    if(req.method==='POST'&&u.pathname==='/api/shadow/games'){
+      if(!validShadowIngest(req)&&!(ACCESS_PIN&&validSession(req)))return send(res,401,{error:'Shadow ingestion authorization failed.'});
+      if(!rateLimit(req,res,'shadow-ingest',120))return;
+      const body=JSON.parse(await readBody(req)||'{}');
+      return send(res,201,{ok:true,...await shadow.ingest(body)});
+    }
+
     if(u.pathname.startsWith('/api/')&&!requireAuth(req,res))return;
 
     if(req.method==='GET'&&u.pathname==='/api/autopilot/status')return send(res,200,await autopilot.status());
@@ -363,6 +378,8 @@ if(req.method==='POST'&&u.pathname==='/api/autopilot/heartbeat'){
       const sport=u.searchParams.get('sport');return send(res,200,{card:await autopilot.latestCard(sport),sport:sport||null});
     }
     if(req.method==='GET'&&u.pathname==='/api/results/ledger')return send(res,200,await autopilot.results());
+    if(req.method==='GET'&&u.pathname==='/api/shadow/games')return send(res,200,await shadow.list({sport:u.searchParams.get('sport')||null,game_id:u.searchParams.get('game_id')||null}));
+    if(req.method==='GET'&&u.pathname==='/api/shadow/audit')return send(res,200,{shadow_only:true,audit:await shadow.audit({sport:u.searchParams.get('sport')||null})});
     if(req.method==='POST'&&u.pathname==='/api/results/grade'){
       if(!rateLimit(req,res,'grade',20))return;return send(res,200,{ok:true,...await autopilot.gradeNow()});
     }

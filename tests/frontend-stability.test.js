@@ -12,7 +12,8 @@ const active = [
   'public/app-v8_3.js',
   'public/app-v8_3_1.js',
   'public/app-v8_3_2.js',
-  'public/app-v8_6.js'
+  'public/app-v8_6.js',
+  'public/nfl-shadow-integration.js'
 ];
 
 test('all active browser bundles parse', () => {

@@ -20,6 +20,8 @@ services:
         sync: false
       - key: AEGIS_AUTOPILOT_SECRET
         sync: false
+      - key: AEGIS_SHADOW_INGEST_SECRET
+        sync: false
       - key: AEGIS_HEARTBEAT_SECRET
         sync: false
       - key: AEGIS_HEARTBEAT_STALE_MINUTES
@@ -41,6 +43,20 @@ services:
         value: America/New_York
       - key: AEGIS_AUTOPILOT_ENABLED
         value: "true"
+      - key: NFL_SIM_ENABLED
+        value: "true"
+      - key: NFL_SIM_SHADOW_ONLY
+        value: "true"
+      - key: NCAAF_SIM_ENABLED
+        value: "false"
+      - key: NCAAF_SIM_SHADOW_ONLY
+        value: "true"
+      - key: MLB_SIM_ENABLED
+        value: "false"
+      - key: MLB_SIM_SHADOW_ONLY
+        value: "true"
+      - key: AEGIS_NEW_ENGINE_AUTO_RELEASE
+        value: "false"
       - key: AEGIS_AUTOPILOT_SPORTS
         value: baseball_mlb,americanfootball_ncaaf
       - key: AEGIS_RELEASE_SPORTS

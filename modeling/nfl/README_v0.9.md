@@ -46,3 +46,19 @@ This prevents "AEGIS disagrees by 8, therefore huge edge" behavior.
 Production release remains disabled.
 
 v0.9 is promoted only if the clean post-model calibration improves out-of-sample performance without compromising probability calibration.
+
+## Command Center adapter
+
+The production web process does not import or execute this Python research
+stack. A simulator run sends its completed blind output plus the separately
+computed Market Challenger context to `POST /api/shadow/games`. The Node
+adapter maps that result to `AEGIS_STANDARD_GAME_OUTPUT_v1`, re-applies the
+disagreement firewall, and persists it in the separate shadow ledger.
+
+This keeps the request path failure-safe and preserves independent development:
+NFL math remains here, while shared schema validation, governance metadata,
+Supabase persistence, and UI presentation live under `src/sport-engines` and
+`src/shadow-service.js`.
+
+There is no v1.0 ablation/coefficient-calibration implementation or committed
+v1.0 result in this branch. v0.9 remains the latest verified NFL calibration.

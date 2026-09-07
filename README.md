@@ -68,6 +68,38 @@ Supabase persistent state ledger
 AEGIS web UI / Results Lab
 ```
 
+## Sport-engine shadow integration
+
+The shared challenger boundary is `AEGIS_STANDARD_GAME_OUTPUT_v1` in
+`src/sport-engines/contract.js`. Sport math stays isolated behind dedicated
+adapters:
+
+```text
+NFL simulator  -> NFL adapter   -> shared shadow governance
+MLB simulator  -> MLB adapter   -> shared shadow governance (reserved stub)
+NCAAF simulator -> NCAAF adapter -> shared shadow governance (reserved stub)
+```
+
+The NFL adapter accepts simulator output only after the blind projection has
+been produced. Market projection and pricing are supplied separately, then the
+adapter applies post-model comparison and the v0.9 disagreement firewall:
+
+- 7+ points: PASS.
+- 5–7 points: Secondary maximum.
+- 3–5 points: Core blocked.
+- Smaller disagreement: eligible for normal shared gates.
+
+`POST /api/shadow/games` ingests a simulator envelope using
+`AEGIS_SHADOW_INGEST_SECRET` (falling back to the existing Autopilot secret).
+Authenticated Command Center clients read `GET /api/shadow/games` and
+`GET /api/shadow/audit`. Shadow records are stored under `shadow_engines` in
+the existing Supabase state document and never enter `latest_cards`, `audit`,
+`locks`, grading, or bankroll accounting.
+
+The Game Lab displays Current AEGIS, NFL Simulator, and Market projections
+side-by-side when a matching NFL shadow record exists. Missing or failed
+simulator data leaves Current AEGIS unchanged.
+
 ## One-time production setup
 
 Read **[ONE_TIME_SETUP.md](ONE_TIME_SETUP.md)**. After those steps are complete, normal MLB/NCAAF daily operation requires no manual scan.
@@ -100,6 +132,21 @@ Read **[ONE_TIME_SETUP.md](ONE_TIME_SETUP.md)**. After those steps are complete,
 - `AEGIS_AUTO_LOCK_MINUTES=30`
 - `AEGIS_GRADE_DELAY_HOURS=2`
 - `ODDS_QUOTA_RESERVE=35`
+
+### Challenger controls
+
+- `NFL_SIM_ENABLED=true`
+- `NFL_SIM_SHADOW_ONLY=true`
+- `NCAAF_SIM_ENABLED=false`
+- `NCAAF_SIM_SHADOW_ONLY=true`
+- `MLB_SIM_ENABLED=false`
+- `MLB_SIM_SHADOW_ONLY=true`
+- `AEGIS_NEW_ENGINE_AUTO_RELEASE=false`
+- `AEGIS_SHADOW_INGEST_SECRET` — server-only token for simulator ingestion
+
+The shadow service rejects ingestion if shadow-only mode is disabled or if
+new-engine auto-release is enabled. Promotion is intentionally not implemented
+through these flags.
 
 The legacy `AEGIS_DAILY_ODDS_CALL_BUDGET` and `AEGIS_MONTHLY_ODDS_CALL_BUDGET` names are still accepted for backward compatibility, but the values represent provider **credits**, not HTTP request count.
 
