@@ -1,0 +1,41 @@
+{
+  "schema_version": "AEGIS_STANDARD_GAME_OUTPUT_v1",
+  "required_top_level": [
+    "sport",
+    "engine_version",
+    "game",
+    "projection",
+    "quality",
+    "matchup",
+    "market_expressions",
+    "decision",
+    "governance"
+  ],
+  "decision_statuses": [
+    "CORE_CANDIDATE",
+    "SECONDARY",
+    "PASS"
+  ],
+  "execution_statuses": [
+    "BET_NOW",
+    "WAIT",
+    "PASS"
+  ],
+  "shared_cross_sport_fields": [
+    "sport",
+    "game",
+    "projected_score",
+    "market_probabilities",
+    "data_quality",
+    "ensemble_disagreement",
+    "uncertainty",
+    "best_market_expression",
+    "release_status",
+    "how_it_loses"
+  ],
+  "notes": [
+    "NFL v0.7 outputs standardized data for Command Center shadow mode.",
+    "MLB and NCAAF should map their independent engines into the same schema.",
+    "Sport engines remain mathematically separate."
+  ]
+}
