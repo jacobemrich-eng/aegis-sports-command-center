@@ -9,7 +9,7 @@ const required=[
 const errors=[],warnings=[];
 for(const f of required)if(!exists(f))errors.push(`missing:${f}`);
 const pkg=JSON.parse(read('package.json'));if(!['2.1.0','8.9.3'].includes(pkg.version))errors.push(`package_version:${pkg.version}`);
-const html=read('public/gametwin.html');for(const token of ['gametwin-production.css?v=2.1.0','gametwin-3d-loader.js?v=2.1.0','gametwin-production-ui.js?v=2.1.0'])if(!html.includes(token))errors.push(`cache_bust_missing:${token}`);
+const html=read('public/gametwin.html');for(const token of ['gametwin-production.css?v=2.1.0','gametwin-3d-loader.js?v=2.1.1','gametwin-production-ui.js?v=2.1.0'])if(!html.includes(token))errors.push(`cache_bust_missing:${token}`);
 const installer=read('scripts/install-into-aegis-v8.9.3.js');if(!installer.includes("const VERSION='2.1.0-installer'"))errors.push('installer_version');
 const firewallSrc=['src/gametwin-shadow.js','src/gametwin-aegis-bridge.js','src/gametwin-viewmodel.js','src/gametwin-pilot.js'].map(read).join('\n');if(!/aegis_weight\s*:\s*0/.test(firewallSrc)||!/release_eligible\s*:\s*false/.test(firewallSrc))errors.push('shadow_firewall_missing');
 const manifest=read('public/gametwin-asset-manifest.js');const urls=[...manifest.matchAll(/['"](\/gametwin-assets\/[^'"]+\.glb)['"]/g)].map(m=>m[1]);if(!urls.length)errors.push('asset_manifest_empty');
