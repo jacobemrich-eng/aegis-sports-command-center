@@ -3,7 +3,7 @@ services:
     name: aegis-nfl-shadow-staging
     runtime: node
     plan: free
-    branch: feat/nfl-integration
+    branch: nfl-shadow-staging
     buildCommand: npm install && npm run check
     startCommand: npm start
     healthCheckPath: /api/health
