@@ -11,7 +11,7 @@ test('v2.1.1 polish loader wires visual-only module',()=>{
   const loader=read('public/gametwin-3d-loader.js');
   assert.match(loader,/gametwin-polish-v2\.1\.1\.mjs\?v=2\.1\.1/);
   assert.match(loader,/applyGameTwinPolish/);
-  assert.match(loader,/visual_fidelity:'2\.1\.1-polish'/);
+  assert.match(loader,/visual_fidelity:'2\.1\.2-visual-fidelity'/);
 });
 
 test('v2.1.1 polish keeps GameTwin shadow-only',()=>{
