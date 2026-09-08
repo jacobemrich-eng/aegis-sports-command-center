@@ -60,8 +60,11 @@ function compactState(s){
   out.alerts=out.alerts.slice(-250);
   out.autopilot.transitions=(out.autopilot.transitions||[]).slice(-500);
   const mh={};
-  const entries=Object.entries(out.market_history||{}).slice(-2200);
-  for(const [k,v] of entries)mh[k]=(Array.isArray(v)?v:[]).slice(-120);
+  // AEGIS_PERSISTENCE_HARDENING_V1
+  // Keep the hot-state JSONB row bounded. Critical audit/locks/tier history
+  // remains untouched; only dense sportsbook price snapshots are capped here.
+  const entries=Object.entries(out.market_history||{}).slice(-600);
+  for(const [k,v] of entries)mh[k]=(Array.isArray(v)?v:[]).slice(-48);
   out.market_history=mh;
   return out;
 }
@@ -79,10 +82,59 @@ async function supabaseLoad(){
   if(!rows.length)return freshState();
   return normalizeState(rows[0].value);
 }
+function boundedPersistenceState(state,keyCap=600,pointCap=48){
+  const out=compactState(state),mh={};
+  const entries=Object.entries(out.market_history||{}).slice(-keyCap);
+  for(const [k,v] of entries)mh[k]=(Array.isArray(v)?v:[]).slice(-pointCap);
+  out.market_history=mh;
+  return out;
+}
+function persistenceRetryable(status,text=''){
+  return status===408||status===425||status===429||status>=500||/\\b57014\\b/.test(text)||/statement timeout/i.test(text);
+}
+function persistenceStatementTimeout(text=''){
+  return /\\b57014\\b/.test(text)||/statement timeout/i.test(text);
+}
+async function persistenceDelay(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
 async function supabaseSave(state){
-  const payload={id:STATE_ID,value:compactState(state),updated_at:new Date().toISOString()};
-  const r=await fetch(`${SUPABASE_URL}/rest/v1/aegis_state?on_conflict=id`,{method:'POST',headers:supabaseHeaders({'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'}),body:JSON.stringify(payload)});
-  if(!r.ok)throw new Error(`Supabase write failed (${r.status}): ${await r.text()}`);
+  // Preserve upsert/bootstrap semantics; only shrink dense market-price history
+  // after a confirmed PostgreSQL 57014 statement timeout.
+  const profiles=[
+    {keys:600,points:48,label:'normal'},
+    {keys:320,points:32,label:'timeout-retry'},
+    {keys:180,points:24,label:'timeout-recovery'}
+  ];
+  const delays=[0,250,750];
+  let timeoutLevel=0,lastError=null;
+  for(let attempt=0;attempt<3;attempt++){
+    if(delays[attempt])await persistenceDelay(delays[attempt]);
+    const profile=profiles[Math.min(timeoutLevel,profiles.length-1)];
+    const value=boundedPersistenceState(state,profile.keys,profile.points);
+    const payload={id:STATE_ID,value,updated_at:new Date().toISOString()};
+    const body=JSON.stringify(payload);
+    let r;
+    try{
+      r=await fetch(`${SUPABASE_URL}/rest/v1/aegis_state?on_conflict=id`,{
+        method:'POST',
+        headers:supabaseHeaders({'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'}),
+        body
+      });
+    }catch(e){
+      lastError=e;
+      if(attempt===2)throw e;
+      console.warn(`[AEGIS persistence retry] network write failure on attempt ${attempt+1}; retrying without local fallback.`);
+      continue;
+    }
+    if(r.ok)return value;
+    const text=await r.text();
+    const timedOut=persistenceStatementTimeout(text);
+    lastError=new Error(`Supabase write failed (${r.status}): ${text}`);
+    if(!persistenceRetryable(r.status,text)||attempt===2)throw lastError;
+    if(timedOut)timeoutLevel=Math.min(timeoutLevel+1,profiles.length-1);
+    const bytes=Buffer.byteLength(body);
+    console.warn(`[AEGIS persistence retry] transient write failure status=${r.status} attempt=${attempt+1} profile=${profile.label} bytes=${bytes}; retrying.`);
+  }
+  throw lastError||new Error('Supabase write failed after persistence retries.');
 }
 function localLoad(){
   try{return normalizeState(JSON.parse(fs.readFileSync(LOCAL_FILE,'utf8')));}catch{return freshState();}
@@ -100,7 +152,12 @@ async function load(){
 }
 async function save(state){
   const next=compactState(state);
-  if(persistent)await supabaseSave(next); else localSave(next);
+  if(persistent){
+    const persisted=await supabaseSave(next);
+    memory=persisted;
+    return persisted;
+  }
+  localSave(next);
   memory=next;
   return next;
 }
