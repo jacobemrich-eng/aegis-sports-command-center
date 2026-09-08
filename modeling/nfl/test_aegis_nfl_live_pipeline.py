@@ -14,7 +14,7 @@ from unittest.mock import patch
 NFL_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(NFL_DIR))
 
-from aegis_nfl_live_pipeline import process_slate, selected_v10, validate_pregame_game
+from aegis_nfl_live_pipeline import _event_for, process_slate, selected_v10, validate_pregame_game
 from aegis_nfl_shadow_publisher import (
     build_envelope,
     validate_blind_output,
@@ -55,6 +55,11 @@ def market_for(rows: list[dict]) -> dict:
 
 
 class LivePipelineTests(unittest.TestCase):
+    def test_market_matcher_accepts_immutable_blind_game_schema(self):
+        blind_game = blind(game("market-match"))["game"]
+        event = {"id": "odds-event", "home_team": "Buffalo Bills", "away_team": "Miami Dolphins"}
+        self.assertEqual(_event_for(blind_game, [event]), event)
+
     def test_publish_endpoint_rejects_production_and_unrelated_hosts(self):
         with self.assertRaisesRegex(ValueError, "required"):
             validate_shadow_endpoint("")

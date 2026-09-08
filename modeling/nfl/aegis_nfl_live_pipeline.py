@@ -323,12 +323,18 @@ def _normalized(value: object) -> str:
 
 
 def _event_for(game: Mapping[str, object], events: Iterable[dict]) -> dict:
-    home = _normalized(TEAM_NAMES.get(str(game["home_team"]), game["home_team"]))
-    away = _normalized(TEAM_NAMES.get(str(game["away_team"]), game["away_team"]))
+    # Upcoming schedule rows use home_team/away_team, while immutable blind
+    # snapshots intentionally expose the shared game schema as home/away.
+    home_team = game.get("home_team", game.get("home"))
+    away_team = game.get("away_team", game.get("away"))
+    if not home_team or not away_team:
+        raise ValueError("NFL market matching requires home and away teams")
+    home = _normalized(TEAM_NAMES.get(str(home_team), home_team))
+    away = _normalized(TEAM_NAMES.get(str(away_team), away_team))
     for event in events:
         if _normalized(event.get("home_team")) == home and _normalized(event.get("away_team")) == away:
             return event
-    raise ValueError(f"No post-blind NFL market found for {game['away_team']} at {game['home_team']}")
+    raise ValueError(f"No post-blind NFL market found for {away_team} at {home_team}")
 
 
 def _market_outcomes(event: dict, key: str) -> List[dict]:
