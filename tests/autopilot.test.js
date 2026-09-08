@@ -8,6 +8,8 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(),'aegis-store-'));
 process.env.AEGIS_DATA_DIR = tmp;
 delete process.env.SUPABASE_URL;
 delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+delete process.env.AEGIS_RELEASE_SPORTS;
+
 const store = require('../src/store');
 const autopilot = require('../src/autopilot');
 
