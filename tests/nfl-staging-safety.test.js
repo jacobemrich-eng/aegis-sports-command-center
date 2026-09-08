@@ -43,7 +43,7 @@ test('NFL staging refuses main state, Autopilot, automatic release, or live rele
 test('staging blueprint is separate while production Render settings remain unchanged', () => {
   const staging = fs.readFileSync(path.join(ROOT, 'render-nfl-shadow-staging.yaml'), 'utf8');
   assert.match(staging, /name: aegis-nfl-shadow-staging/);
-  assert.match(staging, /branch: feat\/nfl-integration/);
+  assert.match(staging, /branch: nfl-shadow-staging/);
   assert.match(staging, /key: AEGIS_STATE_ID\s+value: nfl-shadow-staging/);
   assert.match(staging, /key: AEGIS_AUTOPILOT_ENABLED\s+value: "false"/);
   assert.match(staging, /key: AEGIS_RELEASE_SPORTS\s+value: none/);
