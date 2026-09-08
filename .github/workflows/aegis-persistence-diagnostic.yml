@@ -1,0 +1,42 @@
+name: AEGIS Persistence Diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Show failing persistence code only
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== package version ==="
+          node -p "require('./package.json').version"
+
+          echo
+          echo "=== src/store.js lines 55-135 ==="
+          nl -ba src/store.js | sed -n '55,135p'
+
+          echo
+          echo "=== src/autopilot.js lines 195-225 ==="
+          nl -ba src/autopilot.js | sed -n '195,225p'
+
+          echo
+          echo "=== server.js lines 335-365 ==="
+          nl -ba server.js | sed -n '335,365p'
+
+          echo
+          echo "=== persistence-related symbols ==="
+          grep -nE "supabaseSave|aegis_state|async function save|function save|save\\(|upsert|update\\(" src/store.js || true
+
+          echo
+          echo "READ-ONLY DIAGNOSTIC COMPLETE"
