@@ -1,0 +1,495 @@
+name: Apply AEGIS v9.0 Production Lock
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  lock:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Apply v9.0 production identity and documentation
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+
+          # ---- Platform version only; canonical betting engine remains frozen. ----
+          pkg_path=Path("package.json")
+          pkg=json.loads(pkg_path.read_text(encoding="utf-8"))
+          pkg["version"]="9.0.0"
+          pkg_path.write_text(json.dumps(pkg,indent=2,ensure_ascii=False)+"\n",encoding="utf-8")
+
+          lock_path=Path("package-lock.json")
+          if lock_path.exists():
+              lock=json.loads(lock_path.read_text(encoding="utf-8"))
+              lock["version"]="9.0.0"
+              if isinstance(lock.get("packages"),dict) and isinstance(lock["packages"].get(""),dict):
+                  lock["packages"][""]["version"]="9.0.0"
+              lock_path.write_text(json.dumps(lock,indent=2,ensure_ascii=False)+"\n",encoding="utf-8")
+
+          # ---- UI identity. ----
+          index_path=Path("public/index.html")
+          index=index_path.read_text(encoding="utf-8")
+          old_pill="v8.9.3 • STATUS SYNC"
+          new_pill="v9.0 • PRODUCTION LOCK"
+          if old_pill in index:
+              index=index.replace(old_pill,new_pill,1)
+          elif new_pill not in index:
+              raise SystemExit("Could not find expected v8.9.3 UI version pill.")
+          index=index.replace("?v=8.9.3","?v=9.0.0")
+          index_path.write_text(index,encoding="utf-8")
+
+          # ---- README identity and v9 freeze note. ----
+          readme_path=Path("README.md")
+          readme=readme_path.read_text(encoding="utf-8")
+          readme=readme.replace(
+              "# AEGIS Sports Command Center v8.9.3 — Canonical Operations Status",
+              "# AEGIS Sports Command Center v9.0 — Production Lock",
+              1
+          )
+          readme=readme.replace(
+              "**Version taxonomy:** platform release **v8.9.3**;",
+              "**Version taxonomy:** platform release **v9.0.0**;",
+              1
+          )
+          if "## v9.0 Production Lock" not in readme:
+              readme += """
+
+          ## v9.0 Production Lock
+
+          v9.0 freezes the proven production architecture after successful end-to-end scheduler failover, canonical operations-status synchronization, Supabase persistence hardening, and full repository validation.
+
+          Production invariants:
+          - Platform release: **v9.0.0**.
+          - Frozen betting engine identity: **8.8.0-decision-intelligence**.
+          - Canonical betting governance remains **SB101 AEGIS v1.1 — September Daily-Use Freeze**.
+          - Automatic release sports remain **MLB and NCAAF** until additional sports clear independent coverage/calibration gates.
+          - GitHub AEGIS Autopilot remains the primary scheduler.
+          - External heartbeat remains the independent scheduler-recovery path.
+          - Supabase remains the persistent production state store; production never silently falls back to ephemeral local state.
+          - NFL shadow scheduling remains research/shadow-only and has no automatic public-release authority.
+          - One-time installer and diagnostic workflows are removed from the locked baseline.
+          - Future production changes must pass the permanent AEGIS Production CI workflow before deployment.
+          """
+          readme_path.write_text(readme,encoding="utf-8")
+
+          # ---- Production baseline and runbook. ----
+          docs=Path("docs")
+          docs.mkdir(exist_ok=True)
+
+          baseline="""# AEGIS v9.0 Production Baseline
+
+          ## Identity
+          - Platform release: **v9.0.0**
+          - Betting engine: **8.8.0-decision-intelligence**
+          - Governance: **SB101 AEGIS v1.1 — September Daily-Use Freeze**
+          - Automatic release sports: **MLB, NCAAF**
+          - NFL shadow system: research/shadow-only
+
+          ## Proven reliability
+          The v8.9 reliability program is closed and frozen into this baseline:
+          - Scheduler redundancy is active.
+          - External heartbeat authentication and stale-primary detection are proven.
+          - True failover was proven end-to-end with the GitHub primary disabled.
+          - The backup path executed a real recovery tick, refreshed sportsbook data, persisted state, refreshed both success timestamps, and returned Operations to GREEN without manual Verify Now.
+          - Canonical Operations status is synchronized with confirmed successful Autopilot activity.
+          - Supabase statement-timeout hardening is active.
+          - Persistent memory advances only after the cloud save succeeds.
+          - Dense market-price history is bounded; audit, lock, tier, grading, and governance history remain protected.
+          - Full `npm run check` validation passed immediately before production lock.
+
+          ## Architecture freeze
+          Preserve these production components unless a separately tested migration explicitly replaces them:
+          - Render web service
+          - Supabase persistent state
+          - GitHub AEGIS Autopilot
+          - External cron heartbeat/recovery
+          - Operations Guardian
+          - Final Card / Game Lab / Results / Models
+          - quota governor and release-sport gates
+          - Card Lock, grading, audit trail, Play-To/Downgrade/Pass controls
+          - SB101 AEGIS model/governance behavior
+
+          ## Change policy
+          Production changes after v9.0 require:
+          1. A concrete bug, validated model upgrade, security fix, or scaling requirement.
+          2. Tests that reproduce the old failure or protect the new invariant.
+          3. `npm run check` passing.
+          4. No silent widening of automatic release sports.
+          5. No weakening of Core/Secondary/Pass or exposure governance.
+          6. No client-side exposure of provider or infrastructure secrets.
+          7. A rollback path.
+
+          ## Next major architecture milestone
+          **v9.1 Data Scale & Provider Independence** is intentionally separate from this lock. Its purpose is centralized provider access, shared caching, provider failover, and removal of the small free-tier daily-credit constraint before public launch.
+          """
+          (docs/"AEGIS_PRODUCTION_BASELINE.md").write_text(textwrap.dedent(baseline).strip()+"\n",encoding="utf-8")
+
+          runbook="""# AEGIS Production Runbook
+
+          ## Normal state
+          Expected production state during the operating window:
+          - Operations Guardian GREEN, unless quota protection legitimately degrades the state.
+          - Schedulers REDUNDANT.
+          - Persistence CONFIRMED.
+          - Last Success and Last Successful Run should represent the same recent successful Autopilot activity.
+          - Automatic release authority is limited to MLB and NCAAF.
+
+          ## Primary scheduler failure
+          1. Do not press Verify Now during a failover investigation.
+          2. Confirm GitHub AEGIS Autopilot is the failed/disabled primary.
+          3. Leave Render, Supabase, and the external heartbeat enabled.
+          4. The external heartbeat checks approximately every 10 minutes during its operating window.
+          5. After the stale threshold, it should queue and execute the canonical Autopilot tick.
+          6. Pass condition: a fresh Last Successful Run appears while the GitHub primary is still unavailable.
+          7. Restore the GitHub primary after confirming recovery.
+
+          ## Persistence timeout
+          PostgreSQL error `57014` means the state write exceeded the database statement timeout.
+          Production behavior:
+          - Retry transient failures.
+          - Reduce only dense market-history payload retention on timeout retries.
+          - Never silently switch persistent production state to local ephemeral storage.
+          - Treat repeated timeout failures as a persistence incident and inspect Render/Supabase logs.
+
+          ## Quota protection
+          The current development/free-tier governor intentionally stops nonessential sportsbook refreshes when the configured daily budget is exhausted.
+          - This is expected protective behavior, not a production fault.
+          - Do not override the budget merely to keep a status indicator GREEN.
+          - Public launch requires the separate v9.1 scalable provider architecture and appropriately sized commercial data/hosting plans.
+
+          ## Render incident
+          Check:
+          - service deploy status
+          - application logs
+          - `/api/health`
+          - Supabase connectivity
+          - heartbeat responses
+          Do not redeploy blindly if the active commit is healthy.
+
+          ## Supabase incident
+          Check:
+          - production state-store connectivity
+          - statement timeout errors
+          - project availability
+          - secret/key configuration
+          Do not expose Supabase secret/service-role credentials to the browser.
+
+          ## Rollback
+          v9.0 is tagged as the production baseline after live verification.
+          For a bad future release:
+          1. identify the last known-good tag/commit
+          2. restore that code through a tested Git revert or controlled deployment
+          3. preserve Supabase state unless the incident specifically requires a data rollback
+          4. run full validation before returning normal automation
+
+          ## Security
+          - AEGIS Autopilot and heartbeat endpoints remain bearer-secret protected.
+          - PIN/session secrets remain server-side.
+          - sportsbook, CFBD, Supabase secret/service-role keys remain server-side.
+          - never put provider secrets in `public/` assets or browser-delivered configuration.
+
+          ## Production workflows
+          Long-lived workflows after v9.0:
+          - `aegis-autopilot.yml` — production primary scheduler
+          - `nfl-shadow-scheduler.yml` — NFL research/shadow scheduler only
+          - `aegis-production-ci.yml` — permanent read-only validation gate
+          """
+          (docs/"AEGIS_PRODUCTION_RUNBOOK.md").write_text(textwrap.dedent(runbook).strip()+"\n",encoding="utf-8")
+
+          lock_meta={
+              "platform_release":"9.0.0",
+              "engine_version":"8.8.0-decision-intelligence",
+              "governance":"SB101 AEGIS v1.1 — September Daily-Use Freeze",
+              "automatic_release_sports":["MLB","NCAAF"],
+              "scheduler_failover_verified":True,
+              "status_canonicalization_verified":True,
+              "persistence_hardening_verified":True,
+              "production_lock":True,
+              "next_major_milestone":"v9.1 Data Scale & Provider Independence"
+          }
+          (docs/"AEGIS_PRODUCTION_LOCK.json").write_text(
+              json.dumps(lock_meta,indent=2,ensure_ascii=False)+"\n",
+              encoding="utf-8"
+          )
+
+          # ---- Update version assertions in tests without altering test logic. ----
+          tests=Path("tests")
+          if tests.exists():
+              for p in tests.rglob("*"):
+                  if not p.is_file():
+                      continue
+                  try:
+                      t=p.read_text(encoding="utf-8")
+                  except Exception:
+                      continue
+                  u=t.replace("v8.9.3 • STATUS SYNC","v9.0 • PRODUCTION LOCK")
+                  u=u.replace("8.9.3","9.0.0")
+                  if u!=t:
+                      p.write_text(u,encoding="utf-8")
+
+          print("v9.0 identity/documentation patch complete.")
+          PY
+
+      - name: Install permanent production CI
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > .github/workflows/aegis-production-ci.yml <<'YAML'
+          name: AEGIS Production CI
+
+          on:
+            workflow_dispatch:
+            push:
+              branches:
+                - main
+              paths-ignore:
+                - '**/*.md'
+
+          permissions:
+            contents: read
+
+          jobs:
+            validate:
+              runs-on: ubuntu-latest
+              steps:
+                - name: Checkout
+                  uses: actions/checkout@v4
+                - name: Set up Node 22
+                  uses: actions/setup-node@v4
+                  with:
+                    node-version: '22'
+                    cache: npm
+                - name: Install dependencies
+                  run: npm ci
+                - name: Full AEGIS validation
+                  run: npm run check
+                - name: Production invariants
+                  shell: bash
+                  run: |
+                    set -euo pipefail
+                    test "$(node -p "require('./package.json').version")" = "9.0.0"
+                    grep -qF "8.8.0-decision-intelligence" server.js src/* 2>/dev/null
+                    grep -qF "AEGIS_PERSISTENCE_HARDENING_V1" src/store.js
+                    grep -qF "last_success_source" src/operations.js
+                    grep -qF "ignoreInFlight:true" server.js
+                    grep -qF "v9.0 • PRODUCTION LOCK" public/index.html
+          YAML
+
+      - name: Remove one-time installer and diagnostic workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -f \
+            .github/workflows/aegis-persistence-diagnostic.yml \
+            .github/workflows/aegis-v9-production-lock-audit-safe.yml \
+            .github/workflows/apply-aegis-nfl-v07-shadow-v3.yml \
+            .github/workflows/apply-aegis-nfl-v08-hygiene-audit.yml \
+            .github/workflows/apply-aegis-nfl-v09-market-calibration.yml \
+            .github/workflows/apply-aegis-nfl-v10-feature-ablation.yml \
+            .github/workflows/apply-aegis-persistence-hardening.yml \
+            .github/workflows/apply-mlb-starter-regression.yml \
+            .github/workflows/apply-v8-1-visual.yml \
+            .github/workflows/apply-v8-7-1-health.yml \
+            .github/workflows/apply-v8-7-2-encoding.yml \
+            .github/workflows/apply-v8-8-decision-fixed.yml \
+            .github/workflows/apply-v8-9-1-redundancy-fixed.yml \
+            .github/workflows/apply-v8-9-2-true-failover-74of74.yml \
+            .github/workflows/apply-v8-9-3-status-canonicalization-safe.yml \
+            .github/workflows/apply-v8-9-operations-app-only.yml \
+            .github/workflows/apply-v8-9-operations-final.yml \
+            .github/workflows/apply-v9-0-production-lock.yml
+
+          echo "Remaining workflow files:"
+          find .github/workflows -maxdepth 1 -type f -printf '%f\n' | sort
+
+          python3 - <<'PY'
+          from pathlib import Path
+          names=sorted(p.name for p in Path(".github/workflows").glob("*") if p.is_file())
+          expected=sorted([
+              "aegis-autopilot.yml",
+              "aegis-production-ci.yml",
+              "nfl-shadow-scheduler.yml",
+          ])
+          if names!=expected:
+              raise SystemExit(f"Unexpected post-lock workflow inventory: {names}; expected {expected}")
+          print("Workflow cleanup inventory: PASS")
+          PY
+
+      - name: Validate security and production invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          node --check server.js
+          node --check src/store.js
+          node --check src/autopilot.js
+          node --check src/heartbeat.js
+          node --check src/operations.js
+          node --check src/release.js
+
+          test "$(node -p "require('./package.json').version")" = "9.0.0"
+          grep -qF "v9.0 • PRODUCTION LOCK" public/index.html
+          grep -qF "AEGIS_PERSISTENCE_HARDENING_V1" src/store.js
+          grep -qF "const persisted=await supabaseSave(next)" src/store.js
+          grep -qF "last_success_source" src/operations.js
+          grep -qF "ignoreInFlight:true" server.js
+          grep -qF "/api/autopilot/heartbeat" server.js
+          grep -qF "/api/autopilot/tick" server.js
+          grep -qF "8.8.0-decision-intelligence" server.js src/* 2>/dev/null
+          grep -RqsE 'AEGIS_RELEASE_SPORTS|MLB,NCAAF|MLB, NCAAF' render.yaml server.js src public
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          # Fail without printing a secret value if an obvious credential literal is found in public assets.
+          names=r"(?:SUPABASE_(?:SERVICE|SECRET)|AEGIS_(?:AUTOPILOT|HEARTBEAT|SESSION)_SECRET|ODDS_API_KEY|CFBD_API_KEY)"
+          pat=re.compile(names+r"""\s*[:=]\s*["'][^"']{8,}["']""")
+          offenders=[]
+          root=Path("public")
+          if root.exists():
+              for p in root.rglob("*"):
+                  if not p.is_file():
+                      continue
+                  try:
+                      text=p.read_text(encoding="utf-8",errors="ignore")
+                  except Exception:
+                      continue
+                  if pat.search(text):
+                      offenders.append(str(p))
+          if offenders:
+              raise SystemExit("Possible hard-coded secret literal found in public asset(s): "+", ".join(offenders))
+          print("Public-secret literal scan: PASS")
+          PY
+
+      - name: Run full AEGIS validation
+        run: |
+          set -euo pipefail
+          npm run check
+
+      - name: Commit v9.0 production lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "AEGIS Release Bot"
+          git config user.email "aegis-release-bot@users.noreply.github.com"
+
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "No production-lock changes to commit."
+          else
+            git commit -m "Lock AEGIS v9.0 production baseline"
+            git push origin HEAD:main
+          fi
+
+          echo "LOCK_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Verify live Render v9.0 without sportsbook refresh
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BASE="https://aegis-sports-command-center.onrender.com"
+          TARGET_COMMIT="${LOCK_COMMIT:-$(git rev-parse HEAD)}"
+          echo "Target commit: $TARGET_COMMIT"
+
+          ok=0
+          for i in $(seq 1 24); do
+            echo "Live verification attempt $i/24"
+            health="$(curl -fsS --max-time 30 "$BASE/api/health" 2>/dev/null || true)"
+            home="$(curl -fsS --max-time 30 "$BASE/" 2>/dev/null || true)"
+
+            if [ -n "$health" ]; then
+              if HEALTH="$health" TARGET="$TARGET_COMMIT" node -e 'const h=JSON.parse(process.env.HEALTH); const target=process.env.TARGET; const release=h.release_version||h.version||(h.release&&h.release.version); const engine=h.engine_version||(h.engine&&h.engine.version); const commit=h.git_commit||h.commit||h.render_git_commit||(h.release&&h.release.git_commit)||null; const persistent=Boolean((h.storage&&h.storage.persistent) ?? h.persistent_storage ?? (h.persistence&&h.persistence.persistent)); const autopilot=Boolean((h.autopilot&&h.autopilot.enabled) ?? (h.operations&&h.operations.autopilot_enabled)); const redundancy=(h.operations&&h.operations.scheduler_redundancy)||h.scheduler_redundancy||null; if(release!=="9.0.0")process.exit(10); if(engine!=="8.8.0-decision-intelligence")process.exit(11); if(!persistent)process.exit(12); if(!autopilot)process.exit(13); if(!redundancy)process.exit(14); if(commit&&target&&!String(commit).startsWith(String(target).slice(0,7)))process.exit(15);'; then
+                rc=0
+              else
+                rc=$?
+              fi
+              if [ "$rc" -eq 0 ] && printf '%s' "$home" | grep -qF "v9.0 • PRODUCTION LOCK"; then
+                ok=1
+                break
+              fi
+            fi
+
+            sleep 10
+          done
+
+          if [ "$ok" -ne 1 ]; then
+            echo "Live Render did not reach the verified v9.0 production-lock identity in time."
+            exit 1
+          fi
+
+          echo "Live v9.0 verification: PASS"
+          echo "No Autopilot tick, heartbeat recovery, sportsbook refresh, or Supabase mutation was invoked by this verification."
+
+      - name: Tag verified production baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git fetch --tags origin
+
+          current="$(git rev-parse HEAD)"
+          existing="$(git rev-list -n 1 v9.0.0 2>/dev/null || true)"
+
+          if [ -n "$existing" ]; then
+            if [ "$existing" != "$current" ]; then
+              echo "Tag v9.0.0 already exists on a different commit."
+              exit 1
+            fi
+            echo "v9.0.0 tag already points to this production baseline."
+          else
+            git tag -a v9.0.0 -m "AEGIS v9.0 Production Lock"
+            git push origin v9.0.0
+            echo "Created production baseline tag v9.0.0"
+          fi
+
+      - name: Production lock summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "### AEGIS v9.0 Production Lock"
+            echo
+            echo "✅ Full AEGIS validation passed"
+            echo
+            echo "✅ One-time installer/diagnostic workflows removed"
+            echo
+            echo "✅ Permanent Production CI installed"
+            echo
+            echo "✅ Production baseline + recovery runbook added"
+            echo
+            echo "✅ Frozen betting engine preserved at 8.8.0-decision-intelligence"
+            echo
+            echo "✅ Automatic release sports remain MLB/NCAAF"
+            echo
+            echo "✅ Live Render v9.0 verified with GET-only health checks"
+            echo
+            echo "✅ Production baseline tagged v9.0.0"
+            echo
+            echo "Next major milestone: v9.1 Data Scale & Provider Independence"
+          } >> "$GITHUB_STEP_SUMMARY"
