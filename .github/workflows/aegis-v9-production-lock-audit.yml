@@ -1,0 +1,167 @@
+name: AEGIS v9.0 Production Lock Audit
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run full AEGIS validation
+        run: |
+          set -euo pipefail
+          npm run check
+
+      - name: Build production lock audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPORT="AEGIS-v9.0-PRODUCTION-LOCK-AUDIT.md"
+
+          {
+            echo "# AEGIS v9.0 Production Lock Audit"
+            echo
+            echo "Generated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            echo "Commit: $(git rev-parse HEAD)"
+            echo
+            echo "## Release identity"
+            echo
+            echo "- package version: \`$(node -p \"require('./package.json').version\")\`"
+            if grep -Rqs "8.8.0-decision-intelligence" . --exclude-dir=node_modules --exclude="$REPORT"; then
+              echo "- frozen engine identity: \`8.8.0-decision-intelligence\` detected"
+            else
+              echo "- frozen engine identity: NOT FOUND"
+            fi
+            echo
+            echo "## Workflow inventory"
+            if [ -d .github/workflows ]; then
+              find .github/workflows -maxdepth 1 -type f -printf '%f\n' | sort | sed 's/^/- /'
+            else
+              echo "- No workflow directory found"
+            fi
+            echo
+            echo "## Core production files"
+            for f in server.js render.yaml src/store.js src/autopilot.js src/heartbeat.js src/operations.js package.json README.md; do
+              if [ -f "$f" ]; then echo "- $f: PRESENT"; else echo "- $f: MISSING"; fi
+            done
+            echo
+            echo "## Reliability markers"
+            for pair in \
+              "True failover|ignoreInFlight:true" \
+              "Persistence hardening|AEGIS_PERSISTENCE_HARDENING_V1" \
+              "Status canonicalization|last_success_source" \
+              "Heartbeat endpoint|/api/autopilot/heartbeat" \
+              "Autopilot endpoint|/api/autopilot/tick"; do
+              label="${pair%%|*}"
+              pat="${pair#*|}"
+              if grep -RqsF "$pat" server.js src 2>/dev/null; then echo "- $label: PRESENT"; else echo "- $label: NOT FOUND"; fi
+            done
+            echo
+            echo "## Render configuration keys"
+            if [ -f render.yaml ]; then
+              grep -E '^[[:space:]]*-[[:space:]]*key:' render.yaml \
+                | sed -E 's/^[[:space:]]*-[[:space:]]*key:[[:space:]]*/- /' \
+                | sort -u || true
+            fi
+            echo
+            echo "## Release-sport guards"
+            grep -RInE 'AEGIS_RELEASE_SPORTS|MLB,NCAAF|MLB, NCAAF' render.yaml server.js src public 2>/dev/null \
+              | head -40 | sed 's/^/- /' || true
+            echo
+            echo "## Persistence safety"
+            if grep -q "AEGIS_PERSISTENCE_HARDENING_V1" src/store.js 2>/dev/null; then
+              echo "- bounded market-history hot state: PRESENT"
+            else
+              echo "- bounded market-history hot state: NOT FOUND"
+            fi
+            if grep -q "const persisted=await supabaseSave(next)" src/store.js 2>/dev/null; then
+              echo "- memory advances only after persistent save: PRESENT"
+            else
+              echo "- memory-after-persistent-save guard: NOT FOUND"
+            fi
+            echo
+            echo "## Public-secret exposure scan"
+            suspicious=0
+            if grep -RInE '(SUPABASE_(SERVICE|SECRET)|AEGIS_(AUTOPILOT|HEARTBEAT|SESSION)_SECRET|ODDS_API_KEY|CFBD_API_KEY)[[:space:]]*[:=][[:space:]]*[\"'\'''][^\"'\''']{8,}' public src 2>/dev/null; then
+              suspicious=1
+            fi
+            if [ "$suspicious" -eq 0 ]; then
+              echo "- no obvious hard-coded production secret literals detected in public/src scan"
+            else
+              echo "- WARNING: possible hard-coded secret literal detected; inspect before v9.0"
+            fi
+            echo
+            echo "## One-time workflow candidates"
+            if [ -d .github/workflows ]; then
+              find .github/workflows -maxdepth 1 -type f -printf '%f\n' \
+                | grep -Ei 'apply-|diagnostic|upgrade|patch|hotfix|installer|v8-|v8_' \
+                | sort | sed 's/^/- /' || true
+            fi
+            echo
+            echo "## Long-lived workflow candidates"
+            if [ -d .github/workflows ]; then
+              find .github/workflows -maxdepth 1 -type f -printf '%f\n' \
+                | grep -Evi 'apply-|diagnostic|upgrade|patch|hotfix|installer|v8-|v8_' \
+                | sort | sed 's/^/- /' || true
+            fi
+            echo
+            echo "## UI/version references"
+            grep -RInE 'v8\.9\.|STATUS SYNC|TRUE FAILOVER|release_version|engine_version' \
+              public server.js src package.json README.md 2>/dev/null \
+              | head -80 | sed 's/^/- /' || true
+            echo
+            echo "## Git cleanliness"
+            if git diff --quiet && git diff --cached --quiet; then
+              echo "- working tree clean after audit"
+            else
+              echo "- WARNING: audit changed working tree"
+            fi
+            echo
+            echo "## Validation"
+            echo "- \`npm run check\`: PASS"
+            echo
+            echo "## v9.0 audit result"
+            echo "- Repository was inspected read-only."
+            echo "- No sportsbook endpoint was called."
+            echo "- No Supabase state was written."
+            echo "- No deployment or production mutation was performed."
+          } > "$REPORT"
+
+          cat "$REPORT"
+
+          echo "### AEGIS v9.0 Production Lock Audit" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Commit:** \`$(git rev-parse --short HEAD)\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Full validation:** PASS" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "#### One-time workflow candidates" >> "$GITHUB_STEP_SUMMARY"
+          find .github/workflows -maxdepth 1 -type f -printf '%f\n' 2>/dev/null \
+            | grep -Ei 'apply-|diagnostic|upgrade|patch|hotfix|installer|v8-|v8_' \
+            | sort | sed 's/^/- `/' | sed 's/$/`/' >> "$GITHUB_STEP_SUMMARY" || true
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Audit artifact: \`AEGIS-v9.0-PRODUCTION-LOCK-AUDIT.md\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload production lock audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: aegis-v9-production-lock-audit
+          path: AEGIS-v9.0-PRODUCTION-LOCK-AUDIT.md
+          if-no-files-found: error
+          retention-days: 14
