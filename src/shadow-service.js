@@ -102,6 +102,97 @@ function archiveIntoState(state, sport, candidate) {
   return { archived: true, duplicate: false, archive: candidate };
 }
 
+function numberOrNull(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function jsonValue(value, fallback = null) {
+  if (value == null) return fallback;
+  return JSON.parse(JSON.stringify(value));
+}
+
+function marketSnapshot(record) {
+  const price = record.market?.current_price || {};
+  const disagreement = record.governance?.disagreement_firewall || {};
+  const row = {
+    captured_at: record.governance?.pipeline_timestamps?.market_captured_at,
+    snapshot_target: record.market?.snapshot_target || null,
+    consensus_spread: numberOrNull(price.spread?.home?.point ?? price.home_spread ?? price.spread),
+    consensus_total: numberOrNull(price.total?.point ?? price.total_line ?? price.total),
+    selected_book_prices: jsonValue(price, {}),
+    bookmaker_count: numberOrNull(price.bookmaker_count),
+    challenger_margin: numberOrNull(record.market?.challenger_projection?.margin),
+    challenger_total: numberOrNull(record.market?.challenger_projection?.total),
+    calibrated_margin: numberOrNull(record.market?.post_model_projection?.margin),
+    calibrated_total: numberOrNull(record.market?.post_model_projection?.total),
+    disagreement_points: numberOrNull(disagreement.disagreement_points),
+    firewall_status: disagreement.status || 'UNKNOWN',
+    best_market_expression: jsonValue(record.decision?.best_market_expression),
+    execution_status: record.decision?.execution_status || 'PASS',
+    quota: jsonValue(record.market?.quota)
+  };
+  row.snapshot_sha256 = sha256(canonicalJson(row));
+  return row;
+}
+
+function marketMovement(snapshots = []) {
+  if (!snapshots.length) return null;
+  const first = snapshots[0], current = snapshots[snapshots.length - 1];
+  const disagreements = snapshots.map(row => numberOrNull(row.disagreement_points)).filter(value => value != null);
+  const firewallStates = snapshots.map(row => row.firewall_status || 'UNKNOWN');
+  const firstDisagreement = disagreements.length ? disagreements[0] : null;
+  const currentDisagreement = disagreements.length ? disagreements[disagreements.length - 1] : null;
+  const disagreementMovement = firstDisagreement == null || currentDisagreement == null ? null : currentDisagreement - firstDisagreement;
+  return {
+    snapshot_count: snapshots.length,
+    first_captured_at: first.captured_at,
+    current_captured_at: current.captured_at,
+    first_spread: numberOrNull(first.consensus_spread),
+    current_spread: numberOrNull(current.consensus_spread),
+    spread_movement: numberOrNull(first.consensus_spread) == null || numberOrNull(current.consensus_spread) == null ? null : current.consensus_spread - first.consensus_spread,
+    first_total: numberOrNull(first.consensus_total),
+    current_total: numberOrNull(current.consensus_total),
+    total_movement: numberOrNull(first.consensus_total) == null || numberOrNull(current.consensus_total) == null ? null : current.consensus_total - first.consensus_total,
+    first_disagreement: firstDisagreement,
+    current_disagreement: currentDisagreement,
+    maximum_disagreement: disagreements.length ? Math.max(...disagreements) : null,
+    minimum_disagreement: disagreements.length ? Math.min(...disagreements) : null,
+    disagreement_movement: disagreementMovement,
+    disagreement_direction: disagreementMovement == null || disagreementMovement === 0 ? 'UNCHANGED' : disagreementMovement < 0 ? 'COMPRESSION' : 'EXPANSION',
+    model_vs_market_convergence: disagreementMovement == null ? null : disagreementMovement < 0,
+    model_vs_market_divergence: disagreementMovement == null ? null : disagreementMovement > 0,
+    firewall_state_changes: firewallStates.slice(1).reduce((count, value, index) => count + (value !== firewallStates[index] ? 1 : 0), 0),
+    firewall_states: firewallStates
+  };
+}
+
+function normalizeLegacySnapshot(snapshot, existing) {
+  if (!snapshot || snapshot.snapshot_sha256) return snapshot;
+  const price = snapshot.current_price || {};
+  const challenger = snapshot.challenger_projection || {};
+  const margin = numberOrNull(existing?.projection?.margin), total = numberOrNull(existing?.projection?.total);
+  const marginDisagreement = margin == null || numberOrNull(challenger.margin) == null ? null : Math.abs(margin - Number(challenger.margin));
+  const totalDisagreement = total == null || numberOrNull(challenger.total) == null ? null : Math.abs(total - Number(challenger.total));
+  const disagreementPoints = Math.max(marginDisagreement ?? 0, totalDisagreement ?? 0);
+  const firewallStatus = disagreementPoints >= 7 ? 'PASS' : disagreementPoints >= 5 ? 'SECONDARY_MAX' : disagreementPoints >= 3 ? 'CORE_BLOCK' : 'NORMAL';
+  const row = {
+    captured_at: snapshot.captured_at,
+    snapshot_target: snapshot.snapshot_target || null,
+    consensus_spread: numberOrNull(price.spread?.home?.point ?? price.home_spread ?? price.spread),
+    consensus_total: numberOrNull(price.total?.point ?? price.total_line ?? price.total),
+    selected_book_prices: jsonValue(price, {}),
+    bookmaker_count: numberOrNull(price.bookmaker_count),
+    challenger_margin: numberOrNull(challenger.margin), challenger_total: numberOrNull(challenger.total),
+    calibrated_margin: numberOrNull(snapshot.post_model_projection?.margin), calibrated_total: numberOrNull(snapshot.post_model_projection?.total),
+    disagreement_points: disagreementPoints,
+    firewall_status: firewallStatus,
+    best_market_expression: null, execution_status: 'PASS', quota: null
+  };
+  row.snapshot_sha256 = sha256(canonicalJson(row));
+  return row;
+}
+
 async function archiveBlind(input = {}) {
   const sport = input.sport || grading.NFL;
   assertShadowEnabled(sport);
@@ -153,16 +244,23 @@ async function ingest({ sport, engine_output: engineOutput, game, market, publis
       const existingMarketAt = existing.governance?.pipeline_timestamps?.market_captured_at;
       if (blindAt !== existingBlindAt) throw new Error('Existing NFL blind projection is immutable; reuse it for later market snapshots');
       if (Date.parse(marketAt || '') < Date.parse(existingMarketAt || '')) throw new Error('NFL market snapshots must be chronological');
-      if (marketAt === existingMarketAt) return { saved: false, duplicate: true, persistent: store.persistent, record: existing };
     }
-    const snapshot = {
-      captured_at: marketAt,
-      challenger_projection: record.market?.challenger_projection || {},
-      current_price: record.market?.current_price || {},
-      post_model_projection: record.market?.post_model_projection || {}
-    };
-    record.market_snapshots = [...(existing?.market_snapshots || []), snapshot].slice(-80);
+    const snapshot = marketSnapshot(record);
+    if (existing && marketAt === existing.governance?.pipeline_timestamps?.market_captured_at) {
+      const latest = existing.market_snapshots?.[existing.market_snapshots.length - 1];
+      if (latest?.snapshot_sha256 === snapshot.snapshot_sha256) return { saved: false, duplicate: true, persistent: store.persistent, record: existing };
+      const legacySame = latest && !latest.snapshot_sha256
+        && canonicalJson(latest.challenger_projection || {}) === canonicalJson(record.market?.challenger_projection || {})
+        && canonicalJson(latest.current_price || {}) === canonicalJson(record.market?.current_price || {})
+        && canonicalJson(latest.post_model_projection || {}) === canonicalJson(record.market?.post_model_projection || {});
+      if (legacySame) return { saved: false, duplicate: true, persistent: store.persistent, record: existing };
+      throw new Error('NFL market snapshot timestamp already exists with different content');
+    }
+    const history = (existing?.market_snapshots || []).map(row => normalizeLegacySnapshot(row, existing));
+    record.market_snapshots = [...history, snapshot].slice(-80);
+    record.market_movement = marketMovement(record.market_snapshots);
     if (existing?.shadow_grade) record.shadow_grade = existing.shadow_grade;
+    if (existing?.shadow_grade_history) record.shadow_grade_history = existing.shadow_grade_history;
     games[record.game_id] = record;
     state.shadow_engines.audit.push({
       recorded_at: record.recorded_at,
@@ -214,11 +312,24 @@ async function gradeMany({ sport, results = [], source = 'nfl-shadow-grader' } =
       try {
         if (!gameId) throw new Error('Shadow grading result requires game_id');
         if (!games[gameId]) { skipped.push({ game_id: gameId, reason: 'NO_SHADOW_RECORD' }); continue; }
-        const grade = grading.gradeNFL(games[gameId], { ...supplied, source: supplied.source || source });
+        const normalized = { ...supplied, source: supplied.source || source };
+        const resultFingerprint = grading.resultFingerprint(normalized);
+        const prior = games[gameId].shadow_grade;
+        if (prior?.result_fingerprint === resultFingerprint) {
+          skipped.push({ game_id: gameId, reason: 'ALREADY_GRADED' });
+          continue;
+        }
+        const grade = grading.gradeNFL(games[gameId], normalized);
+        grade.result_fingerprint = resultFingerprint;
+        grade.grade_revision = prior ? Number(prior.grade_revision || 1) + 1 : 1;
+        if (prior) {
+          grade.supersedes_result_fingerprint = prior.result_fingerprint || null;
+          games[gameId].shadow_grade_history = [...(games[gameId].shadow_grade_history || []), prior].slice(-20);
+        }
         games[gameId].shadow_grade = grade;
-        graded.push({ game_id: gameId, grade });
+        graded.push({ game_id: gameId, grade, revised: !!prior });
         state.shadow_engines.audit.push({
-          recorded_at: grade.graded_at, sport, game_id: gameId, event: 'SHADOW_GRADED',
+          recorded_at: grade.graded_at, sport, game_id: gameId, event: prior ? 'SHADOW_GRADE_REVISED' : 'SHADOW_GRADED',
           classification: grade.aegis_postgame_classification, release_status: 'SHADOW_ONLY', official_bankroll_eligible: false
         });
       } catch (error) {
@@ -264,4 +375,19 @@ async function scoreboard({ sport = grading.NFL } = {}) {
   return grading.summarize(games, errors);
 }
 
-module.exports = { SPORT_FLAGS, NFL_CHAMPION, assertShadowEnabled, sanitizeRecord, prepareBlindArchive, archiveIntoState, archiveBlind, archiveMany, listBlinds, ingest, recordError, gradeMany, list, audit, scoreboard };
+async function schedulerState({ sport = grading.NFL } = {}) {
+  const state = await store.load();
+  const archives = state.shadow_engines?.blind_snapshots?.[sport] || {};
+  const games = Object.values(state.shadow_engines?.games?.[sport] || {}).map(game => ({
+    game_id: game.game_id,
+    start_time: game.start_time,
+    blind_archived: !!archives[game.game_id],
+    blind_generated_at: game.governance?.pipeline_timestamps?.blind_generated_at || null,
+    market_snapshots: (game.market_snapshots || []).map(row => ({ captured_at: row.captured_at, snapshot_target: row.snapshot_target || null })),
+    graded: !!game.shadow_grade,
+    completed_at: game.shadow_grade?.completed_at || null
+  }));
+  return { sport, shadow_only: true, current_champion: NFL_CHAMPION, games };
+}
+
+module.exports = { SPORT_FLAGS, NFL_CHAMPION, assertShadowEnabled, sanitizeRecord, prepareBlindArchive, archiveIntoState, archiveBlind, archiveMany, listBlinds, marketSnapshot, marketMovement, ingest, recordError, gradeMany, list, audit, scoreboard, schedulerState };

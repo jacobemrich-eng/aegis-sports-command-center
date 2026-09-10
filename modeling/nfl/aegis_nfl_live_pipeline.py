@@ -362,7 +362,7 @@ def _candidate(name: str, market_type: str, point: float, price: float, probabil
     return {"name": name, "selection": name, "market_type": market_type, "point": point, "odds": price, "book": book, "fair_probability": probability, "implied_probability": implied, "ev": ev}
 
 
-def build_market_input(blind: Mapping[str, object], event: dict, captured_at: datetime, previous: Optional[Mapping[str, object]] = None) -> Dict[str, object]:
+def build_market_input(blind: Mapping[str, object], event: dict, captured_at: datetime, previous: Optional[Mapping[str, object]] = None, snapshot_target: Optional[str] = None) -> Dict[str, object]:
     game = blind["game"]
     home_name, away_name = event["home_team"], event["away_team"]
     spreads, totals, h2h = _market_outcomes(event, "spreads"), _market_outcomes(event, "totals"), _market_outcomes(event, "h2h")
@@ -400,7 +400,8 @@ def build_market_input(blind: Mapping[str, object], event: dict, captured_at: da
     }
     prior_current = (previous or {}).get("current_price", {})
     return {
-        "captured_at": iso(captured_at), "challenger_projection": {"margin": -home_line, "total": total_line},
+        "captured_at": iso(captured_at), "snapshot_target": snapshot_target,
+        "challenger_projection": {"margin": -home_line, "total": total_line},
         "current_price": current, "best_market_expression": best, "decision_status": status,
         "execution_status": execution, "implied_probability": best["implied_probability"],
         "fair_probability": best["fair_probability"], "ev": best["ev"], "play_to": best["point"],
@@ -504,7 +505,8 @@ def settled_results(season: int) -> List[Dict[str, object]]:
                 continue
             results.append({
                 "game_id": str(row["game_id"]), "home_score": home, "away_score": away,
-                "completed_at": iso(max(utc_now(), schedule_kickoff(row) + timedelta(hours=4))),
+                # A stable provider representation keeps repeat grading idempotent.
+                "completed_at": iso(schedule_kickoff(row) + timedelta(hours=6)),
                 "closing_market": {
                     "home_spread": None if row.get("spread_line") is None else -float(row["spread_line"]),
                     "total": None if row.get("total_line") is None else float(row["total_line"]),
@@ -535,6 +537,7 @@ def main() -> int:
     parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT))
     parser.add_argument("--pregame-context", help="Optional JSON object keyed by game id; every entry requires a pre-prediction known_at")
     parser.add_argument("--mode", choices=["project", "grade", "all"], default="all")
+    parser.add_argument("--selection-file", help="Scheduler preflight JSON; restricts project work and snapshot targets")
     parser.add_argument("--publish", action="store_true", help="POST to shadow endpoints; default is a local dry run")
     parser.add_argument("--endpoint", default=os.getenv("AEGIS_SHADOW_ENDPOINT", ""))
     parser.add_argument("--bookmakers", default=os.getenv("ODDS_BOOKMAKERS", ""))
@@ -543,6 +546,9 @@ def main() -> int:
     output_dir = Path(args.output_dir)
     report: Dict[str, object] = {"mode": args.mode, "publish": args.publish, "season": args.season, "shadow_only": True}
     try:
+        selection = json.loads(Path(args.selection_file).read_text(encoding="utf-8")) if args.selection_file else {}
+        selected_ids = set(map(str, selection.get("project_games", []))) if args.selection_file else None
+        snapshot_targets = {str(key): str(value) for key, value in selection.get("snapshot_targets", {}).items()}
         if args.publish:
             readiness = verify_staging_readiness(args.endpoint, token)
             output_dir.mkdir(parents=True, exist_ok=True)
@@ -560,13 +566,19 @@ def main() -> int:
             report["blind_hydration"] = hydrate(output_dir / "blind", args.endpoint, token)
         if args.mode in {"project", "all"}:
             now = utc_now()
-            games = upcoming_schedule(args.season, args.lookahead_days, now)[:args.max_games]
+            games = upcoming_schedule(args.season, args.lookahead_days, now)
+            if selected_ids is not None:
+                games = [game for game in games if str(game["id"]) in selected_ids]
+            games = games[:args.max_games]
             if games:
                 contexts = json.loads(Path(args.pregame_context).read_text(encoding="utf-8")) if args.pregame_context else {}
                 if not isinstance(contexts, dict):
                     raise ValueError("--pregame-context must contain a JSON object keyed by game id")
-                model = V10LiveModel(args.start_season, args.season, args.cache_dir, now)
-                model.prepare()
+                missing_blinds = [game for game in games if not (output_dir / "blind" / f"{game['id']}.json").exists()]
+                model = None
+                if missing_blinds:
+                    model = V10LiveModel(args.start_season, args.season, args.cache_dir, now)
+                    model.prepare()
 
                 def markets(blinds: List[Dict[str, object]]) -> Mapping[str, Dict[str, object]]:
                     events, quota = odds_snapshot(os.getenv("ODDS_API_KEY", ""), args.bookmakers)
@@ -579,12 +591,16 @@ def main() -> int:
                         game_id = str(blind["game"]["id"])
                         previous_path = output_dir / "market" / f"{game_id}.json"
                         previous = json.loads(previous_path.read_text()) if previous_path.exists() else None
-                        out[game_id] = build_market_input(blind, _event_for(blind["game"], events), captured, previous)
+                        out[game_id] = build_market_input(
+                            blind, _event_for(blind["game"], events), captured, previous,
+                            snapshot_target=snapshot_targets.get(game_id),
+                        )
                         out[game_id]["quota"] = quota
                     return out
 
                 result = process_slate(
-                    games, lambda game: model.predict(game, contexts.get(str(game["id"]), {})), markets,
+                    games,
+                    lambda game: model.predict(game, contexts.get(str(game["id"]), {})) if model else (_ for _ in ()).throw(RuntimeError("Archived blind unexpectedly missing")),
                     (lambda envelope: publish(envelope, args.endpoint, token)) if args.publish else (lambda envelope: {"dry_run": True, "release_status": "SHADOW_ONLY"}),
                     output_dir,
                     lambda row: post_shadow_error(args.endpoint, token, row) if args.publish else None,

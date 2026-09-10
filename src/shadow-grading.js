@@ -1,5 +1,7 @@
 'use strict';
 
+const { canonicalJson, sha256 } = require('./shadow-integrity');
+
 const NFL = 'americanfootball_nfl';
 const AUDIT_LABELS = new Set([
   'clean thesis win',
@@ -86,6 +88,16 @@ function classification({ selected, firewall, marginError, marketMarginError, da
   if (selected === 'LOSS' && result.near_threshold === true) return 'near-threshold variance loss';
   if (selected === 'LOSS' && marginError != null && marketMarginError != null && marginError < marketMarginError) return 'market-selection loss';
   return 'model/thesis miss';
+}
+
+function resultFingerprint(result = {}) {
+  return sha256(canonicalJson({
+    game_id: String(result.game_id || ''),
+    home_score: finite(result.home_score),
+    away_score: finite(result.away_score),
+    completed_at: result.completed_at || null,
+    closing_market: result.closing_market || null
+  }));
 }
 
 function gradeNFL(record, result = {}, gradedAt = new Date().toISOString()) {
@@ -190,16 +202,36 @@ function summarize(games = [], errors = []) {
     const key = game.governance?.disagreement_firewall?.status || 'UNKNOWN';
     out[key] = (out[key] || 0) + 1; return out;
   }, {});
+  const firewall_performance = {};
+  for (const game of graded) {
+    const key = game.shadow_grade.firewall_classification || 'UNKNOWN';
+    const row = firewall_performance[key] || (firewall_performance[key] = { games: 0, margin_errors: [], total_errors: [], selected_expression_record: {} });
+    row.games += 1;
+    row.margin_errors.push(game.shadow_grade.blind_margin_error);
+    row.total_errors.push(game.shadow_grade.blind_total_error);
+    const selected = game.shadow_grade.selected_expression_outcome;
+    if (selected) row.selected_expression_record[selected] = (row.selected_expression_record[selected] || 0) + 1;
+  }
+  for (const row of Object.values(firewall_performance)) {
+    row.margin_mae = mean(row.margin_errors); row.total_mae = mean(row.total_errors);
+    delete row.margin_errors; delete row.total_errors;
+  }
+  const data_quality_grades = graded.reduce((out, game) => {
+    const key = game.shadow_grade.data_quality_state || 'UNKNOWN';
+    out[key] = (out[key] || 0) + 1; return out;
+  }, {});
   const summary = {
     shadow_only: true,
     research_only: true,
     current_champion: 'NFL_v1.0_FEATURE_ABLATION',
     historical_predecessor: 'NFL_v0.8_FEATURE_HYGIENE',
+    market_challenger: 'NFL_v0.9_MARKET_CHALLENGER_CALIBRATION',
     live_shadow_games: games.filter(game => !game.shadow_grade).length,
     graded_games: graded.length,
     margin_mae: metric('blind_margin_error'), total_mae: metric('blind_total_error'),
     post_market_margin_mae: metric('post_market_margin_error'), post_market_total_mae: metric('post_market_total_error'),
     market_margin_mae: metric('market_margin_error'), market_total_mae: metric('market_total_error'),
+    closing_market_margin_mae: metric('closing_market_margin_error'), closing_market_total_mae: metric('closing_market_total_error'),
     cover_brier: metric('cover_brier'), over_brier: metric('over_brier'),
     ats_record: recordTally(graded, 'home_ats_outcome'), total_record: recordTally(graded, 'total_outcome'),
     selected_expression_record: recordTally(graded, 'selected_expression_outcome'),
@@ -207,12 +239,22 @@ function summarize(games = [], errors = []) {
     mean_total_clv: mean(graded.map(game => game.shadow_grade.clv?.total_points)),
     disagreement_buckets: buckets,
     firewall_counts,
+    firewall_bucket_performance: firewall_performance,
+    model_vs_market_error_wins: {
+      margin: graded.filter(game => game.shadow_grade.model_beat_market_on_margin_error === true).length,
+      total: graded.filter(game => game.shadow_grade.model_beat_market_on_total_error === true).length
+    },
+    data_quality_grades,
     shadow_errors: errors.length,
     automatic_promotion_allowed: false
   };
+  summary.blind_margin_mae = summary.margin_mae;
+  summary.calibrated_margin_mae = summary.post_market_margin_mae;
+  summary.blind_total_mae = summary.total_mae;
+  summary.calibrated_total_mae = summary.post_market_total_mae;
   summary.monitoring_state = monitoringState(summary);
   summary.sample_warning = summary.graded_games < 100 ? `Only ${summary.graded_games}/100 minimum monitoring games are graded. No promotion inference is permitted.` : null;
   return summary;
 }
 
-module.exports = { NFL, finite, absoluteError, binaryOutcome, gradeNFL, summarize, monitoringState };
+module.exports = { NFL, finite, absoluteError, binaryOutcome, resultFingerprint, gradeNFL, summarize, monitoringState };

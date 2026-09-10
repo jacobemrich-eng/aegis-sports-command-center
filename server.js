@@ -413,9 +413,15 @@ if(req.method==='POST'&&u.pathname==='/api/autopilot/heartbeat'){
         release_sports:autopilot.config.RELEASE_SPORTS,
         sport_engine_flags:flags,
         persistence:{ok:!!storage.ok,persistent:!!storage.persistent,backend:storage.backend,key_mode:storage.key_mode||'none'},
-        endpoints:{ingest:true,grading:true,error_log:true},
+        endpoints:{ingest:true,grading:true,error_log:true,blind_archive:true,scheduler_state:true},
         failures
       });
+    }
+
+    if(req.method==='GET'&&u.pathname==='/api/shadow/scheduler-state'){
+      if(!DEPLOYMENT_IDENTITY.nfl_shadow_staging)return send(res,404,{error:'NFL scheduler state is available only in shadow staging.'});
+      if(!validShadowIngest(req))return send(res,401,{error:'NFL scheduler state requires the ingest bearer secret.'});
+      return send(res,200,await shadow.schedulerState({sport:u.searchParams.get('sport')||'americanfootball_nfl'}));
     }
 
     if(req.method==='POST'&&u.pathname==='/api/shadow/games'){

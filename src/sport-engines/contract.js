@@ -78,7 +78,9 @@ function normalizeStandardOutput(input) {
       fair_probability: finiteOrNull(market.fair_probability),
       ev: finiteOrNull(market.ev),
       play_to: market.play_to == null ? null : market.play_to,
-      line_sensitivity: market.line_sensitivity == null ? null : market.line_sensitivity
+      line_sensitivity: market.line_sensitivity == null ? null : market.line_sensitivity,
+      snapshot_target: stringOrNull(market.snapshot_target),
+      quota: market.quota == null ? null : object(market.quota)
     },
     decision: {
       best_market_expression: decision.best_market_expression == null ? null : decision.best_market_expression,
