@@ -17,6 +17,7 @@ process.env.AEGIS_NEW_ENGINE_AUTO_RELEASE = 'false';
 const store = require('../src/store');
 const shadow = require('../src/shadow-service');
 const grading = require('../src/shadow-grading');
+const integrity = require('../src/shadow-integrity');
 
 function output(generatedAt = '2026-09-10T12:00:00Z') {
   return {
@@ -63,6 +64,21 @@ test('duplicate snapshots are idempotent and the first blind projection is immut
     shadow.ingest({ sport: grading.NFL, engine_output: output('2026-09-10T13:00:00Z'), market: market('2026-09-10T13:02:00Z') }),
     /blind projection is immutable/
   );
+});
+
+test('durable blind archive is exact, idempotent, and immutable', async () => {
+  const archivedOutput = output(); archivedOutput.game = { ...archivedOutput.game, id: '2026_01_ARCHIVE_TEST' };
+  const raw = `${JSON.stringify(archivedOutput, null, 2)}\n`;
+  const first = await shadow.archiveBlind({
+    sport: grading.NFL, blind_json: raw,
+    original_file_sha256: integrity.sha256(raw)
+  });
+  assert.equal(first.archive.original_file_sha256, integrity.sha256(raw));
+  assert.equal(first.archive.canonical_sha256, integrity.sha256(integrity.canonicalJson(archivedOutput)));
+  const same = await shadow.archiveBlind({ sport: grading.NFL, blind_json: raw, original_file_sha256: integrity.sha256(raw) });
+  assert.equal(same.duplicate, true);
+  const changed = JSON.parse(JSON.stringify(archivedOutput)); changed.projection.mean_total = 48;
+  await assert.rejects(shadow.archiveBlind({ sport: grading.NFL, engine_output: changed }), /content is immutable/);
 });
 
 test('direct API adapter path rejects postgame and future fields even when feature names look safe', async () => {
@@ -129,4 +145,6 @@ test('server exposes protected shadow grade/error routes and read-only scoreboar
   assert.match(source, /POST'&&u\.pathname==='\/api\/shadow\/grade'[\s\S]+validShadowIngest/);
   assert.match(source, /POST'&&u\.pathname==='\/api\/shadow\/errors'[\s\S]+validShadowIngest/);
   assert.match(source, /GET'&&u\.pathname==='\/api\/shadow\/scoreboard'/);
+  assert.match(source, /GET'&&u\.pathname==='\/api\/shadow\/blinds'/);
+  assert.match(source, /POST'&&u\.pathname==='\/api\/shadow\/blinds\/backfill'/);
 });

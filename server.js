@@ -375,6 +375,21 @@ if(req.method==='POST'&&u.pathname==='/api/autopilot/heartbeat'){
     // Simulator ingestion is isolated from the production scan/release route.
     // A challenger bearer token or authenticated operator may write shadow data,
     // but the service always strips Final Card and bankroll eligibility.
+    if(req.method==='GET'&&u.pathname==='/api/shadow/blinds'){
+      if(!DEPLOYMENT_IDENTITY.nfl_shadow_staging)return send(res,404,{error:'NFL blind archive is available only in shadow staging.'});
+      if(!validShadowIngest(req)&&!(ACCESS_PIN&&validSession(req)))return send(res,401,{error:'Shadow blind archive authorization failed.'});
+      return send(res,200,await shadow.listBlinds({sport:u.searchParams.get('sport')||'americanfootball_nfl',game_id:u.searchParams.get('game_id')||null}));
+    }
+
+    if(req.method==='POST'&&u.pathname==='/api/shadow/blinds/backfill'){
+      if(!DEPLOYMENT_IDENTITY.nfl_shadow_staging)return send(res,404,{error:'NFL blind backfill is available only in shadow staging.'});
+      if(!validShadowIngest(req))return send(res,401,{error:'Shadow blind backfill requires the ingest bearer secret.'});
+      if(!rateLimit(req,res,'shadow-blind-backfill',12))return;
+      const body=JSON.parse(await readBody(req)||'{}');
+      try{return send(res,200,{ok:true,...await shadow.archiveMany(body)});}
+      catch(e){return send(res,400,{error:e.message||'Shadow blind backfill rejected.',shadow_saved:false,production_fallback:true});}
+    }
+
     if(req.method==='GET'&&u.pathname==='/api/shadow/readiness'){
       if(!validShadowIngest(req)&&!(ACCESS_PIN&&validSession(req)))return send(res,401,{error:'Shadow readiness authorization failed.'});
       const storage=await store.health(),auto=await safeStatus(),flags=sportEngineFlags();

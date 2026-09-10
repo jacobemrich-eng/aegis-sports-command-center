@@ -22,7 +22,7 @@ function freshState(){
     market_history: {},
     tier_history: [],
     alerts: [],
-    shadow_engines: { games: {}, audit: [], errors: [] },
+    shadow_engines: { games: {}, blind_snapshots: {}, audit: [], errors: [] },
     autopilot: {
       enabled: true,
       last_tick_at: null,
@@ -51,6 +51,7 @@ function normalizeState(s){
     alerts: Array.isArray(out.alerts)?out.alerts:[],
     shadow_engines: {
       games: (out.shadow_engines&&typeof out.shadow_engines.games==='object')?out.shadow_engines.games:{},
+      blind_snapshots: (out.shadow_engines&&typeof out.shadow_engines.blind_snapshots==='object')?out.shadow_engines.blind_snapshots:{},
       audit: Array.isArray(out.shadow_engines?.audit)?out.shadow_engines.audit:[],
       errors: Array.isArray(out.shadow_engines?.errors)?out.shadow_engines.errors:[]
     },
@@ -69,6 +70,10 @@ function compactState(s){
   for(const sport of Object.keys(out.shadow_engines.games||{})){
     const rows=Object.values(out.shadow_engines.games[sport]||{}).slice(-500);
     out.shadow_engines.games[sport]=Object.fromEntries(rows.map(row=>[row.game_id,row]));
+  }
+  for(const sport of Object.keys(out.shadow_engines.blind_snapshots||{})){
+    const rows=Object.values(out.shadow_engines.blind_snapshots[sport]||{}).slice(-500);
+    out.shadow_engines.blind_snapshots[sport]=Object.fromEntries(rows.map(row=>[row.game_id,row]));
   }
   out.autopilot.transitions=(out.autopilot.transitions||[]).slice(-500);
   const mh={};

@@ -96,7 +96,7 @@ def validate_market_input(market: Dict[str, object], blind_at: datetime) -> date
     return captured_at
 
 
-def build_envelope(blind: Dict[str, object], market: Dict[str, object]) -> Dict[str, object]:
+def build_envelope(blind: Dict[str, object], market: Dict[str, object], blind_archive: Dict[str, object] | None = None) -> Dict[str, object]:
     blind_at = validate_blind_output(blind)
     market_at = validate_market_input(market, blind_at)
     return {
@@ -105,6 +105,7 @@ def build_envelope(blind: Dict[str, object], market: Dict[str, object]) -> Dict[
         "game": blind.get("game", {}),
         "market": market,
         "source": "aegis-nfl-v1.0-shadow-publisher",
+        "blind_archive": blind_archive,
         "publisher": {
             "internal_champion": INTERNAL_CHAMPION,
             "historical_predecessor": HISTORICAL_PREDECESSOR,

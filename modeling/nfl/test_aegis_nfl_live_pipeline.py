@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import json
+import hashlib
 import os
 from pathlib import Path
 import subprocess
@@ -15,6 +16,7 @@ NFL_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(NFL_DIR))
 
 from aegis_nfl_live_pipeline import _event_for, process_slate, selected_v10, validate_pregame_game
+from aegis_nfl_blind_archive import hydrate
 from aegis_nfl_shadow_publisher import (
     build_envelope,
     validate_blind_output,
@@ -166,6 +168,25 @@ class LivePipelineTests(unittest.TestCase):
             second = process_slate([game("duplicate")], should_not_run, market_for, lambda envelope: {"ok": True}, output)
             self.assertEqual(second["published_games"], 1)
             self.assertEqual(json.loads((output / "blind" / "duplicate.json").read_text()), first)
+
+    def test_empty_runner_cache_hydrates_exact_durable_blind(self):
+        original = json.dumps(blind(game("hydrated")), indent=2) + "\n"
+        canonical = json.dumps(json.loads(original), sort_keys=True, separators=(",", ":"))
+        archive = {
+            "game_id": "hydrated", "original_json": original,
+            "original_file_sha256": hashlib.sha256(original.encode()).hexdigest(),
+            "canonical_json": canonical,
+            "canonical_sha256": hashlib.sha256(canonical.encode()).hexdigest(),
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("aegis_nfl_blind_archive.fetch_archives", return_value={"count": 1, "archives": [archive]}):
+                result = hydrate(Path(directory), "https://aegis-nfl-shadow-staging.onrender.com/api/shadow/games", "token")
+            restored = Path(directory) / "hydrated.json"
+            self.assertEqual(result["restored"], ["hydrated"])
+            self.assertEqual(restored.read_bytes(), original.encode())
+            with patch("aegis_nfl_blind_archive.fetch_archives", return_value={"count": 1, "archives": [archive]}):
+                again = hydrate(Path(directory), "https://aegis-nfl-shadow-staging.onrender.com/api/shadow/games", "token")
+            self.assertEqual(again["unchanged"], ["hydrated"])
 
 
 if __name__ == "__main__":

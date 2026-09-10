@@ -174,7 +174,8 @@ test('shadow persistence is separate from official card, audit, locks, and bankr
   store.resetMemory();
   const after = await store.load();
   assert.equal(after.shadow_engines.games.americanfootball_nfl['nfl-game-1'].game_id, 'nfl-game-1');
-  assert.equal(after.shadow_engines.audit.length, 1);
+  assert.equal(after.shadow_engines.audit.filter(row => row.event === 'SHADOW_BLIND_ARCHIVED').length, 1);
+  assert.equal(after.shadow_engines.audit.filter(row => row.release_status === 'SHADOW_ONLY').length, 2);
   assert.equal(after.audit.length, 0);
   assert.equal(after.locks.length, 0);
   assert.deepEqual(after.latest_cards, {});

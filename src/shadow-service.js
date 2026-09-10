@@ -5,6 +5,10 @@ const registry = require('./sport-engines/registry');
 const { flags } = require('./sport-engines/feature-flags');
 const { POSTGAME_AUDIT_LABELS, validateStandardOutput } = require('./sport-engines/contract');
 const grading = require('./shadow-grading');
+const nflAdapter = require('./sport-engines/adapters/nfl-adapter');
+const { canonicalJson, sha256 } = require('./shadow-integrity');
+
+const NFL_CHAMPION = 'NFL_v1.0_FEATURE_ABLATION';
 
 const SPORT_FLAGS = Object.freeze({
   americanfootball_nfl: ['NFL_SIM_ENABLED', 'NFL_SIM_SHADOW_ONLY'],
@@ -37,13 +41,107 @@ function sanitizeRecord(output, recordedAt = new Date().toISOString()) {
   };
 }
 
-async function ingest({ sport, engine_output: engineOutput, game, market, publisher, source = 'nfl-simulator' } = {}) {
+function prepareBlindArchive({ sport, engine_output: engineOutput, blind_json: blindJson, original_file_sha256: originalFileSha256 } = {}) {
+  if (sport !== grading.NFL) throw new Error('Durable blind archive currently accepts NFL only');
+  let parsed = engineOutput;
+  if (blindJson != null) {
+    if (typeof blindJson !== 'string' || !blindJson.trim()) throw new Error('blind_json must be a non-empty JSON string');
+    parsed = JSON.parse(blindJson);
+    if (engineOutput && canonicalJson(engineOutput) !== canonicalJson(parsed)) throw new Error('blind_json does not match engine_output');
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('NFL engine output is required for blind archive');
+  nflAdapter.assertBlindIntegrity(parsed);
+  nflAdapter.assertBlindPayloadSeparation(parsed);
+  if (!['nfl', grading.NFL].includes(String(parsed.sport || '').toLowerCase())) throw new Error('Blind archive must declare NFL');
+  if (parsed.engine_version !== NFL_CHAMPION) throw new Error(`Blind archive requires current Champion ${NFL_CHAMPION}`);
+  const gameId = String(parsed.game?.id || parsed.game_id || '').trim();
+  if (!gameId) throw new Error('Blind archive requires game_id');
+  const generatedAt = new Date(parsed.generated_at || '');
+  if (!Number.isFinite(generatedAt.getTime())) throw new Error('Blind archive requires valid generated_at');
+  const canonical = canonicalJson(parsed);
+  const originalJson = blindJson == null ? canonical : blindJson;
+  const originalHash = sha256(originalJson);
+  if (originalFileSha256 && String(originalFileSha256).toLowerCase() !== originalHash) throw new Error('Original blind file SHA-256 mismatch');
+  return {
+    game_id: gameId,
+    generated_at: generatedAt.toISOString(),
+    engine_version: parsed.engine_version,
+    canonical_sha256: sha256(canonical),
+    original_file_sha256: originalHash,
+    canonical_json: canonical,
+    original_json: originalJson,
+    engine_output: parsed,
+    archived_at: new Date().toISOString(),
+    release_status: 'SHADOW_ONLY',
+    shadow_only: true
+  };
+}
+
+function archiveIntoState(state, sport, candidate) {
+  state.shadow_engines = state.shadow_engines || { games: {}, blind_snapshots: {}, audit: [], errors: [] };
+  state.shadow_engines.blind_snapshots = state.shadow_engines.blind_snapshots || {};
+  const archives = state.shadow_engines.blind_snapshots[sport] || (state.shadow_engines.blind_snapshots[sport] = {});
+  const persisted = state.shadow_engines.games?.[sport]?.[candidate.game_id];
+  const persistedAt = persisted?.governance?.pipeline_timestamps?.blind_generated_at;
+  if (persistedAt && new Date(persistedAt).toISOString() !== candidate.generated_at) {
+    throw new Error('Existing NFL blind projection is immutable: archive generated_at does not match persisted shadow game');
+  }
+  const existing = archives[candidate.game_id];
+  if (existing) {
+    if (existing.generated_at !== candidate.generated_at) throw new Error('Archived blind generated_at is immutable');
+    if (existing.canonical_sha256 !== candidate.canonical_sha256) throw new Error('Archived blind content is immutable');
+    return { archived: false, duplicate: true, archive: existing };
+  }
+  archives[candidate.game_id] = candidate;
+  state.shadow_engines.audit = Array.isArray(state.shadow_engines.audit) ? state.shadow_engines.audit : [];
+  state.shadow_engines.audit.push({
+    recorded_at: candidate.archived_at, sport, game_id: candidate.game_id,
+    event: 'SHADOW_BLIND_ARCHIVED', canonical_sha256: candidate.canonical_sha256,
+    release_status: 'SHADOW_ONLY', official_bankroll_eligible: false
+  });
+  return { archived: true, duplicate: false, archive: candidate };
+}
+
+async function archiveBlind(input = {}) {
+  const sport = input.sport || grading.NFL;
   assertShadowEnabled(sport);
+  const candidate = prepareBlindArchive({ ...input, sport });
+  const result = await store.mutate(async state => archiveIntoState(state, sport, candidate));
+  return { ...result.result, persistent: store.persistent, shadow_only: true };
+}
+
+async function archiveMany({ sport = grading.NFL, archives = [] } = {}) {
+  assertShadowEnabled(sport);
+  if (!Array.isArray(archives) || !archives.length) throw new Error('Blind backfill requires a non-empty archives array');
+  if (archives.length > 64) throw new Error('Blind backfill is limited to 64 snapshots');
+  const candidates = archives.map(row => prepareBlindArchive({ ...row, sport }));
+  const result = await store.mutate(async state => ({
+    results: candidates.map(candidate => archiveIntoState(state, sport, candidate))
+  }));
+  return { ...result.result, persistent: store.persistent, shadow_only: true };
+}
+
+async function listBlinds({ sport = grading.NFL, game_id: gameId } = {}) {
+  const state = await store.load();
+  let archives = Object.values(state.shadow_engines?.blind_snapshots?.[sport] || {});
+  if (gameId) archives = archives.filter(row => row.game_id === gameId);
+  archives.sort((a, b) => String(a.generated_at).localeCompare(String(b.generated_at)));
+  return { sport, shadow_only: true, current_champion: NFL_CHAMPION, count: archives.length, archives };
+}
+
+async function ingest({ sport, engine_output: engineOutput, game, market, publisher, blind_archive: blindArchiveInput, source = 'nfl-simulator' } = {}) {
+  assertShadowEnabled(sport);
+  const blindArchive = prepareBlindArchive({
+    sport, engine_output: engineOutput,
+    blind_json: blindArchiveInput?.original_json,
+    original_file_sha256: blindArchiveInput?.original_file_sha256
+  });
   const output = registry.adapt(sport, engineOutput, { game, market, publisher });
   const record = sanitizeRecord(output);
 
   const result = await store.mutate(async state => {
-    state.shadow_engines = state.shadow_engines || { games: {}, audit: [] };
+    state.shadow_engines = state.shadow_engines || { games: {}, blind_snapshots: {}, audit: [] };
+    archiveIntoState(state, sport, blindArchive);
     state.shadow_engines.games = state.shadow_engines.games || {};
     state.shadow_engines.audit = Array.isArray(state.shadow_engines.audit) ? state.shadow_engines.audit : [];
     const games = state.shadow_engines.games[sport] || (state.shadow_engines.games[sport] = {});
@@ -166,4 +264,4 @@ async function scoreboard({ sport = grading.NFL } = {}) {
   return grading.summarize(games, errors);
 }
 
-module.exports = { SPORT_FLAGS, assertShadowEnabled, sanitizeRecord, ingest, recordError, gradeMany, list, audit, scoreboard };
+module.exports = { SPORT_FLAGS, NFL_CHAMPION, assertShadowEnabled, sanitizeRecord, prepareBlindArchive, archiveIntoState, archiveBlind, archiveMany, listBlinds, ingest, recordError, gradeMany, list, audit, scoreboard };

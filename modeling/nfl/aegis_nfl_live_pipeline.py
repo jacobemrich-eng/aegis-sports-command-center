@@ -23,6 +23,7 @@ from aegis_nfl_shadow_publisher import (
     validate_shadow_endpoint,
     verify_staging_readiness,
 )
+from aegis_nfl_blind_archive import backfill_files, file_payload, hydrate
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -428,6 +429,7 @@ def process_slate(
     market_factory: Callable[[List[Dict[str, object]]], Mapping[str, Dict[str, object]]],
     publisher: Callable[[Dict[str, object]], object], output_dir: Path,
     error_recorder: Optional[Callable[[Dict[str, object]], None]] = None,
+    blind_archiver: Optional[Callable[[List[Path]], object]] = None,
 ) -> Dict[str, object]:
     output_dir.mkdir(parents=True, exist_ok=True)
     blind_rows, failures, published = [], [], []
@@ -455,6 +457,14 @@ def process_slate(
         except Exception as error:
             fail("blind_prediction", game_id, error)
 
+    if blind_archiver and blind_rows:
+        try:
+            blind_archiver([output_dir / "blind" / f"{blind['game']['id']}.json" for blind in blind_rows])
+        except Exception as error:
+            for blind in blind_rows:
+                fail("blind_archive", str(blind["game"]["id"]), error)
+            return {"blind_games": len(blind_rows), "published_games": 0, "failures": failures, "published": []}
+
     market_phase_failed = False
     try:
         markets = market_factory(blind_rows) if blind_rows else {}
@@ -474,7 +484,7 @@ def process_slate(
             continue
         try:
             atomic_json(output_dir / "market" / f"{game_id}.json", market)
-            envelope = build_envelope(blind, market)
+            envelope = build_envelope(blind, market, file_payload(output_dir / "blind" / f"{game_id}.json"))
             response = publisher(envelope)
             published.append({"game_id": game_id, "response": response})
         except Exception as error:
@@ -547,6 +557,7 @@ def main() -> int:
                 "endpoints": readiness.get("endpoints"),
             })
             report["staging_readiness"] = {"ready": True, "environment": readiness.get("environment"), "state_id": readiness.get("state_id")}
+            report["blind_hydration"] = hydrate(output_dir / "blind", args.endpoint, token)
         if args.mode in {"project", "all"}:
             now = utc_now()
             games = upcoming_schedule(args.season, args.lookahead_days, now)[:args.max_games]
@@ -577,6 +588,7 @@ def main() -> int:
                     (lambda envelope: publish(envelope, args.endpoint, token)) if args.publish else (lambda envelope: {"dry_run": True, "release_status": "SHADOW_ONLY"}),
                     output_dir,
                     lambda row: post_shadow_error(args.endpoint, token, row) if args.publish else None,
+                    (lambda paths: backfill_files(paths, args.endpoint, token)) if args.publish else None,
                 )
             else:
                 result = {"blind_games": 0, "published_games": 0, "failures": [], "published": [], "note": "No upcoming NFL regular-season games in window"}
