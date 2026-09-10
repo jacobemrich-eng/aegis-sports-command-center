@@ -601,6 +601,7 @@ def main() -> int:
                 result = process_slate(
                     games,
                     lambda game: model.predict(game, contexts.get(str(game["id"]), {})) if model else (_ for _ in ()).throw(RuntimeError("Archived blind unexpectedly missing")),
+                    markets,
                     (lambda envelope: publish(envelope, args.endpoint, token)) if args.publish else (lambda envelope: {"dry_run": True, "release_status": "SHADOW_ONLY"}),
                     output_dir,
                     lambda row: post_shadow_error(args.endpoint, token, row) if args.publish else None,
