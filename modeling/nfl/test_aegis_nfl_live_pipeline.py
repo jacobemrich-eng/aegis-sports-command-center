@@ -15,7 +15,7 @@ from unittest.mock import patch
 NFL_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(NFL_DIR))
 
-from aegis_nfl_live_pipeline import _event_for, process_slate, selected_v10, validate_pregame_game
+from aegis_nfl_live_pipeline import _event_for, build_market_input, process_slate, selected_v10, validate_pregame_game
 from aegis_nfl_blind_archive import hydrate
 from aegis_nfl_shadow_publisher import (
     build_envelope,
@@ -134,6 +134,20 @@ class LivePipelineTests(unittest.TestCase):
         same_time = {"captured_at": NOW.isoformat(), "challenger_projection": {"margin": 2, "total": 45}}
         with self.assertRaisesRegex(ValueError, "after"):
             build_envelope(blind(game("order")), same_time)
+
+    def test_market_snapshot_records_scheduler_target_and_book_count(self):
+        candidate = blind(game("targeted"))
+        candidate["projection"]["distribution"] = {"margin_standard_deviation": 12, "total_standard_deviation": 13}
+        event = {
+            "id": "odds-1", "home_team": "BUF", "away_team": "MIA",
+            "bookmakers": [{"key": "book", "markets": [
+                {"key": "spreads", "outcomes": [{"name": "BUF", "point": -3, "price": -110}, {"name": "MIA", "point": 3, "price": -110}]},
+                {"key": "totals", "outcomes": [{"name": "Over", "point": 46, "price": -110}, {"name": "Under", "point": 46, "price": -110}]},
+            ]}],
+        }
+        row = build_market_input(candidate, event, NOW + timedelta(seconds=1), snapshot_target="DAY_BEFORE")
+        self.assertEqual(row["snapshot_target"], "DAY_BEFORE")
+        self.assertEqual(row["current_price"]["bookmaker_count"], 1)
 
     def test_slate_continues_after_one_game_failure(self):
         with tempfile.TemporaryDirectory() as directory:

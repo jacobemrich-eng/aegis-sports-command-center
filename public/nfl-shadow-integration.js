@@ -98,16 +98,17 @@
     return '<div class="sectionhead"><div><div class="eyebrow">SHADOW / RESEARCH ONLY</div><h2>2026 NFL live validation scoreboard</h2></div><span class="shadow-lock">'+e(board.monitoring_state)+'</span></div>'+
       '<div class="shadow-metrics">'+
         '<div><span>LIVE SHADOW</span><b>'+e(board.live_shadow_games)+'</b></div><div><span>GRADED</span><b>'+e(board.graded_games)+'</b></div>'+
-        '<div><span>BLIND MARGIN MAE</span><b>'+n(board.margin_mae)+'</b></div><div><span>MARKET MARGIN MAE</span><b>'+n(board.market_margin_mae)+'</b></div>'+
-        '<div><span>BLIND TOTAL MAE</span><b>'+n(board.total_mae)+'</b></div><div><span>MARKET TOTAL MAE</span><b>'+n(board.market_total_mae)+'</b></div>'+
+        '<div><span>BLIND / CAL MARGIN MAE</span><b>'+n(board.blind_margin_mae)+' / '+n(board.calibrated_margin_mae)+'</b></div><div><span>MARKET / CLOSE MARGIN MAE</span><b>'+n(board.market_margin_mae)+' / '+n(board.closing_market_margin_mae)+'</b></div>'+
+        '<div><span>BLIND / CAL TOTAL MAE</span><b>'+n(board.blind_total_mae)+' / '+n(board.calibrated_total_mae)+'</b></div><div><span>MARKET / CLOSE TOTAL MAE</span><b>'+n(board.market_total_mae)+' / '+n(board.closing_market_total_mae)+'</b></div>'+
         '<div><span>COVER BRIER</span><b>'+n(board.cover_brier,3)+'</b></div><div><span>OVER BRIER</span><b>'+n(board.over_brier,3)+'</b></div>'+
         '<div><span>SPREAD / TOTAL CLV</span><b>'+n(board.mean_spread_clv,2)+' / '+n(board.mean_total_clv,2)+'</b></div><div><span>SHADOW ERRORS</span><b>'+e(board.shadow_errors)+'</b></div>'+
       '</div>'+
       '<p class="small"><b>ATS diagnostic:</b> '+e(record(board.ats_record))+' &nbsp; <b>Total diagnostic:</b> '+e(record(board.total_record))+'</p>'+
       '<p class="small"><b>Firewall:</b> PASS '+e(board.firewall_counts?.PASS||0)+' · Secondary max '+e(board.firewall_counts?.SECONDARY_MAX||0)+' · Core blocked '+e(board.firewall_counts?.CORE_BLOCK||0)+' · Normal '+e(board.firewall_counts?.NORMAL||0)+'</p>'+
+      '<p class="small"><b>Model-vs-market error wins:</b> margin '+e(board.model_vs_market_error_wins?.margin||0)+' · total '+e(board.model_vs_market_error_wins?.total||0)+' &nbsp; <b>Data quality:</b> '+e(JSON.stringify(board.data_quality_grades||{}))+'</p>'+
       (board.sample_warning?'<div class="notice warning"><b>Sample warning:</b> '+e(board.sample_warning)+'</div>':'')+
       '<div class="tablewrap"><table><thead><tr><th>Disagreement</th><th>N</th><th>Blind margin</th><th>Market margin</th><th>Blind total</th><th>Market total</th></tr></thead><tbody>'+(buckets||'<tr><td colspan="6">No graded bucket evidence yet.</td></tr>')+'</tbody></table></div>'+
-      '<p class="subtle small">Champion: '+e(board.current_champion)+' · Historical predecessor: '+e(board.historical_predecessor)+'. Monitoring can request review but can never promote or release automatically.</p>';
+      '<p class="subtle small">Champion: '+e(board.current_champion)+' · Market Challenger: '+e(board.market_challenger)+' · Historical predecessor: '+e(board.historical_predecessor)+'. Monitoring can request review but can never promote or release automatically.</p>';
   }
 
   window.renderLab=function(){if(typeof baseRenderLab==='function')baseRenderLab();renderShadowLab()};

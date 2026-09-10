@@ -74,6 +74,12 @@ test('workflow endpoint is configurable, missing publish config fails, and sched
   assert.match(workflow, /test -n "\$AEGIS_SHADOW_ENDPOINT"/);
   assert.match(workflow, /aegis_nfl_staging_readiness\.py/);
   assert.match(workflow, /NFL_SHADOW_SCHEDULED_PUBLISH/);
+  assert.match(workflow, /workflow_call:/);
+  assert.match(workflow, /ref: nfl-shadow-staging/);
+  assert.match(workflow, /aegis_nfl_shadow_scheduler\.py/);
+  assert.match(workflow, /steps\.plan\.outputs\.action[^\n]+PROJECT_AND_PUBLISH[\s\S]+ODDS_API_KEY is required/);
+  assert.match(workflow, /Exit with zero Odds API calls when nothing is due/);
+  assert.match(workflow, /steps\.plan\.outputs\.action == 'NO_ACTION'/);
   assert.doesNotMatch(workflow, /aegis-sports-command-center\.onrender\.com/);
 });
 

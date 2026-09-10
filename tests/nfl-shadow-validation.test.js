@@ -45,6 +45,7 @@ function market(capturedAt = '2026-09-10T12:01:00Z') {
       total: { point: 46.5, over: { price: -110 }, under: { price: -110 } }
     },
     best_market_expression: { name: 'Buffalo Bills', selection: 'Buffalo Bills', market_type: 'spreads', point: -2.5, odds: -110 },
+    snapshot_target: 'EARLY_BASELINE', quota: { requests_remaining: 490 },
     decision_status: 'SECONDARY', execution_status: 'WAIT'
   };
 }
@@ -60,6 +61,15 @@ test('duplicate snapshots are idempotent and the first blind projection is immut
 
   const update = await shadow.ingest({ sport: grading.NFL, engine_output: output(), market: market('2026-09-10T13:01:00Z') });
   assert.equal(update.record.market_snapshots.length, 2);
+  assert.equal(update.record.market_snapshots[0].snapshot_target, 'EARLY_BASELINE');
+  assert.equal(update.record.market_snapshots[0].bookmaker_count, null);
+  assert.equal(update.record.market_movement.snapshot_count, 2);
+  assert.equal(update.record.market_movement.disagreement_direction, 'UNCHANGED');
+  const altered = market('2026-09-10T13:01:00Z'); altered.current_price.spread.home.point = -3;
+  await assert.rejects(
+    shadow.ingest({ sport: grading.NFL, engine_output: output(), market: altered }),
+    /timestamp already exists with different content/
+  );
   await assert.rejects(
     shadow.ingest({ sport: grading.NFL, engine_output: output('2026-09-10T13:00:00Z'), market: market('2026-09-10T13:02:00Z') }),
     /blind projection is immutable/
@@ -114,6 +124,21 @@ test('NFL shadow grading cannot mutate official Results, cards, locks, or bankro
 
   const after = await store.load();
   assert.equal(JSON.stringify({ latest_cards: after.latest_cards, audit: after.audit, locks: after.locks, bankroll: after.bankroll }), official);
+
+  const duplicate = await shadow.gradeMany({
+    sport: grading.NFL,
+    results: [{ game_id: '2026_01_MIA_BUF', home_score: 27, away_score: 20, completed_at: '2026-09-14T00:00:00Z', closing_market: { home_spread: -3, total: 47 } }]
+  });
+  assert.equal(duplicate.graded.length, 0);
+  assert.deepEqual(duplicate.skipped, [{ game_id: '2026_01_MIA_BUF', reason: 'ALREADY_GRADED' }]);
+
+  const revision = await shadow.gradeMany({
+    sport: grading.NFL,
+    results: [{ game_id: '2026_01_MIA_BUF', home_score: 27, away_score: 21, completed_at: '2026-09-14T00:00:00Z', closing_market: { home_spread: -3, total: 47 } }]
+  });
+  assert.equal(revision.graded[0].revised, true);
+  assert.equal(revision.graded[0].grade.grade_revision, 2);
+  assert.ok(revision.graded[0].grade.supersedes_result_fingerprint);
 });
 
 test('scoreboard exposes research metrics and never authorizes automatic promotion', async () => {
@@ -121,12 +146,18 @@ test('scoreboard exposes research metrics and never authorizes automatic promoti
   assert.equal(board.shadow_only, true);
   assert.equal(board.current_champion, 'NFL_v1.0_FEATURE_ABLATION');
   assert.equal(board.graded_games, 1);
-  assert.equal(board.margin_mae, 4);
-  assert.equal(board.total_mae, 0);
+  assert.equal(board.margin_mae, 3);
+  assert.equal(board.total_mae, 1);
   assert.ok(Number.isFinite(board.cover_brier));
   assert.ok(Number.isFinite(board.over_brier));
   assert.equal(board.monitoring_state, 'INSUFFICIENT_SAMPLE');
   assert.equal(board.automatic_promotion_allowed, false);
+  assert.equal(board.market_challenger, 'NFL_v0.9_MARKET_CHALLENGER_CALIBRATION');
+  assert.equal(board.blind_margin_mae, board.margin_mae);
+  assert.equal(board.calibrated_total_mae, board.post_market_total_mae);
+  assert.ok(board.firewall_bucket_performance);
+  assert.ok(board.model_vs_market_error_wins);
+  assert.ok(board.data_quality_grades);
   assert.match(board.sample_warning, /No promotion inference/);
 });
 
@@ -147,4 +178,5 @@ test('server exposes protected shadow grade/error routes and read-only scoreboar
   assert.match(source, /GET'&&u\.pathname==='\/api\/shadow\/scoreboard'/);
   assert.match(source, /GET'&&u\.pathname==='\/api\/shadow\/blinds'/);
   assert.match(source, /POST'&&u\.pathname==='\/api\/shadow\/blinds\/backfill'/);
+  assert.match(source, /GET'&&u\.pathname==='\/api\/shadow\/scheduler-state'/);
 });
