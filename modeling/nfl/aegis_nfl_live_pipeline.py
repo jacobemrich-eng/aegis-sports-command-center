@@ -125,6 +125,13 @@ def selected_v10() -> tuple[List[str], Dict[str, float]]:
     return list(report["selected_features"]), dict(report["selected_hyperparameters"])
 
 
+def combine_training_snapshots(year_schedule, snapshots, combiner):
+    """Week 1 can have settled PBP before any prior-week feature snapshot exists."""
+    if snapshots.empty:
+        return None
+    return combiner(year_schedule, snapshots)
+
+
 def upcoming_schedule(season: int, lookahead_days: int, now: datetime) -> List[Dict[str, object]]:
     from aegis_nflverse_bootstrap import load_schedule
 
@@ -193,7 +200,9 @@ class V10LiveModel:
             team = attach_schedule(team, year_schedule)
             team_frames.append(team)
             snapshots = build_weekly_snapshots(team)
-            games = combine_game_rows(year_schedule, snapshots)
+            games = combine_training_snapshots(year_schedule, snapshots, combine_game_rows)
+            if games is None:
+                continue
             home = pd.to_numeric(games.get("home_score"), errors="coerce")
             away = pd.to_numeric(games.get("away_score"), errors="coerce")
             games["home_margin"] = home - away

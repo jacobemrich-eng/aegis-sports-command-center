@@ -15,7 +15,7 @@ from unittest.mock import patch
 NFL_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(NFL_DIR))
 
-from aegis_nfl_live_pipeline import _event_for, build_market_input, process_slate, selected_v10, validate_pregame_game
+from aegis_nfl_live_pipeline import _event_for, build_market_input, combine_training_snapshots, process_slate, selected_v10, validate_pregame_game
 from aegis_nfl_blind_archive import hydrate
 from aegis_nfl_shadow_publisher import (
     build_envelope,
@@ -57,6 +57,15 @@ def market_for(rows: list[dict]) -> dict:
 
 
 class LivePipelineTests(unittest.TestCase):
+    def test_empty_current_season_snapshot_frame_is_skipped_without_merge_key_error(self):
+        class EmptySnapshots:
+            empty = True
+
+        def must_not_merge(*_):
+            raise AssertionError("empty snapshots have no season/week merge keys")
+
+        self.assertIsNone(combine_training_snapshots(object(), EmptySnapshots(), must_not_merge))
+
     def test_market_matcher_accepts_immutable_blind_game_schema(self):
         blind_game = blind(game("market-match"))["game"]
         event = {"id": "odds-event", "home_team": "Buffalo Bills", "away_team": "Miami Dolphins"}
