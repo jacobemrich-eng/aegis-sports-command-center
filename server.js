@@ -15,7 +15,7 @@ const deploymentSafety = require('./src/deployment-safety');
 
 // A staging service must fail closed at process startup. Production and local
 // deployments retain their existing behavior unless they explicitly identify
-// themselves as the NFL shadow staging environment.
+// themselves as an isolated sport shadow staging environment.
 const DEPLOYMENT_IDENTITY = deploymentSafety.assertStagingConfiguration(process.env);
 
 const PORT = Number(process.env.PORT || 3000);
@@ -376,13 +376,14 @@ if(req.method==='POST'&&u.pathname==='/api/autopilot/heartbeat'){
     // A challenger bearer token or authenticated operator may write shadow data,
     // but the service always strips Final Card and bankroll eligibility.
     if(req.method==='GET'&&u.pathname==='/api/shadow/blinds'){
-      if(!DEPLOYMENT_IDENTITY.nfl_shadow_staging)return send(res,404,{error:'NFL blind archive is available only in shadow staging.'});
+      if(!DEPLOYMENT_IDENTITY.shadow_staging)return send(res,404,{error:'Blind archive is available only in shadow staging.'});
       if(!validShadowIngest(req)&&!(ACCESS_PIN&&validSession(req)))return send(res,401,{error:'Shadow blind archive authorization failed.'});
-      return send(res,200,await shadow.listBlinds({sport:u.searchParams.get('sport')||'americanfootball_nfl',game_id:u.searchParams.get('game_id')||null}));
+      const defaultSport=DEPLOYMENT_IDENTITY.ncaaf_shadow_staging?'americanfootball_ncaaf':'americanfootball_nfl';
+      return send(res,200,await shadow.listBlinds({sport:u.searchParams.get('sport')||defaultSport,game_id:u.searchParams.get('game_id')||null}));
     }
 
     if(req.method==='POST'&&u.pathname==='/api/shadow/blinds/backfill'){
-      if(!DEPLOYMENT_IDENTITY.nfl_shadow_staging)return send(res,404,{error:'NFL blind backfill is available only in shadow staging.'});
+      if(!DEPLOYMENT_IDENTITY.shadow_staging)return send(res,404,{error:'Blind backfill is available only in shadow staging.'});
       if(!validShadowIngest(req))return send(res,401,{error:'Shadow blind backfill requires the ingest bearer secret.'});
       if(!rateLimit(req,res,'shadow-blind-backfill',12))return;
       const body=JSON.parse(await readBody(req)||'{}');
@@ -394,12 +395,17 @@ if(req.method==='POST'&&u.pathname==='/api/autopilot/heartbeat'){
       if(!validShadowIngest(req)&&!(ACCESS_PIN&&validSession(req)))return send(res,401,{error:'Shadow readiness authorization failed.'});
       const storage=await store.health(),auto=await safeStatus(),flags=sportEngineFlags();
       const failures=[];
-      if(!DEPLOYMENT_IDENTITY.nfl_shadow_staging)failures.push('environment is not nfl-shadow-staging');
+      if(!DEPLOYMENT_IDENTITY.shadow_staging)failures.push('environment is not an isolated shadow staging service');
       if(DEPLOYMENT_IDENTITY.state_id==='main')failures.push('state_id is main');
       if(auto.enabled)failures.push('Autopilot is enabled');
       if(flags.AEGIS_NEW_ENGINE_AUTO_RELEASE)failures.push('new-engine auto-release is enabled');
-      if(!flags.NFL_SIM_ENABLED)failures.push('NFL shadow simulator is disabled');
-      if(!flags.NFL_SIM_SHADOW_ONLY)failures.push('NFL simulator is not shadow-only');
+      if(DEPLOYMENT_IDENTITY.ncaaf_shadow_staging){
+        if(!flags.NCAAF_SIM_ENABLED)failures.push('NCAAF shadow simulator is disabled');
+        if(!flags.NCAAF_SIM_SHADOW_ONLY)failures.push('NCAAF simulator is not shadow-only');
+      }else{
+        if(!flags.NFL_SIM_ENABLED)failures.push('NFL shadow simulator is disabled');
+        if(!flags.NFL_SIM_SHADOW_ONLY)failures.push('NFL simulator is not shadow-only');
+      }
       if(DEPLOYMENT_IDENTITY.production_release_allowed)failures.push('production release is allowed');
       if(!storage.persistent||!storage.ok)failures.push('persistent staging storage is unhealthy');
       return send(res,failures.length?503:200,{
@@ -419,16 +425,17 @@ if(req.method==='POST'&&u.pathname==='/api/autopilot/heartbeat'){
     }
 
     if(req.method==='GET'&&u.pathname==='/api/shadow/scheduler-state'){
-      if(!DEPLOYMENT_IDENTITY.nfl_shadow_staging)return send(res,404,{error:'NFL scheduler state is available only in shadow staging.'});
+      if(!DEPLOYMENT_IDENTITY.shadow_staging)return send(res,404,{error:'Scheduler state is available only in shadow staging.'});
       if(!validShadowIngest(req))return send(res,401,{error:'NFL scheduler state requires the ingest bearer secret.'});
-      return send(res,200,await shadow.schedulerState({sport:u.searchParams.get('sport')||'americanfootball_nfl'}));
+      const defaultSport=DEPLOYMENT_IDENTITY.ncaaf_shadow_staging?'americanfootball_ncaaf':'americanfootball_nfl';
+      return send(res,200,await shadow.schedulerState({sport:u.searchParams.get('sport')||defaultSport}));
     }
 
-    if(req.method==='GET'&&u.pathname==='/api/shadow/games'&&DEPLOYMENT_IDENTITY.nfl_shadow_staging&&validShadowIngest(req)){
+    if(req.method==='GET'&&u.pathname==='/api/shadow/games'&&DEPLOYMENT_IDENTITY.shadow_staging&&validShadowIngest(req)){
       return send(res,200,await shadow.list({sport:u.searchParams.get('sport')||null,game_id:u.searchParams.get('game_id')||null}));
     }
 
-    if(req.method==='GET'&&u.pathname==='/api/shadow/scoreboard'&&DEPLOYMENT_IDENTITY.nfl_shadow_staging&&validShadowIngest(req)){
+    if(req.method==='GET'&&u.pathname==='/api/shadow/scoreboard'&&DEPLOYMENT_IDENTITY.shadow_staging&&validShadowIngest(req)){
       return send(res,200,await shadow.scoreboard({sport:u.searchParams.get('sport')||undefined}));
     }
 
