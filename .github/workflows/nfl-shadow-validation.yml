@@ -38,7 +38,6 @@ concurrency:
 
 jobs:
   validate-shadow:
-    if: github.event_name != 'workflow_call' || inputs.scheduled != true || vars.NFL_SHADOW_SCHEDULED_PUBLISH == 'true'
     environment: nfl-shadow-staging
     runs-on: ubuntu-latest
     timeout-minutes: 55
@@ -51,13 +50,23 @@ jobs:
       ODDS_BOOKMAKERS: hardrockbet_fl,fanduel,draftkings,bovada,betmgm,espnbet,fanatics
 
     steps:
+      - name: Apply scheduled-publish kill switch
+        id: gate
+        shell: bash
+        run: |
+          ENABLED="true"
+          if [ "${{ github.event_name }}" = "workflow_call" ] && [ "${{ inputs.scheduled }}" = "true" ] && [ "$NFL_SHADOW_SCHEDULED_PUBLISH" != "true" ]; then ENABLED="false"; fi
+          echo "enabled=$ENABLED" >> "$GITHUB_OUTPUT"
+          if [ "$ENABLED" = "false" ]; then echo "NFL shadow schedule is disabled; no checkout, data install, Odds API call, or write will run."; fi
+
       - name: Checkout NFL staging implementation only
+        if: steps.gate.outputs.enabled == 'true'
         uses: actions/checkout@v4
         with:
           ref: nfl-shadow-staging
 
       - name: Validate scheduler credentials without exposing values
-        if: github.event_name == 'workflow_call' && inputs.scheduled == true
+        if: steps.gate.outputs.enabled == 'true' && github.event_name == 'workflow_call' && inputs.scheduled == true
         shell: bash
         run: |
           test -n "$AEGIS_SHADOW_INGEST_SECRET" || { echo "AEGIS_SHADOW_INGEST_SECRET is required"; exit 1; }
@@ -65,12 +74,12 @@ jobs:
 
       - name: Run quota-free scheduler preflight
         id: scheduler
-        if: github.event_name == 'workflow_call' && inputs.scheduled == true
+        if: steps.gate.outputs.enabled == 'true' && github.event_name == 'workflow_call' && inputs.scheduled == true
         run: python modeling/nfl/aegis_nfl_shadow_scheduler.py --season 2026 --output data/nfl-shadow-selection.json
 
       - name: Select manual pipeline action
         id: manual
-        if: github.event_name != 'workflow_call' || inputs.scheduled != true
+        if: steps.gate.outputs.enabled == 'true' && (github.event_name != 'workflow_call' || inputs.scheduled != true)
         shell: bash
         run: |
           MODE="${{ inputs.mode }}"
@@ -80,6 +89,7 @@ jobs:
 
       - name: Resolve action
         id: plan
+        if: steps.gate.outputs.enabled == 'true'
         shell: bash
         run: |
           ACTION="${{ steps.scheduler.outputs.action }}"
@@ -158,7 +168,7 @@ jobs:
             $PUBLISH
 
       - name: Retain research artifacts and isolated errors
-        if: always()
+        if: always() && steps.gate.outputs.enabled == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: nfl-shadow-validation-${{ github.run_id }}

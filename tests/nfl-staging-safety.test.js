@@ -74,6 +74,8 @@ test('workflow endpoint is configurable, missing publish config fails, and sched
   assert.match(workflow, /test -n "\$AEGIS_SHADOW_ENDPOINT"/);
   assert.match(workflow, /aegis_nfl_staging_readiness\.py/);
   assert.match(workflow, /NFL_SHADOW_SCHEDULED_PUBLISH/);
+  assert.ok(workflow.indexOf('Apply scheduled-publish kill switch') < workflow.indexOf('Checkout NFL staging implementation only'));
+  assert.match(workflow, /steps\.gate\.outputs\.enabled == 'true'[\s\S]+uses: actions\/checkout/);
   assert.match(workflow, /workflow_call:/);
   assert.match(workflow, /ref: nfl-shadow-staging/);
   assert.match(workflow, /aegis_nfl_shadow_scheduler\.py/);
