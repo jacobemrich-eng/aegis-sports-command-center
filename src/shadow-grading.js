@@ -3,6 +3,7 @@
 const { canonicalJson, sha256 } = require('./shadow-integrity');
 
 const NFL = 'americanfootball_nfl';
+const NCAAF = 'americanfootball_ncaaf';
 const AUDIT_LABELS = new Set([
   'clean thesis win',
   'fragile / variance-assisted win',
@@ -101,8 +102,8 @@ function resultFingerprint(result = {}) {
   }));
 }
 
-function gradeNFL(record, result = {}, gradedAt = new Date().toISOString()) {
-  if (record.sport !== NFL) throw new Error('NFL shadow grader cannot grade another sport');
+function gradeFootball(record, result = {}, gradedAt = new Date().toISOString()) {
+  if (![NFL, NCAAF].includes(record.sport)) throw new Error('Football shadow grader cannot grade another sport');
   const home = finite(result.home_score), away = finite(result.away_score);
   if (home == null || away == null) throw new Error('Final home_score and away_score are required');
   if (Date.parse(result.completed_at || gradedAt) < Date.parse(record.start_time || '')) throw new Error('Postgame result timestamp cannot precede kickoff');
@@ -162,6 +163,9 @@ function gradeNFL(record, result = {}, gradedAt = new Date().toISOString()) {
   };
 }
 
+function gradeNFL(record, result = {}, gradedAt = new Date().toISOString()) { return gradeFootball(record, result, gradedAt); }
+function gradeNCAAF(record, result = {}, gradedAt = new Date().toISOString()) { return gradeFootball(record, result, gradedAt); }
+
 function recordTally(rows, key) {
   return rows.reduce((out, row) => {
     const value = row.shadow_grade?.[key];
@@ -181,7 +185,7 @@ function monitoringState(summary) {
   return 'SHADOW_MONITORING';
 }
 
-function summarize(games = [], errors = []) {
+function summarize(games = [], errors = [], sport = NFL) {
   const graded = games.filter(game => game.shadow_grade);
   const metric = key => mean(graded.map(game => game.shadow_grade[key]));
   const buckets = {};
@@ -224,9 +228,10 @@ function summarize(games = [], errors = []) {
   const summary = {
     shadow_only: true,
     research_only: true,
-    current_champion: 'NFL_v1.0_FEATURE_ABLATION',
-    historical_predecessor: 'NFL_v0.8_FEATURE_HYGIENE',
-    market_challenger: 'NFL_v0.9_MARKET_CHALLENGER_CALIBRATION',
+    current_champion: sport === NCAAF ? 'NCAAF_v0.1_POSSESSION_ENSEMBLE_CANDIDATE' : 'NFL_v1.0_FEATURE_ABLATION',
+    historical_predecessor: sport === NCAAF ? null : 'NFL_v0.8_FEATURE_HYGIENE',
+    historical_reference: sport === NCAAF ? 'SB101_AEGIS_NCAAF_PRODUCTION_REFERENCE' : null,
+    market_challenger: sport === NCAAF ? 'NCAAF_v0.1_INDEPENDENT_MARKET_CHALLENGER' : 'NFL_v0.9_MARKET_CHALLENGER_CALIBRATION',
     live_shadow_games: games.filter(game => !game.shadow_grade).length,
     graded_games: graded.length,
     margin_mae: metric('blind_margin_error'), total_mae: metric('blind_total_error'),
@@ -258,4 +263,4 @@ function summarize(games = [], errors = []) {
   return summary;
 }
 
-module.exports = { NFL, finite, absoluteError, binaryOutcome, resultFingerprint, gradeNFL, summarize, monitoringState };
+module.exports = { NFL, NCAAF, finite, absoluteError, binaryOutcome, resultFingerprint, gradeFootball, gradeNFL, gradeNCAAF, summarize, monitoringState };

@@ -147,7 +147,7 @@ test('sport registry cannot route NCAAF or MLB through the NFL engine', () => {
   assert.equal(registry.adapterFor('americanfootball_nfl').SPORT_KEY, 'americanfootball_nfl');
   assert.equal(registry.adapterFor('americanfootball_ncaaf').SPORT_KEY, 'americanfootball_ncaaf');
   assert.equal(registry.adapterFor('baseball_mlb').SPORT_KEY, 'baseball_mlb');
-  assert.throws(() => registry.adapt('americanfootball_ncaaf', nflOutput(), {}), /NCAAF simulator adapter is reserved/);
+  assert.throws(() => registry.adapt('americanfootball_ncaaf', nflOutput(), {}), /NCAAF adapter cannot accept another sport/);
   assert.throws(() => registry.adapt('baseball_mlb', nflOutput(), {}), /MLB simulator adapter is reserved/);
   assert.throws(() => nfl.adapt({ ...nflOutput(), sport: 'NCAAF' }, { market }), /cannot accept sport/);
 });

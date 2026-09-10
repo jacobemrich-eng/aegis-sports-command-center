@@ -187,5 +187,5 @@ test('server exposes protected shadow grade/error routes and read-only scoreboar
   assert.match(source, /GET'&&u\.pathname==='\/api\/shadow\/blinds'/);
   assert.match(source, /POST'&&u\.pathname==='\/api\/shadow\/blinds\/backfill'/);
   assert.match(source, /GET'&&u\.pathname==='\/api\/shadow\/scheduler-state'/);
-  assert.match(source, /GET'&&u\.pathname==='\/api\/shadow\/scoreboard'&&DEPLOYMENT_IDENTITY\.nfl_shadow_staging&&validShadowIngest/);
+  assert.match(source, /GET'&&u\.pathname==='\/api\/shadow\/scoreboard'&&DEPLOYMENT_IDENTITY\.shadow_staging&&validShadowIngest/);
 });
