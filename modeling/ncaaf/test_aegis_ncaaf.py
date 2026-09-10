@@ -37,6 +37,8 @@ class NCAAFTests(unittest.TestCase):
         market["captured_at"]="2026-09-10T12:00:00Z"
         with self.assertRaisesRegex(ValueError,"after immutable"): build_envelope(blind,market)
         with self.assertRaisesRegex(ValueError,"Production AEGIS"): validate_endpoint("https://aegis-sports-command-center.onrender.com/api/shadow/games")
+        leaked={**blind,"market":{"spread":-3}}
+        with self.assertRaisesRegex(ValueError,"leakage"): build_envelope(leaked,{"captured_at":"2026-09-10T12:02:00Z","challenger_projection":{"margin":3,"total":51}})
     def test_quota_free_scheduler(self):
         now=datetime(2026,9,10,12,tzinfo=timezone.utc); games=[{"game_id":"early","start_time":"2026-09-13T12:00:00Z","market_snapshots":[],"graded":False}]
         due=preflight(games,now); self.assertEqual(due["action"],"PROJECT_AND_PUBLISH"); self.assertEqual(due["odds_api_calls_planned"],1)

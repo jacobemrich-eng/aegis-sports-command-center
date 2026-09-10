@@ -5,7 +5,7 @@ const challenger = require('../ncaaf-market-challenger');
 const SPORT_KEY = 'americanfootball_ncaaf';
 const INTERNAL_CHAMPION = 'NCAAF_v0.1_POSSESSION_ENSEMBLE_CANDIDATE';
 const HISTORICAL_REFERENCE = 'SB101_AEGIS_NCAAF_PRODUCTION_REFERENCE';
-const FORBIDDEN_KEYS = new Set(['sportsbook_spread','sportsbook_total','sportsbook_odds','spread_line','total_line','closing_line','market_price','market_consensus','final_score','home_score','away_score','result','postgame_statistics','future_injury_status','provider_id','numeric_id']);
+const FORBIDDEN_KEYS = new Set(['sportsbook_spread','sportsbook_total','sportsbook_odds','spread_line','total_line','closing_line','market_price','market_consensus','moneyline','odds','book_odds','final_score','home_score','away_score','result','postgame_statistics','future_injury_status','provider_id','numeric_id']);
 const FORBIDDEN_PATTERNS = [/(^|_)(sportsbook|market|closing|close)(_|$)/i,/(^|_)(final|postgame|result)(_|$)/i,/future.*injur/i];
 
 function featureNames(raw) { const value = raw?.blind_features || raw?.diagnostics?.blind_features || []; return Array.isArray(value) ? value.map(String) : Object.keys(value || {}); }

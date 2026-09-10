@@ -8,9 +8,9 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 try:
-    from .aegis_ncaaf_engine import ENGINE_VERSION, SPORT_KEY, validate_blind_input
+    from .aegis_ncaaf_engine import ENGINE_VERSION, SPORT_KEY, FORBIDDEN, validate_blind_input, walk_keys
 except ImportError:
-    from aegis_ncaaf_engine import ENGINE_VERSION, SPORT_KEY, validate_blind_input
+    from aegis_ncaaf_engine import ENGINE_VERSION, SPORT_KEY, FORBIDDEN, validate_blind_input, walk_keys
 
 MARKET_CHALLENGER = "NCAAF_v0.1_INDEPENDENT_MARKET_CHALLENGER"
 PRODUCTION_HOST = "aegis-sports-command-center.onrender.com"
@@ -36,6 +36,8 @@ def validate_endpoint(endpoint: str) -> str:
 
 def build_envelope(blind: dict, market: dict, archive: dict | None = None) -> dict:
     if blind.get("engine_version") != ENGINE_VERSION or blind.get("sport") != SPORT_KEY: raise ValueError("Blind output is not the NCAAF Champion candidate")
+    violations=[path for key,path in walk_keys(blind) if key in FORBIDDEN or key.startswith("sportsbook_") or key.startswith("postgame_")]
+    if "market" in blind or "market_expressions" in blind or violations: raise ValueError("Blind NCAAF output contains market/postgame leakage")
     validate_blind_input({"game_id": blind.get("game_id"), "home_team": blind.get("game",{}).get("home"), "away_team": blind.get("game",{}).get("away"), "start_time": blind.get("game",{}).get("start_time"), "home": {"classification":"unknown"}, "away":{"classification":"unknown"}, "provenance": blind.get("provenance",[])})
     blind_at, market_at = parse_time(blind.get("generated_at")), parse_time(market.get("captured_at"))
     if market_at <= blind_at: raise ValueError("Market capture must occur after immutable NCAAF blind lock")
