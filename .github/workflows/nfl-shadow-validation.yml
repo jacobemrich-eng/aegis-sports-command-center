@@ -55,7 +55,7 @@ jobs:
         shell: bash
         run: |
           ENABLED="true"
-          if [ "${{ github.event_name }}" = "workflow_call" ] && [ "${{ inputs.scheduled }}" = "true" ] && [ "$NFL_SHADOW_SCHEDULED_PUBLISH" != "true" ]; then ENABLED="false"; fi
+          if [ "${{ inputs.scheduled }}" = "true" ] && [ "$NFL_SHADOW_SCHEDULED_PUBLISH" != "true" ]; then ENABLED="false"; fi
           echo "enabled=$ENABLED" >> "$GITHUB_OUTPUT"
           if [ "$ENABLED" = "false" ]; then echo "NFL shadow schedule is disabled; no checkout, data install, Odds API call, or write will run."; fi
 
@@ -66,7 +66,7 @@ jobs:
           ref: nfl-shadow-staging
 
       - name: Validate scheduler credentials without exposing values
-        if: steps.gate.outputs.enabled == 'true' && github.event_name == 'workflow_call' && inputs.scheduled == true
+        if: steps.gate.outputs.enabled == 'true' && inputs.scheduled == true
         shell: bash
         run: |
           test -n "$AEGIS_SHADOW_INGEST_SECRET" || { echo "AEGIS_SHADOW_INGEST_SECRET is required"; exit 1; }
@@ -74,12 +74,12 @@ jobs:
 
       - name: Run quota-free scheduler preflight
         id: scheduler
-        if: steps.gate.outputs.enabled == 'true' && github.event_name == 'workflow_call' && inputs.scheduled == true
+        if: steps.gate.outputs.enabled == 'true' && inputs.scheduled == true
         run: python modeling/nfl/aegis_nfl_shadow_scheduler.py --season 2026 --output data/nfl-shadow-selection.json
 
       - name: Select manual pipeline action
         id: manual
-        if: steps.gate.outputs.enabled == 'true' && (github.event_name != 'workflow_call' || inputs.scheduled != true)
+        if: steps.gate.outputs.enabled == 'true' && inputs.scheduled != true
         shell: bash
         run: |
           MODE="${{ inputs.mode }}"
@@ -98,17 +98,17 @@ jobs:
           echo "NFL shadow preflight action: $ACTION"
 
       - name: Exit with zero Odds API calls when nothing is due
-        if: steps.plan.outputs.action == 'NO_ACTION'
+        if: steps.gate.outputs.enabled == 'true' && steps.plan.outputs.action == 'NO_ACTION'
         run: echo "No NFL shadow snapshot or grade is due; no model install, market API call, or write was performed."
 
       - name: Set up Python
-        if: steps.plan.outputs.action != 'NO_ACTION'
+        if: steps.gate.outputs.enabled == 'true' && steps.plan.outputs.action != 'NO_ACTION'
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Cache public NFL data and runtime copies
-        if: steps.plan.outputs.action != 'NO_ACTION'
+        if: steps.gate.outputs.enabled == 'true' && steps.plan.outputs.action != 'NO_ACTION'
         uses: actions/cache@v4
         with:
           path: |
@@ -120,19 +120,19 @@ jobs:
             nfl-shadow-2026-${{ runner.os }}-
 
       - name: Install locked modeling dependencies
-        if: steps.plan.outputs.action != 'NO_ACTION'
+        if: steps.gate.outputs.enabled == 'true' && steps.plan.outputs.action != 'NO_ACTION'
         run: pip install -r modeling/nfl/requirements.txt
 
       - name: Run pipeline and scheduler unit tests
-        if: steps.plan.outputs.action != 'NO_ACTION'
+        if: steps.gate.outputs.enabled == 'true' && steps.plan.outputs.action != 'NO_ACTION'
         run: python -m unittest modeling/nfl/test_aegis_nfl_live_pipeline.py modeling/nfl/test_aegis_nfl_shadow_scheduler.py
 
       - name: Validate phase-specific credentials
-        if: steps.plan.outputs.action != 'NO_ACTION'
+        if: steps.gate.outputs.enabled == 'true' && steps.plan.outputs.action != 'NO_ACTION'
         shell: bash
         run: |
           PUBLISH="${{ inputs.publish }}"
-          if [ "${{ github.event_name }}" = "workflow_call" ] && [ "${{ inputs.scheduled }}" = "true" ]; then PUBLISH="true"; fi
+          if [ "${{ inputs.scheduled }}" = "true" ]; then PUBLISH="true"; fi
           if [ "$PUBLISH" = "true" ]; then
             test -n "$AEGIS_SHADOW_INGEST_SECRET" || { echo "AEGIS_SHADOW_INGEST_SECRET is required"; exit 1; }
             test -n "$AEGIS_SHADOW_ENDPOINT" || { echo "AEGIS_SHADOW_ENDPOINT is required"; exit 1; }
@@ -142,18 +142,18 @@ jobs:
           fi
 
       - name: Refuse publish unless isolated staging is ready
-        if: steps.plan.outputs.action != 'NO_ACTION' && (inputs.publish == true || (github.event_name == 'workflow_call' && inputs.scheduled == true))
+        if: steps.gate.outputs.enabled == 'true' && steps.plan.outputs.action != 'NO_ACTION' && (inputs.publish == true || inputs.scheduled == true)
         run: python modeling/nfl/aegis_nfl_staging_readiness.py
 
       - name: Project/publish due snapshots and grade settled games
-        if: steps.plan.outputs.action != 'NO_ACTION'
+        if: steps.gate.outputs.enabled == 'true' && steps.plan.outputs.action != 'NO_ACTION'
         shell: bash
         run: |
           MODE="${{ inputs.mode }}"
           if [ -z "$MODE" ]; then MODE="all"; fi
           SELECTION=""
           PUBLISH=""
-          if [ "${{ github.event_name }}" = "workflow_call" ] && [ "${{ inputs.scheduled }}" = "true" ]; then
+          if [ "${{ inputs.scheduled }}" = "true" ]; then
             if [ "${{ steps.plan.outputs.action }}" = "GRADE_ONLY" ]; then MODE="grade"; else MODE="all"; fi
             SELECTION="--selection-file data/nfl-shadow-selection.json"
             PUBLISH="--publish"

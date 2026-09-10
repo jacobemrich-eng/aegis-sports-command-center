@@ -85,6 +85,16 @@ test('workflow endpoint is configurable, missing publish config fails, and sched
   assert.doesNotMatch(workflow, /aegis-sports-command-center\.onrender\.com/);
 });
 
+test('scheduled reusable routing follows inputs.scheduled even when caller event remains schedule', () => {
+  const workflow = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'nfl-shadow-validation.yml'), 'utf8');
+  assert.doesNotMatch(workflow, /github\.event_name/);
+  assert.match(workflow, /Validate scheduler credentials without exposing values[\s\S]+if: steps\.gate\.outputs\.enabled == 'true' && inputs\.scheduled == true/);
+  assert.match(workflow, /Run quota-free scheduler preflight[\s\S]+if: steps\.gate\.outputs\.enabled == 'true' && inputs\.scheduled == true/);
+  assert.match(workflow, /Select manual pipeline action[\s\S]+if: steps\.gate\.outputs\.enabled == 'true' && inputs\.scheduled != true/);
+  assert.match(workflow, /if \[ "\$\{\{ inputs\.scheduled \}\}" = "true" \]; then[\s\S]+SELECTION="--selection-file data\/nfl-shadow-selection\.json"/);
+  assert.match(workflow, /inputs\.publish == true \|\| inputs\.scheduled == true/);
+});
+
 test('server exposes staging identity and protected non-mutating readiness', () => {
   const source = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
   assert.match(source, /assertStagingConfiguration\(process\.env\)/);
