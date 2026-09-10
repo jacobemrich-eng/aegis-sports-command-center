@@ -161,6 +161,14 @@ test('scoreboard exposes research metrics and never authorizes automatic promoti
   assert.match(board.sample_warning, /No promotion inference/);
 });
 
+test('unavailable grading metrics remain null instead of becoming false zeroes', () => {
+  assert.equal(grading.finite(null), null);
+  assert.equal(grading.finite(''), null);
+  const board = grading.summarize([{ shadow_grade: { cover_brier: null, closing_market_margin_error: null } }], []);
+  assert.equal(board.cover_brier, null);
+  assert.equal(board.closing_market_margin_mae, null);
+});
+
 test('shadow automation errors are isolated from production state', async () => {
   const before = await store.load();
   const official = JSON.stringify({ latest_cards: before.latest_cards, audit: before.audit, locks: before.locks, bankroll: before.bankroll });
