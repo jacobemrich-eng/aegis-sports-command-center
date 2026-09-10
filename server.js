@@ -424,6 +424,14 @@ if(req.method==='POST'&&u.pathname==='/api/autopilot/heartbeat'){
       return send(res,200,await shadow.schedulerState({sport:u.searchParams.get('sport')||'americanfootball_nfl'}));
     }
 
+    if(req.method==='GET'&&u.pathname==='/api/shadow/games'&&DEPLOYMENT_IDENTITY.nfl_shadow_staging&&validShadowIngest(req)){
+      return send(res,200,await shadow.list({sport:u.searchParams.get('sport')||null,game_id:u.searchParams.get('game_id')||null}));
+    }
+
+    if(req.method==='GET'&&u.pathname==='/api/shadow/scoreboard'&&DEPLOYMENT_IDENTITY.nfl_shadow_staging&&validShadowIngest(req)){
+      return send(res,200,await shadow.scoreboard({sport:u.searchParams.get('sport')||undefined}));
+    }
+
     if(req.method==='POST'&&u.pathname==='/api/shadow/games'){
       if(!validShadowIngest(req)&&!(ACCESS_PIN&&validSession(req)))return send(res,401,{error:'Shadow ingestion authorization failed.'});
       if(!rateLimit(req,res,'shadow-ingest',120))return;
