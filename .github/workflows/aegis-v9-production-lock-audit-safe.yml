@@ -1,0 +1,209 @@
+name: AEGIS v9.0 Production Lock Audit Safe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run full AEGIS validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run check
+
+      - name: Build production lock audit
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          REPORT="AEGIS-v9.0-PRODUCTION-LOCK-AUDIT.md"
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          COMMIT_SHA="$(git rev-parse HEAD)"
+
+          echo "# AEGIS v9.0 Production Lock Audit" > "$REPORT"
+          echo >> "$REPORT"
+          echo "Generated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> "$REPORT"
+          echo "Commit: $COMMIT_SHA" >> "$REPORT"
+          echo >> "$REPORT"
+
+          echo "## Release identity" >> "$REPORT"
+          echo >> "$REPORT"
+          echo "- package version: $PACKAGE_VERSION" >> "$REPORT"
+          if grep -RqsF "8.8.0-decision-intelligence" server.js src public package.json README.md 2>/dev/null; then
+            echo "- frozen engine identity: 8.8.0-decision-intelligence detected" >> "$REPORT"
+          else
+            echo "- frozen engine identity: NOT FOUND" >> "$REPORT"
+          fi
+          echo >> "$REPORT"
+
+          echo "## Workflow inventory" >> "$REPORT"
+          echo >> "$REPORT"
+          if [ -d .github/workflows ]; then
+            find .github/workflows -maxdepth 1 -type f -printf '%f\n' | sort | sed 's/^/- /' >> "$REPORT"
+          else
+            echo "- No workflow directory found" >> "$REPORT"
+          fi
+          echo >> "$REPORT"
+
+          echo "## Core production files" >> "$REPORT"
+          echo >> "$REPORT"
+          for f in server.js render.yaml src/store.js src/autopilot.js src/heartbeat.js src/operations.js package.json README.md; do
+            if [ -f "$f" ]; then
+              echo "- $f: PRESENT" >> "$REPORT"
+            else
+              echo "- $f: MISSING" >> "$REPORT"
+            fi
+          done
+          echo >> "$REPORT"
+
+          echo "## Reliability markers" >> "$REPORT"
+          echo >> "$REPORT"
+
+          if grep -RqsF "ignoreInFlight:true" server.js src 2>/dev/null; then
+            echo "- True failover: PRESENT" >> "$REPORT"
+          else
+            echo "- True failover: NOT FOUND" >> "$REPORT"
+          fi
+
+          if grep -RqsF "AEGIS_PERSISTENCE_HARDENING_V1" src/store.js 2>/dev/null; then
+            echo "- Persistence hardening: PRESENT" >> "$REPORT"
+          else
+            echo "- Persistence hardening: NOT FOUND" >> "$REPORT"
+          fi
+
+          if grep -RqsF "last_success_source" server.js src 2>/dev/null; then
+            echo "- Status canonicalization: PRESENT" >> "$REPORT"
+          else
+            echo "- Status canonicalization: NOT FOUND" >> "$REPORT"
+          fi
+
+          if grep -RqsF "/api/autopilot/heartbeat" server.js src 2>/dev/null; then
+            echo "- Heartbeat endpoint: PRESENT" >> "$REPORT"
+          else
+            echo "- Heartbeat endpoint: NOT FOUND" >> "$REPORT"
+          fi
+
+          if grep -RqsF "/api/autopilot/tick" server.js src 2>/dev/null; then
+            echo "- Autopilot endpoint: PRESENT" >> "$REPORT"
+          else
+            echo "- Autopilot endpoint: NOT FOUND" >> "$REPORT"
+          fi
+          echo >> "$REPORT"
+
+          echo "## Render configuration key names" >> "$REPORT"
+          echo >> "$REPORT"
+          if [ -f render.yaml ]; then
+            grep -E '^[[:space:]]*-[[:space:]]*key:' render.yaml 2>/dev/null | sed -E 's/^[[:space:]]*-[[:space:]]*key:[[:space:]]*/- /' | sort -u >> "$REPORT" || true
+          else
+            echo "- render.yaml missing" >> "$REPORT"
+          fi
+          echo >> "$REPORT"
+
+          echo "## Release-sport guards" >> "$REPORT"
+          echo >> "$REPORT"
+          if grep -RqsE 'AEGIS_RELEASE_SPORTS|MLB,NCAAF|MLB, NCAAF' render.yaml server.js src public 2>/dev/null; then
+            echo "- MLB/NCAAF release guard references: PRESENT" >> "$REPORT"
+          else
+            echo "- MLB/NCAAF release guard references: NOT FOUND" >> "$REPORT"
+          fi
+          echo >> "$REPORT"
+
+          echo "## Persistence safety" >> "$REPORT"
+          echo >> "$REPORT"
+          if grep -qsF "const persisted=await supabaseSave(next)" src/store.js 2>/dev/null; then
+            echo "- memory advances after persistent save: PRESENT" >> "$REPORT"
+          else
+            echo "- memory-after-persistent-save guard: NOT FOUND" >> "$REPORT"
+          fi
+          if grep -qsF "timeout-recovery" src/store.js 2>/dev/null; then
+            echo "- persistence timeout retry profile: PRESENT" >> "$REPORT"
+          else
+            echo "- persistence timeout retry profile: NOT FOUND" >> "$REPORT"
+          fi
+          echo >> "$REPORT"
+
+          echo "## Secret-handling audit" >> "$REPORT"
+          echo >> "$REPORT"
+          echo "- Secret values are intentionally not printed or inspected by this workflow." >> "$REPORT"
+          echo "- Render environment key names are inventoried above only." >> "$REPORT"
+          echo "- Public client files should continue to receive no server-side secret values." >> "$REPORT"
+          echo >> "$REPORT"
+
+          echo "## One-time workflow candidates" >> "$REPORT"
+          echo >> "$REPORT"
+          if [ -d .github/workflows ]; then
+            find .github/workflows -maxdepth 1 -type f -printf '%f\n' | grep -Ei 'apply-|diagnostic|upgrade|patch|hotfix|installer|v8-|v8_' | sort | sed 's/^/- /' >> "$REPORT" || true
+          fi
+          echo >> "$REPORT"
+
+          echo "## Long-lived workflow candidates" >> "$REPORT"
+          echo >> "$REPORT"
+          if [ -d .github/workflows ]; then
+            find .github/workflows -maxdepth 1 -type f -printf '%f\n' | grep -Evi 'apply-|diagnostic|upgrade|patch|hotfix|installer|v8-|v8_' | sort | sed 's/^/- /' >> "$REPORT" || true
+          fi
+          echo >> "$REPORT"
+
+          echo "## UI/version references" >> "$REPORT"
+          echo >> "$REPORT"
+          grep -RInE 'v8\.9\.|STATUS SYNC|TRUE FAILOVER|release_version|engine_version' public server.js src package.json README.md 2>/dev/null | head -80 | sed 's/^/- /' >> "$REPORT" || true
+          echo >> "$REPORT"
+
+          echo "## Git cleanliness" >> "$REPORT"
+          echo >> "$REPORT"
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "- working tree clean after audit" >> "$REPORT"
+          else
+            echo "- WARNING: audit changed working tree" >> "$REPORT"
+          fi
+          echo >> "$REPORT"
+
+          echo "## Validation" >> "$REPORT"
+          echo >> "$REPORT"
+          echo "- npm run check: PASS" >> "$REPORT"
+          echo >> "$REPORT"
+
+          echo "## v9.0 audit result" >> "$REPORT"
+          echo >> "$REPORT"
+          echo "- Repository inspected read-only." >> "$REPORT"
+          echo "- No sportsbook endpoint called." >> "$REPORT"
+          echo "- No Supabase state written." >> "$REPORT"
+          echo "- No deployment or production mutation performed." >> "$REPORT"
+
+          cat "$REPORT"
+
+          {
+            echo "### AEGIS v9.0 Production Lock Audit"
+            echo
+            echo "Commit: $COMMIT_SHA"
+            echo
+            echo "Full validation: PASS"
+            echo
+            echo "Audit artifact: AEGIS-v9.0-PRODUCTION-LOCK-AUDIT.md"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload production lock audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: aegis-v9-production-lock-audit
+          path: AEGIS-v9.0-PRODUCTION-LOCK-AUDIT.md
+          if-no-files-found: error
+          retention-days: 14
