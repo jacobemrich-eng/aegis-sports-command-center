@@ -8,10 +8,12 @@ from urllib.request import Request, urlopen
 
 try:
     from .aegis_ncaaf_engine import project
-    from .aegis_ncaaf_shadow_publisher import build_envelope, publish
+    from .aegis_ncaaf_shadow_publisher import archive_blinds, build_envelope, fetch_blind_archives, publish
+    from .aegis_ncaaf_blind_archive import archive_document, restore
 except ImportError:
     from aegis_ncaaf_engine import project
-    from aegis_ncaaf_shadow_publisher import build_envelope, publish
+    from aegis_ncaaf_shadow_publisher import archive_blinds, build_envelope, fetch_blind_archives, publish
+    from aegis_ncaaf_blind_archive import archive_document, restore
 
 SPORT="americanfootball_ncaaf"
 
@@ -79,22 +81,28 @@ def main() -> int:
     try:
         rows=json.loads(Path(args.input).read_text()) if args.input else enrich_cfbd(discover(args.season,args.lookahead_days,now),args.season,now)
         if not rows: print(json.dumps({"status":"NO_UPCOMING_GAMES","games":0,"odds_api_calls":0})); return 0
-        blinds=[]
+        token=os.getenv("AEGIS_SHADOW_INGEST_SECRET",""); remote=fetch_blind_archives(args.endpoint,token) if args.publish else {}
+        blinds=[]; archive_documents=[]
         # Phase 1 is complete for the entire slate before any sportsbook request.
         for row in rows:
             path=blind_dir/f"{row['game_id']}.json"
-            if path.exists(): blind=json.loads(path.read_text())
+            if row["game_id"] in remote:
+                archived=remote[row["game_id"]]; restore(archived,path); blind=json.loads(path.read_text())
+            elif path.exists(): blind=json.loads(path.read_text())
             else:
                 blind=project(row,generated_at=now.isoformat().replace("+00:00","Z"),simulations=args.simulations)
                 path.write_text(json.dumps(blind,indent=2),encoding="utf-8")
             blinds.append(blind)
+            archive_documents.append(archive_document(blind,path.read_text(encoding="utf-8")))
+        # Durable immutable archive is committed before the sole sportsbook board request.
+        if args.publish: archive_blinds(args.endpoint,token,archive_documents)
         board,quota=capture_board(os.getenv("ODDS_API_KEY","")); captured=datetime.now(timezone.utc).isoformat().replace("+00:00","Z"); published=[]; missing=[]
         for blind in blinds:
             market=market_for(blind["game"],board,quota,captured)
             if market is None: missing.append(blind["game_id"]); continue
             (market_dir/f"{blind['game_id']}-{captured.replace(':','')}.json").write_text(json.dumps(market,indent=2),encoding="utf-8")
             envelope=build_envelope(blind,market)
-            if args.publish: published.append(publish(envelope,args.endpoint,os.getenv("AEGIS_SHADOW_INGEST_SECRET",""))["record"]["game_id"])
+            if args.publish: published.append(publish(envelope,args.endpoint,token)["record"]["game_id"])
         print(json.dumps({"status":"SHADOW_ONLY","games":len(rows),"blind_snapshots":len(blinds),"market_snapshots":len(blinds)-len(missing),"published":published,"missing_markets":missing,"odds_api_calls":1},indent=2)); return 0
     except Exception as error: print(f"NCAAF shadow pipeline failed safely: {error}",file=sys.stderr); return 1
 

@@ -59,6 +59,23 @@ def publish(envelope: dict, endpoint: str, token: str) -> dict:
     return payload
 
 
+def _shadow_request(endpoint: str, token: str, suffix: str, *, method: str = "GET", body: object | None = None) -> dict:
+    endpoint=validate_endpoint(endpoint)
+    if not token: raise ValueError("AEGIS_SHADOW_INGEST_SECRET is required")
+    base=endpoint.rsplit("/games",1)[0]; data=None if body is None else json.dumps(body).encode()
+    request=Request(base+suffix,data=data,headers={"Authorization":f"Bearer {token}","Accept":"application/json","Content-Type":"application/json","User-Agent":"AEGIS-NCAAF-shadow/0.1"},method=method)
+    with urlopen(request,timeout=30) as response: return json.loads(response.read())
+
+
+def fetch_blind_archives(endpoint: str, token: str) -> dict[str, dict]:
+    payload=_shadow_request(endpoint,token,"/blinds?sport="+SPORT_KEY)
+    return {str(row["game_id"]):row for row in payload.get("archives",[])}
+
+
+def archive_blinds(endpoint: str, token: str, documents: list[dict]) -> dict:
+    return _shadow_request(endpoint,token,"/blinds/backfill",method="POST",body={"sport":SPORT_KEY,"archives":documents})
+
+
 def main() -> int:
     parser=argparse.ArgumentParser(); parser.add_argument("--blind-output",required=True); parser.add_argument("--market-input",required=True); parser.add_argument("--endpoint",default=os.getenv("AEGIS_SHADOW_ENDPOINT","")); parser.add_argument("--dry-run",action="store_true")
     args=parser.parse_args()
