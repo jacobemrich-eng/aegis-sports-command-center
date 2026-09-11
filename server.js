@@ -9,6 +9,7 @@ const store = require('./src/store');
 const release = require('./src/release');
 const operations = require('./src/operations');
 const heartbeat = require('./src/heartbeat');
+const dataGateway = require('./src/data-gateway');
 
 const PORT = Number(process.env.PORT || 3000);
 const ROOT = __dirname;
@@ -54,6 +55,18 @@ function publicFile(urlPath){
   }catch{return null;}
 }
 function baseOddsEndpoint(sport,markets){const cfg=engine.config();return `sports/${encodeURIComponent(sport)}/odds?bookmakers=${encodeURIComponent(cfg.bookmakers)}&markets=${encodeURIComponent(markets)}&oddsFormat=american&dateFormat=iso`;}
+const DATA_GATEWAY=dataGateway.config();
+async function sharedBoard(sport){
+  try{
+    const state=await store.load();
+    return dataGateway.boardSnapshot(state,sport,{
+      maxAgeMs:DATA_GATEWAY.maxAgeMs,
+      maxStaleMs:DATA_GATEWAY.maxStaleMs
+    });
+  }catch(e){
+    return {available:false,fresh:false,stale:false,events:[],fetched_at:null,age_ms:null,source:'persistent_shared_board',error:e.message};
+  }
+}
 async function safeStatus(){try{return await autopilot.status();}catch(e){return {enabled:autopilot.config.ENABLED,persistent:store.persistent,last_error:e.message,alerts:[{severity:'error',message:e.message}]};}}
 
 const server=http.createServer(async(req,res)=>{
@@ -159,7 +172,13 @@ auto=await safeStatus();
       daily_odds_budget:autopilot.config.DAILY_BUDGET,
       monthly_odds_budget:autopilot.config.MONTHLY_BUDGET,
       auto_deep_credit_cap:
-        autopilot.config.AUTO_DEEP_CREDIT_CAP
+        autopilot.config.AUTO_DEEP_CREDIT_CAP,
+      data_gateway:{
+        mode:DATA_GATEWAY.mode,
+        shared_board_max_age_ms:DATA_GATEWAY.maxAgeMs,
+        shared_board_max_stale_ms:DATA_GATEWAY.maxStaleMs,
+        public_force_refresh_enabled:DATA_GATEWAY.mode==='legacy'
+      }
     });
   }
                 if(req.method==='GET'&&u.pathname==='/api/operations/status'){
@@ -380,22 +399,74 @@ if(req.method==='POST'&&u.pathname==='/api/autopilot/heartbeat'){
     }
     if(req.method==='GET'&&u.pathname==='/api/odds'){
       if(!rateLimit(req,res,'odds',40))return;
-      const sport=u.searchParams.get('sport')||'baseball_mlb',markets=u.searchParams.get('markets')||'h2h,spreads,totals',force=u.searchParams.get('force')==='1';
+      const sport=u.searchParams.get('sport')||'baseball_mlb',
+            markets=u.searchParams.get('markets')||'h2h,spreads,totals',
+            queryForce=u.searchParams.get('force')==='1',
+            shared=await sharedBoard(sport);
+
+      if(dataGateway.shouldUseShared(shared,DATA_GATEWAY.mode)){
+        const events=engine.pregameOnly(shared.events).map(engine.sanitizeEvent);
+        return send(res,200,{
+          events,
+          filtered_live_count:Math.max(0,shared.events.length-events.length),
+          quota:engine.config().lastOddsMeta||null,
+          fetched_at:shared.fetched_at,
+          cached:true,
+          source:shared.source,
+          stale:shared.stale,
+          cache_age_ms:shared.age_ms,
+          gateway_mode:DATA_GATEWAY.mode
+        });
+      }
+
+      const force=dataGateway.publicProviderForceRequested(queryForce,DATA_GATEWAY.mode);
       const r=await engine.oddsFetch(baseOddsEndpoint(sport,markets),{force});
-      const events=engine.pregameOnly(r.data),fetchedAt=r.meta?.fetched_at||(r.meta?.cached?new Date(Date.now()-(r.meta.cache_age_ms||0)).toISOString():new Date().toISOString());
-      return send(res,200,{events,filtered_live_count:(r.data||[]).length-events.length,quota:r.meta,fetched_at:fetchedAt,cached:!!r.meta?.cached});
+      const events=engine.pregameOnly(r.data),
+            fetchedAt=r.meta?.fetched_at||(r.meta?.cached?new Date(Date.now()-(r.meta.cache_age_ms||0)).toISOString():new Date().toISOString());
+      return send(res,200,{
+        events,
+        filtered_live_count:(r.data||[]).length-events.length,
+        quota:r.meta,
+        fetched_at:fetchedAt,
+        cached:!!r.meta?.cached,
+        source:'provider_read_through',
+        stale:false,
+        gateway_mode:DATA_GATEWAY.mode
+      });
     }
     if(req.method==='POST'&&u.pathname==='/api/scan'){
       if(!rateLimit(req,res,'scan',24))return;
       const body=JSON.parse(await readBody(req)||'{}');
-      let events=(body.events||[]).map(engine.sanitizeEvent),boardRefreshed=false;
-      const age=body.board_synced_at?Date.now()-new Date(body.board_synced_at).getTime():Infinity;
-      const sport=body.sport||events[0]?.sport_key||'baseball_mlb',markets=body.markets||'h2h,spreads,totals';
-      if(!events.length||!Number.isFinite(age)||age>180000){
-        const r=await engine.oddsFetch(baseOddsEndpoint(sport,markets),{force:true});events=engine.pregameOnly(r.data).map(engine.sanitizeEvent);boardRefreshed=true;
+      let events=(body.events||[]).map(engine.sanitizeEvent),
+          boardRefreshed=false,
+          boardSource='request',
+          boardAge=body.board_synced_at?Date.now()-new Date(body.board_synced_at).getTime():Infinity;
+      const sport=body.sport||events[0]?.sport_key||'baseball_mlb',
+            markets=body.markets||'h2h,spreads,totals';
+
+      if(!events.length||!Number.isFinite(boardAge)||boardAge>180000){
+        const shared=await sharedBoard(sport);
+        if(dataGateway.shouldUseShared(shared,DATA_GATEWAY.mode)){
+          events=engine.pregameOnly(shared.events).map(engine.sanitizeEvent);
+          boardSource=shared.source;
+          boardAge=shared.age_ms;
+        }else{
+          const r=await engine.oddsFetch(baseOddsEndpoint(sport,markets),{force:false});
+          events=engine.pregameOnly(r.data).map(engine.sanitizeEvent);
+          boardRefreshed=!r.meta?.cached;
+          boardSource='provider_read_through';
+          boardAge=r.meta?.cached?Number(r.meta.cache_age_ms||0):0;
+        }
       }
+
       if(!events.length)return send(res,400,{error:'No upcoming events were supplied or found.'});
-      const out=await engine.scanSlate(events);out.board_refreshed=boardRefreshed;out.board_age_ms=boardRefreshed?0:Math.max(0,age);out.release_enabled=autopilot.config.RELEASE_SPORTS.includes(sport);out.autopilot={generated:false,reason:'manual in-depth scan',release_enabled:out.release_enabled};
+      const out=await engine.scanSlate(events);
+      out.board_refreshed=boardRefreshed;
+      out.board_age_ms=Number.isFinite(boardAge)?Math.max(0,boardAge):null;
+      out.board_source=boardSource;
+      out.gateway_mode=DATA_GATEWAY.mode;
+      out.release_enabled=autopilot.config.RELEASE_SPORTS.includes(sport);
+      out.autopilot={generated:false,reason:'manual in-depth scan',release_enabled:out.release_enabled};
       try{out.persistence=await autopilot.captureScan(sport,out,events,'manual in-depth scan');}catch(e){out.persistence={saved:false,error:e.message};}
       return send(res,200,out);
     }

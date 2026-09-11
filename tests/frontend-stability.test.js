@@ -148,7 +148,7 @@ test(
 );
 
 test(
-  'index declares UTF-8, v9.0.0 canonical-status operations shell, and v8.8 core bundle cache keys',
+  'index declares UTF-8, v9.1.0 canonical-status operations shell, and v8.8 core bundle cache keys',
   () => {
     const html = fs.readFileSync(
       path.join(
@@ -165,7 +165,7 @@ test(
 
     assert.match(
       html,
-      /v9\.0 • PRODUCTION LOCK/
+      /v9\.1 • SHARED DATA GATEWAY/
     );
 
     for (

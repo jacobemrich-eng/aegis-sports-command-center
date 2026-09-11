@@ -1,4 +1,4 @@
-# AEGIS Sports Command Center v9.0 — Production Lock
+# AEGIS Sports Command Center v9.1 — Shared Data Gateway
 
 AEGIS is a free-tier-first sports research operating system built around the SB101 AEGIS decision framework.
 
@@ -222,3 +222,19 @@ Production invariants:
 - Supabase remains the persistent production state store.
 - NFL shadow scheduling remains research/shadow-only.
 - Permanent AEGIS Production CI protects the locked baseline.
+
+
+## v9.1 Shared Data Gateway
+
+v9.1 begins Data Scale & Provider Independence without changing the frozen betting engine.
+
+Phase 1 routes normal browser/user odds reads through the persistent shared board produced by Autopilot before any provider read-through. Many users can therefore reuse one centrally refreshed dataset instead of multiplying sportsbook-provider calls per user.
+
+Invariants:
+- Betting engine remains `8.8.0-decision-intelligence`.
+- MLB/NCAAF automatic release authority is unchanged.
+- Autopilot remains the canonical upstream refresher.
+- Browser `force=1` cannot bypass shared-first mode.
+- Persistent Supabase board snapshots survive Render restarts.
+- Provider read-through remains bootstrap/fallback only when no usable shared board exists.
+- Phase 2 adds provider adapters, durable raw-provider cache, and provider failover.

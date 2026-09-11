@@ -71,6 +71,12 @@ services:
         value: "4"
       - key: MAX_DEEP_MARKET_CREDITS
         value: "10"
+      - key: AEGIS_PUBLIC_ODDS_MODE
+        value: shared_first
+      - key: AEGIS_SHARED_BOARD_MAX_AGE_MS
+        value: "900000"
+      - key: AEGIS_SHARED_BOARD_MAX_STALE_MS
+        value: "21600000"
       - key: ODDS_CACHE_TTL_MS
         value: "120000"
       - key: MIN_ODDS_REFRESH_MS

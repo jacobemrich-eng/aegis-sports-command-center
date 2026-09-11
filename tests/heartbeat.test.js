@@ -130,5 +130,5 @@ test('Operations Guardian and UI surface scheduler redundancy',()=>{
   assert.match(operations,/scheduler_redundancy/);
   assert.match(operations,/primary-only/);
   assert.match(ui,/REDUNDANT/);
-  assert.match(html,/v9\.0 • PRODUCTION LOCK/);
+  assert.match(html,/v9\.1 • SHARED DATA GATEWAY/);
 });
