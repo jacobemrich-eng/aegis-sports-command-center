@@ -1,0 +1,78 @@
+name: AEGIS Production CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**/*.md'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Full AEGIS validation
+        run: npm run check
+
+      - name: Production invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          node - <<'NODE'
+          const fs=require('fs');
+          const pkg=require('./package.json');
+          const html=fs.readFileSync('public/index.html','utf8');
+
+          if(!/^9\.\d+\.\d+$/.test(pkg.version)){
+            throw new Error(`Unexpected platform version: ${pkg.version}`);
+          }
+
+          const m=html.match(/<span class="versionpill">v(\d+\.\d+(?:\.\d+)?)\s*•/);
+          if(!m)throw new Error('Version pill not found.');
+
+          const ui=m[1].split('.').length===2?`${m[1]}.0`:m[1];
+          if(ui!==pkg.version){
+            throw new Error(`Version mismatch: package=${pkg.version} ui=${ui}`);
+          }
+
+          console.log(`Platform identity consistent: ${pkg.version}`);
+          NODE
+
+          grep -qF "8.8.0-decision-intelligence" server.js src/* 2>/dev/null
+          grep -qF "AEGIS_PERSISTENCE_HARDENING_V1" src/store.js
+          grep -qF "last_success_source" src/operations.js
+          grep -qF "ignoreInFlight:true" server.js
+
+          test -f src/data-gateway.js
+          test -f src/odds-provider.js
+          test -f src/provider-cache.js
+          grep -qF "shared_first" src/data-gateway.js
+          grep -qF "durable_provider_cache_fallback" src/engine.js
+          grep -qF "provider_cache:c.providerCache" server.js
+          grep -qF "AEGIS_PUBLIC_ODDS_MODE" render.yaml
+
+          git fetch --tags --force origin >/dev/null 2>&1
+          git rev-parse -q --verify "refs/tags/v9.0.0" >/dev/null
+          git merge-base --is-ancestor "v9.0.0^{commit}" HEAD
+
+          echo "AEGIS production invariants: PASS"
