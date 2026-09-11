@@ -1,0 +1,42 @@
+name: AEGIS Production CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**/*.md'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Full AEGIS validation
+        run: npm run check
+
+      - name: Production invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(node -p "require('./package.json').version")" = "9.0.0"
+          grep -qF "8.8.0-decision-intelligence" server.js src/* 2>/dev/null
+          grep -qF "AEGIS_PERSISTENCE_HARDENING_V1" src/store.js
+          grep -qF "last_success_source" src/operations.js
+          grep -qF "ignoreInFlight:true" server.js
+          grep -qF "v9.0 • PRODUCTION LOCK" public/index.html
