@@ -1,0 +1,873 @@
+name: Apply AEGIS v9.1.2 Provider Router
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  upgrade:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Detect baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+
+          if [ "$version" = "9.1.2" ] && [ -f src/provider-router.js ] && [ -f src/odds-secondary-sgo.js ]; then
+            echo "AEGIS_ALREADY_APPLIED=true" >> "$GITHUB_ENV"
+            echo "v9.1.2 already installed; switching to verify-only mode."
+            exit 0
+          fi
+
+          if [ "$version" != "9.1.1" ]; then
+            echo "Expected v9.1.1 baseline, found $version"
+            exit 1
+          fi
+
+          grep -qF "v9.1.1 • DURABLE PROVIDER CACHE" public/index.html
+          grep -qF "providerCache:providerCache.status()" src/engine.js
+          grep -qF "8.8.0-decision-intelligence" src/engine.js
+          echo "AEGIS_ALREADY_APPLIED=false" >> "$GITHUB_ENV"
+          echo "v9.1.1 baseline guard: PASS"
+
+      - name: Add SportsGameOdds secondary adapter
+        if: env.AEGIS_ALREADY_APPLIED != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cat > src/odds-secondary-sgo.js <<'JS'
+          'use strict';
+
+          const DEFAULT_BASE_URL='https://api.sportsgameodds.com/v2';
+
+          const SPORTS={
+            baseball_mlb:{leagueID:'MLB',title:'MLB'},
+            americanfootball_ncaaf:{leagueID:'NCAAF',title:'NCAAF'}
+          };
+
+          const TO_SGO_BOOK={
+            hardrockbet_fl:'hardrockbet',
+            fanduel:'fanduel',
+            draftkings:'draftkings',
+            bovada:'bovada',
+            betmgm:'betmgm',
+            espnbet:'espnbet',
+            fanatics:'fanatics'
+          };
+
+          const FROM_SGO_BOOK=Object.fromEntries(
+            Object.entries(TO_SGO_BOOK).map(([a,b])=>[b,a])
+          );
+
+          const TITLES={
+            hardrockbet_fl:'Hard Rock Bet',
+            fanduel:'FanDuel',
+            draftkings:'DraftKings',
+            bovada:'Bovada',
+            betmgm:'BetMGM',
+            espnbet:'ESPN BET',
+            fanatics:'Fanatics'
+          };
+
+          function config(env=process.env){
+            const enabled=String(env.AEGIS_ODDS_SECONDARY_ENABLED||'true').toLowerCase()!=='false';
+            const apiKey=String(env.SPORTSGAMEODDS_API_KEY||'').trim();
+            return {
+              name:'sportsgameodds',
+              enabled,
+              configured:enabled&&!!apiKey,
+              apiKey,
+              baseUrl:String(env.AEGIS_ODDS_SECONDARY_BASE_URL||DEFAULT_BASE_URL).replace(/\/+$/,''),
+              timeoutMs:Math.max(3000,Math.min(30000,Number(env.AEGIS_ODDS_SECONDARY_TIMEOUT_MS||10000))),
+              maxPages:Math.max(1,Math.min(4,Number(env.AEGIS_ODDS_SECONDARY_MAX_PAGES||3)))
+            };
+          }
+
+          function parseEndpoint(endpoint){
+            const text=String(endpoint||'');
+            const m=text.match(/^sports\/([^/]+)\/odds(?:\?|$)/);
+            if(!m)return null;
+
+            const sportKey=decodeURIComponent(m[1]);
+            const sport=SPORTS[sportKey];
+            if(!sport)return null;
+
+            const q=text.includes('?')?text.slice(text.indexOf('?')+1):'';
+            const params=new URLSearchParams(q);
+            const markets=String(params.get('markets')||'h2h,spreads,totals')
+              .split(',').map(x=>x.trim()).filter(Boolean);
+
+            if(markets.some(x=>!['h2h','spreads','totals'].includes(x)))return null;
+
+            const primaryBooks=String(params.get('bookmakers')||'')
+              .split(',').map(x=>x.trim()).filter(Boolean);
+            const sgoBooks=[...new Set(primaryBooks.map(x=>TO_SGO_BOOK[x]).filter(Boolean))];
+
+            const oddIDs=[];
+            if(markets.includes('h2h')){
+              oddIDs.push('points-home-game-ml-home','points-away-game-ml-away');
+            }
+            if(markets.includes('spreads')){
+              oddIDs.push('points-home-game-sp-home','points-away-game-sp-away');
+            }
+            if(markets.includes('totals')){
+              oddIDs.push('points-all-game-ou-over','points-all-game-ou-under');
+            }
+
+            return {
+              sportKey,
+              sportTitle:sport.title,
+              leagueID:sport.leagueID,
+              markets,
+              primaryBooks,
+              sgoBooks,
+              oddIDs
+            };
+          }
+
+          function canHandle(endpoint){
+            return !!parseEndpoint(endpoint);
+          }
+
+          function num(value){
+            if(value==null||value==='')return null;
+            const n=Number(String(value).replace(/^\+/,''));
+            return Number.isFinite(n)?n:null;
+          }
+
+          function teamName(team){
+            return team?.names?.medium||team?.names?.long||team?.names?.short||team?.name||team?.teamID||'Unknown';
+          }
+
+          function marketKey(odd){
+            if(odd?.periodID!=='game')return null;
+            if(odd?.betTypeID==='ml')return 'h2h';
+            if(odd?.betTypeID==='sp')return 'spreads';
+            if(odd?.betTypeID==='ou')return 'totals';
+            return null;
+          }
+
+          function outcomeFor(odd,event,book){
+            const key=marketKey(odd);
+            if(!key)return null;
+
+            const home=teamName(event?.teams?.home);
+            const away=teamName(event?.teams?.away);
+            const price=num(book?.odds);
+            if(price==null)return null;
+
+            if(key==='h2h'||key==='spreads'){
+              const side=String(odd?.sideID||'').toLowerCase();
+              const name=side==='home'?home:side==='away'?away:null;
+              if(!name)return null;
+              const point=key==='spreads'?num(book?.spread??odd?.bookSpread):null;
+              return point==null?{name,price}:{name,price,point};
+            }
+
+            const side=String(odd?.sideID||'').toLowerCase();
+            if(side!=='over'&&side!=='under')return null;
+            const point=num(book?.overUnder??odd?.bookOverUnder);
+            const name=side==='over'?'Over':'Under';
+            return point==null?{name,price}:{name,price,point};
+          }
+
+          function normalizeEvent(event,parsed){
+            const byBook=new Map();
+            const allowed=new Set(parsed.primaryBooks||[]);
+
+            for(const odd of Object.values(event?.odds||{})){
+              const key=marketKey(odd);
+              if(!key||!parsed.markets.includes(key))continue;
+
+              for(const [sgoBook,book] of Object.entries(odd?.byBookmaker||{})){
+                if(book?.available===false)continue;
+                const primaryBook=FROM_SGO_BOOK[sgoBook]||sgoBook;
+                if(allowed.size&&!allowed.has(primaryBook))continue;
+
+                const outcome=outcomeFor(odd,event,book);
+                if(!outcome)continue;
+
+                if(!byBook.has(primaryBook)){
+                  byBook.set(primaryBook,{
+                    key:primaryBook,
+                    title:TITLES[primaryBook]||primaryBook,
+                    last_update:null,
+                    markets:new Map()
+                  });
+                }
+
+                const row=byBook.get(primaryBook);
+                if(!row.markets.has(key))row.markets.set(key,{key,outcomes:[]});
+                const market=row.markets.get(key);
+
+                const duplicate=market.outcomes.some(x=>
+                  x.name===outcome.name&&
+                  Number(x.point??0)===Number(outcome.point??0)
+                );
+                if(!duplicate)market.outcomes.push(outcome);
+
+                const stamp=book?.lastUpdatedAt||null;
+                if(stamp&&(!row.last_update||new Date(stamp)>new Date(row.last_update))){
+                  row.last_update=stamp;
+                }
+              }
+            }
+
+            const bookmakers=[...byBook.values()].map(row=>({
+              key:row.key,
+              title:row.title,
+              last_update:row.last_update,
+              markets:[...row.markets.values()].filter(m=>m.outcomes.length)
+            })).filter(b=>b.markets.length);
+
+            return {
+              id:`sgo:${event.eventID}`,
+              sport_key:parsed.sportKey,
+              sport_title:parsed.sportTitle,
+              commence_time:event?.status?.startsAt||event?.startTime||null,
+              home_team:teamName(event?.teams?.home),
+              away_team:teamName(event?.teams?.away),
+              bookmakers
+            };
+          }
+
+          function normalizeEvents(events,parsed){
+            return (events||[])
+              .filter(e=>e&&!e?.status?.cancelled&&!e?.status?.ended)
+              .map(e=>normalizeEvent(e,parsed))
+              .filter(e=>e.commence_time&&e.bookmakers.length);
+          }
+
+          async function fetchPage(url,cfg){
+            const controller=new AbortController();
+            const timer=setTimeout(()=>controller.abort(),cfg.timeoutMs);
+            try{
+              const response=await fetch(url,{
+                signal:controller.signal,
+                headers:{
+                  'x-api-key':cfg.apiKey,
+                  'Accept':'application/json',
+                  'User-Agent':'SB101-AEGIS/9.1.2'
+                }
+              });
+              const raw=await response.text();
+              let body;
+              try{body=JSON.parse(raw);}catch{body={success:false,error:raw};}
+              if(!response.ok||body?.success===false){
+                const err=new Error(body?.error||`SportsGameOdds ${response.status}`);
+                err.status=response.status;
+                err.provider='sportsgameodds';
+                throw err;
+              }
+              return body;
+            }finally{
+              clearTimeout(timer);
+            }
+          }
+
+          async function fetchOdds(endpoint,{env=process.env}={}){
+            const cfg=config(env);
+            if(!cfg.configured)throw Object.assign(new Error('SportsGameOdds secondary is not configured.'),{status:503,provider:'sportsgameodds'});
+
+            const parsed=parseEndpoint(endpoint);
+            if(!parsed)throw Object.assign(new Error('SportsGameOdds adapter does not support this endpoint.'),{status:422,provider:'sportsgameodds'});
+
+            const params=new URLSearchParams({
+              leagueID:parsed.leagueID,
+              oddsAvailable:'true',
+              live:'false',
+              started:'false',
+              includeOpposingOdds:'true',
+              limit:'100'
+            });
+
+            if(parsed.oddIDs.length)params.set('oddID',parsed.oddIDs.join(','));
+            if(parsed.sgoBooks.length)params.set('bookmakerID',parsed.sgoBooks.join(','));
+
+            const all=[];
+            let cursor=null;
+            let pages=0;
+
+            do{
+              const q=new URLSearchParams(params);
+              if(cursor)q.set('cursor',cursor);
+              const body=await fetchPage(`${cfg.baseUrl}/events?${q.toString()}`,cfg);
+              all.push(...(Array.isArray(body?.data)?body.data:[]));
+              cursor=body?.nextCursor||null;
+              pages++;
+            }while(cursor&&pages<cfg.maxPages);
+
+            return {
+              data:normalizeEvents(all,parsed),
+              meta:{
+                provider:'sportsgameodds',
+                source:'secondary_provider',
+                fetched_at:new Date().toISOString(),
+                failover:true,
+                pages,
+                objects:all.length,
+                sport_key:parsed.sportKey
+              }
+            };
+          }
+
+          function retryable(error){
+            const status=Number(error?.status);
+            return error?.name==='AbortError'||!Number.isFinite(status)||status===408||status===425||status===429||status>=500;
+          }
+
+          function publicStatus(env=process.env){
+            const c=config(env);
+            return {
+              name:c.name,
+              enabled:c.enabled,
+              configured:c.configured,
+              supported_sports:Object.keys(SPORTS),
+              supported_markets:['h2h','spreads','totals']
+            };
+          }
+
+          module.exports={
+            DEFAULT_BASE_URL,
+            SPORTS,
+            TO_SGO_BOOK,
+            config,
+            parseEndpoint,
+            canHandle,
+            normalizeEvent,
+            normalizeEvents,
+            fetchOdds,
+            retryable,
+            publicStatus
+          };
+          JS
+
+      - name: Add provider router
+        if: env.AEGIS_ALREADY_APPLIED != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cat > src/provider-router.js <<'JS'
+          'use strict';
+
+          const primary=require('./odds-provider');
+          const secondary=require('./odds-secondary-sgo');
+
+          const state={
+            consecutivePrimaryFailures:0,
+            circuitUntil:0,
+            lastPrimarySuccessAt:null,
+            lastPrimaryFailureAt:null,
+            lastFailoverAt:null,
+            lastRoute:'primary'
+          };
+
+          function config(env=process.env){
+            return {
+              failureThreshold:Math.max(1,Math.min(10,Number(env.AEGIS_PRIMARY_PROVIDER_FAILURE_THRESHOLD||2))),
+              cooldownMs:Math.max(30000,Math.min(30*60*1000,Number(env.AEGIS_PRIMARY_PROVIDER_COOLDOWN_MS||180000)))
+            };
+          }
+
+          function secondaryReady(endpoint,env=process.env){
+            const c=secondary.config(env);
+            return c.configured&&secondary.canHandle(endpoint);
+          }
+
+          function primaryCircuitOpen(now=Date.now()){
+            return state.circuitUntil>now;
+          }
+
+          function recordPrimarySuccess(){
+            state.consecutivePrimaryFailures=0;
+            state.circuitUntil=0;
+            state.lastPrimarySuccessAt=new Date().toISOString();
+            state.lastRoute='primary';
+          }
+
+          function recordPrimaryFailure(cfg){
+            state.consecutivePrimaryFailures++;
+            state.lastPrimaryFailureAt=new Date().toISOString();
+            if(state.consecutivePrimaryFailures>=cfg.failureThreshold){
+              state.circuitUntil=Date.now()+cfg.cooldownMs;
+            }
+          }
+
+          function cleanError(error){
+            return {
+              provider:error?.provider||'primary',
+              status:Number.isFinite(Number(error?.status))?Number(error.status):null,
+              message:String(error?.message||'provider error').slice(0,180)
+            };
+          }
+
+          async function useSecondary(endpoint,reason,primaryError,env){
+            const result=await secondary.fetchOdds(endpoint,{env});
+            state.lastFailoverAt=new Date().toISOString();
+            state.lastRoute='secondary';
+            return {
+              data:result.data,
+              meta:{
+                ...result.meta,
+                route:'secondary',
+                failover_reason:reason,
+                primary_error:primaryError?cleanError(primaryError):null
+              }
+            };
+          }
+
+          async function fetchOdds(endpoint,{env=process.env}={}){
+            const cfg=config(env);
+
+            if(primaryCircuitOpen()&&secondaryReady(endpoint,env)){
+              try{
+                return await useSecondary(endpoint,'primary_circuit_open',null,env);
+              }catch(secondaryError){
+                secondaryError.route='secondary_circuit_attempt';
+                throw secondaryError;
+              }
+            }
+
+            try{
+              const result=await primary.fetchOdds(endpoint,{env});
+              recordPrimarySuccess();
+              return {
+                data:result.data,
+                meta:{...result.meta,route:'primary',failover:false}
+              };
+            }catch(primaryError){
+              if(primary.retryable(primaryError))recordPrimaryFailure(cfg);
+
+              if(primary.retryable(primaryError)&&secondaryReady(endpoint,env)){
+                try{
+                  return await useSecondary(endpoint,'primary_retryable_failure',primaryError,env);
+                }catch(secondaryError){
+                  primaryError.secondary_error=cleanError(secondaryError);
+                }
+              }
+
+              throw primaryError;
+            }
+          }
+
+          function status(env=process.env){
+            const cfg=config(env);
+            return {
+              mode:'primary_with_secondary_failover',
+              primary:primary.config(env).name,
+              secondary:secondary.publicStatus(env),
+              primary_circuit_open:primaryCircuitOpen(),
+              primary_circuit_until:state.circuitUntil?new Date(state.circuitUntil).toISOString():null,
+              consecutive_primary_failures:state.consecutivePrimaryFailures,
+              failure_threshold:cfg.failureThreshold,
+              cooldown_ms:cfg.cooldownMs,
+              last_primary_success_at:state.lastPrimarySuccessAt,
+              last_primary_failure_at:state.lastPrimaryFailureAt,
+              last_failover_at:state.lastFailoverAt,
+              last_route:state.lastRoute
+            };
+          }
+
+          function resetForTest(){
+            state.consecutivePrimaryFailures=0;
+            state.circuitUntil=0;
+            state.lastPrimarySuccessAt=null;
+            state.lastPrimaryFailureAt=null;
+            state.lastFailoverAt=null;
+            state.lastRoute='primary';
+          }
+
+          module.exports={config,fetchOdds,status,primaryCircuitOpen,resetForTest};
+          JS
+
+      - name: Patch engine and health
+        if: env.AEGIS_ALREADY_APPLIED != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          ep=Path("src/engine.js")
+          s=ep.read_text(encoding="utf-8")
+
+          old="const providerCache = require('./provider-cache');"
+          new="const providerCache = require('./provider-cache');\nconst providerRouter = require('./provider-router');"
+          if "require('./provider-router')" not in s:
+              if old not in s: raise SystemExit("engine router require anchor missing")
+              s=s.replace(old,new,1)
+
+          old_call="const upstream=await oddsProvider.fetchOdds(endpoint);"
+          new_call="const upstream=await providerRouter.fetchOdds(endpoint);"
+          if new_call not in s:
+              if old_call not in s: raise SystemExit("engine upstream call anchor missing")
+              s=s.replace(old_call,new_call,1)
+
+          old_cfg="providerCache:providerCache.status(),oddsProvider:oddsProvider.config().name,lastOddsMeta:LAST_ODDS_META"
+          new_cfg="providerCache:providerCache.status(),oddsProvider:oddsProvider.config().name,providerRouter:providerRouter.status(),lastOddsMeta:LAST_ODDS_META"
+          if "providerRouter:providerRouter.status()" not in s:
+              if old_cfg not in s: raise SystemExit("engine config router anchor missing")
+              s=s.replace(old_cfg,new_cfg,1)
+
+          ep.write_text(s,encoding="utf-8")
+
+          sp=Path("server.js")
+          s=sp.read_text(encoding="utf-8")
+          if "provider_router:c.providerRouter" not in s:
+              pattern=re.compile(r"(odds_provider:c\.oddsProvider,)")
+              s,n=pattern.subn(r"\1\n      provider_router:c.providerRouter,",s,count=1)
+              if n!=1: raise SystemExit(f"server provider router anchor count {n}, expected 1")
+          sp.write_text(s,encoding="utf-8")
+          PY
+
+      - name: Add v9.1.2 identity and launch capacity plan
+        if: env.AEGIS_ALREADY_APPLIED != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          import textwrap
+
+          pkgp=Path("package.json")
+          pkg=json.loads(pkgp.read_text(encoding="utf-8"))
+          pkg["version"]="9.1.2"
+          check=pkg["scripts"]["check"]
+          if "node --check src/odds-secondary-sgo.js" not in check:
+              check=check.replace(
+                  "node --check src/provider-cache.js &&",
+                  "node --check src/provider-cache.js && node --check src/odds-secondary-sgo.js && node --check src/provider-router.js &&",
+                  1
+              )
+          pkg["scripts"]["check"]=check
+          pkgp.write_text(json.dumps(pkg,indent=2,ensure_ascii=False)+"\n",encoding="utf-8")
+
+          lockp=Path("package-lock.json")
+          if lockp.exists():
+              lock=json.loads(lockp.read_text(encoding="utf-8"))
+              lock["version"]="9.1.2"
+              if isinstance(lock.get("packages"),dict) and isinstance(lock["packages"].get(""),dict):
+                  lock["packages"][""]["version"]="9.1.2"
+              lockp.write_text(json.dumps(lock,indent=2,ensure_ascii=False)+"\n",encoding="utf-8")
+
+          idxp=Path("public/index.html")
+          idx=idxp.read_text(encoding="utf-8")
+          idx=idx.replace("v9.1.1 • DURABLE PROVIDER CACHE","v9.1.2 • PROVIDER ROUTER",1)
+          idx=idx.replace("?v=9.1.1","?v=9.1.2")
+          idxp.write_text(idx,encoding="utf-8")
+
+          rendp=Path("render.yaml")
+          rend=rendp.read_text(encoding="utf-8")
+          anchor='      - key: AEGIS_ODDS_PROVIDER_TIMEOUT_MS\n        value: "10000"\n'
+          addition=(
+              '      - key: SPORTSGAMEODDS_API_KEY\n'
+              '        sync: false\n'
+              '      - key: AEGIS_ODDS_SECONDARY_ENABLED\n'
+              '        value: "true"\n'
+              '      - key: AEGIS_ODDS_SECONDARY_BASE_URL\n'
+              '        value: https://api.sportsgameodds.com/v2\n'
+              '      - key: AEGIS_ODDS_SECONDARY_TIMEOUT_MS\n'
+              '        value: "10000"\n'
+              '      - key: AEGIS_ODDS_SECONDARY_MAX_PAGES\n'
+              '        value: "3"\n'
+              '      - key: AEGIS_PRIMARY_PROVIDER_FAILURE_THRESHOLD\n'
+              '        value: "2"\n'
+              '      - key: AEGIS_PRIMARY_PROVIDER_COOLDOWN_MS\n'
+              '        value: "180000"\n'
+          )
+          if "SPORTSGAMEODDS_API_KEY" not in rend:
+              if anchor not in rend: raise SystemExit("render secondary provider anchor missing")
+              rend=rend.replace(anchor,anchor+addition,1)
+          rendp.write_text(rend,encoding="utf-8")
+
+          readmep=Path("README.md")
+          readme=readmep.read_text(encoding="utf-8")
+          readme=readme.replace(
+              "# AEGIS Sports Command Center v9.1.1 — Durable Provider Cache",
+              "# AEGIS Sports Command Center v9.1.2 — Provider Router",
+              1
+          )
+          if "## v9.1.2 Provider Router" not in readme:
+              readme += (
+                  "\n\n## v9.1.2 Provider Router\n\n"
+                  "AEGIS now has a provider-routing boundary around the frozen betting engine. "
+                  "The Odds API remains the primary source. SportsGameOdds is an optional independent secondary source for MLB/NCAAF full-game moneyline, spread and total slates.\n\n"
+                  "The secondary is dormant unless `SPORTSGAMEODDS_API_KEY` is configured. "
+                  "Retryable primary failures can route supported requests to the secondary. "
+                  "A small circuit breaker prevents repeatedly hammering a failing primary. "
+                  "Event-specific deep-market requests remain primary + durable-cache protected until cross-provider event identity is formally mapped.\n"
+              )
+          readmep.write_text(readme,encoding="utf-8")
+
+          docs=Path("docs")
+          docs.mkdir(exist_ok=True)
+          plan="""# AEGIS Launch Capacity Plan — v9.1.2
+
+          ## Scaling principle
+          End-user count must not determine provider-call count. User/browser reads consume the shared persistent board. Upstream provider calls are generated by the centralized Autopilot refresh cadence.
+
+          ## Current request path
+          1. Browser/user -> Shared Data Gateway
+          2. Shared persistent board -> response
+          3. Autopilot -> memory cache -> durable provider cache -> provider router
+          4. Provider router -> primary provider
+          5. On eligible transient primary failure -> SportsGameOdds secondary
+          6. If upstreams fail -> bounded stale durable cache, explicitly labeled stale
+
+          ## Launch safety
+          - Keep the current 18/day and 450/month development governor until a production data plan is selected.
+          - Do not remove freshness gates merely because a secondary provider exists.
+          - Do not promise unlimited refreshes. Commercial provider capacity is finite even when user traffic is shared.
+          - User growth should increase web/compute traffic, not linearly increase upstream odds calls.
+          - Scale Render/Supabase independently from odds-provider contracts.
+
+          ## Secondary-provider scope
+          SportsGameOdds failover initially covers MLB and NCAAF full-game h2h/spreads/totals. Deep event markets remain protected by the durable cache and primary provider until a cross-provider event-ID map is proven.
+
+          ## Capacity formula
+          Approximate upstream demand from schedule design, not user count:
+
+          daily_provider_requests ~= scheduled_refreshes + targeted_refreshes + deep_market_refreshes + grading/result requests
+
+          User page views should normally add zero upstream odds requests while a usable shared board exists.
+
+          ## Launch stages
+          1. Development: current quota governor; secondary key optional.
+          2. Private beta: configure secondary key, perform controlled failover test, measure provider objects/requests and Supabase row-cache size.
+          3. Paid/public beta: choose provider tier from measured refresh demand; raise AEGIS budgets deliberately.
+          4. Public launch: paid always-on hosting, production data contract(s), alerts for provider saturation, and usage dashboards.
+          """
+          (docs/"AEGIS_LAUNCH_CAPACITY_PLAN.md").write_text(textwrap.dedent(plan).strip()+"\n",encoding="utf-8")
+
+          for p in Path("tests").glob("*.test.js"):
+              t=p.read_text(encoding="utf-8")
+              u=t.replace("v9.1.1 • DURABLE PROVIDER CACHE","v9.1.2 • PROVIDER ROUTER")
+              u=u.replace(r"v9\.1\.1 • DURABLE PROVIDER CACHE",r"v9\.1\.2 • PROVIDER ROUTER")
+              u=u.replace(r"9\.1\.1",r"9\.1\.2")
+              u=u.replace("9.1.1","9.1.2")
+              if u!=t:p.write_text(u,encoding="utf-8")
+          PY
+
+      - name: Add provider router regression tests
+        if: env.AEGIS_ALREADY_APPLIED != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cat > tests/provider-router.test.js <<'JS'
+          const test=require('node:test');
+          const assert=require('node:assert/strict');
+          const sgo=require('../src/odds-secondary-sgo');
+          const router=require('../src/provider-router');
+
+          test('secondary adapter accepts only supported MLB/NCAAF slate endpoints',()=>{
+            assert.equal(sgo.canHandle('sports/baseball_mlb/odds?markets=h2h,spreads,totals'),true);
+            assert.equal(sgo.canHandle('sports/americanfootball_ncaaf/odds?markets=h2h'),true);
+            assert.equal(sgo.canHandle('sports/baseball_mlb/events/abc/odds?markets=h2h'),false);
+            assert.equal(sgo.canHandle('sports/basketball_wnba/odds?markets=h2h'),false);
+          });
+
+          test('primary bookmaker names map to SportsGameOdds IDs',()=>{
+            const p=sgo.parseEndpoint('sports/baseball_mlb/odds?bookmakers=hardrockbet_fl,fanduel,draftkings&markets=h2h');
+            assert.deepEqual(p.sgoBooks,['hardrockbet','fanduel','draftkings']);
+            assert.equal(p.leagueID,'MLB');
+          });
+
+          test('SportsGameOdds fixture normalizes into AEGIS/The-Odds-API shape',()=>{
+            const parsed=sgo.parseEndpoint('sports/baseball_mlb/odds?bookmakers=hardrockbet_fl,fanduel&markets=h2h,spreads,totals');
+            const fixture={
+              eventID:'abc',
+              status:{startsAt:'2026-09-12T23:00:00Z',cancelled:false,ended:false},
+              teams:{
+                home:{names:{medium:'Home Club'}},
+                away:{names:{medium:'Away Club'}}
+              },
+              odds:{
+                'points-home-game-ml-home':{
+                  periodID:'game',betTypeID:'ml',sideID:'home',
+                  byBookmaker:{hardrockbet:{odds:'-120',available:true,lastUpdatedAt:'2026-09-12T20:00:00Z'}}
+                },
+                'points-away-game-ml-away':{
+                  periodID:'game',betTypeID:'ml',sideID:'away',
+                  byBookmaker:{hardrockbet:{odds:'+105',available:true,lastUpdatedAt:'2026-09-12T20:00:01Z'}}
+                },
+                'points-home-game-sp-home':{
+                  periodID:'game',betTypeID:'sp',sideID:'home',
+                  byBookmaker:{hardrockbet:{odds:'-110',spread:'-1.5',available:true}}
+                },
+                'points-away-game-sp-away':{
+                  periodID:'game',betTypeID:'sp',sideID:'away',
+                  byBookmaker:{hardrockbet:{odds:'-110',spread:'+1.5',available:true}}
+                },
+                'points-all-game-ou-over':{
+                  periodID:'game',betTypeID:'ou',sideID:'over',
+                  byBookmaker:{hardrockbet:{odds:'-105',overUnder:'8.5',available:true}}
+                },
+                'points-all-game-ou-under':{
+                  periodID:'game',betTypeID:'ou',sideID:'under',
+                  byBookmaker:{hardrockbet:{odds:'-115',overUnder:'8.5',available:true}}
+                }
+              }
+            };
+
+            const out=sgo.normalizeEvent(fixture,parsed);
+            assert.equal(out.home_team,'Home Club');
+            assert.equal(out.away_team,'Away Club');
+            assert.equal(out.bookmakers[0].key,'hardrockbet_fl');
+
+            const markets=Object.fromEntries(out.bookmakers[0].markets.map(m=>[m.key,m]));
+            assert.equal(markets.h2h.outcomes.length,2);
+            assert.equal(markets.spreads.outcomes.find(x=>x.name==='Home Club').point,-1.5);
+            assert.equal(markets.totals.outcomes.find(x=>x.name==='Over').point,8.5);
+          });
+
+          test('secondary stays dormant without a key',()=>{
+            const st=sgo.publicStatus({
+              AEGIS_ODDS_SECONDARY_ENABLED:'true',
+              SPORTSGAMEODDS_API_KEY:''
+            });
+            assert.equal(st.enabled,true);
+            assert.equal(st.configured,false);
+          });
+
+          test('router exposes circuit-breaker state without secrets',()=>{
+            router.resetForTest();
+            const st=router.status({
+              AEGIS_ODDS_SECONDARY_ENABLED:'true',
+              SPORTSGAMEODDS_API_KEY:'secret-test'
+            });
+            assert.equal(st.mode,'primary_with_secondary_failover');
+            assert.equal(st.secondary.configured,true);
+            assert.equal('apiKey' in st.secondary,false);
+          });
+          JS
+
+      - name: Validate v9.1.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check src/odds-secondary-sgo.js
+          node --check src/provider-router.js
+          node --check src/engine.js
+          node --check server.js
+
+          test "$(node -p "require('./package.json').version")" = "9.1.2"
+          grep -qF "v9.1.2 • PROVIDER ROUTER" public/index.html
+          grep -qF "providerRouter.fetchOdds(endpoint)" src/engine.js
+          grep -qF "provider_router:c.providerRouter" server.js
+          grep -qF "SPORTSGAMEODDS_API_KEY" render.yaml
+          grep -qF "8.8.0-decision-intelligence" src/engine.js
+          npm run check
+
+      - name: Commit v9.1.2
+        if: env.AEGIS_ALREADY_APPLIED != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "AEGIS Release Bot"
+          git config user.email "aegis-release-bot@users.noreply.github.com"
+
+          git add \
+            src/odds-secondary-sgo.js \
+            src/provider-router.js \
+            src/engine.js \
+            server.js \
+            package.json \
+            package-lock.json \
+            public/index.html \
+            render.yaml \
+            README.md \
+            docs/AEGIS_LAUNCH_CAPACITY_PLAN.md \
+            tests
+
+          if git diff --cached --name-only | grep -q '^.github/workflows/'; then
+            echo "Refusing workflow-file mutation."
+            exit 1
+          fi
+
+          if git diff --cached --quiet; then
+            echo "No v9.1.2 changes to commit."
+          else
+            git commit -m "Add AEGIS v9.1.2 provider router"
+            git push origin HEAD:main
+          fi
+
+      - name: Verify live v9.1.2 without provider calls
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://aegis-sports-command-center.onrender.com"
+          ok=0
+
+          for i in $(seq 1 42); do
+            echo "Live verification attempt $i/42"
+            health="$(curl -fsS --max-time 35 "$BASE/api/health" 2>/dev/null || true)"
+            home="$(curl -fsS --max-time 35 "$BASE/" 2>/dev/null || true)"
+
+            if [ -n "$health" ] && [ -n "$home" ]; then
+              if HEALTH="$health" node -e '
+                const h=JSON.parse(process.env.HEALTH);
+                if((h.release_version||h.version)!=="9.1.2")process.exit(10);
+                if(h.engine_version!=="8.8.0-decision-intelligence")process.exit(11);
+                if(!h.persistent_storage)process.exit(12);
+                if(!h.data_gateway||h.data_gateway.mode!=="shared_first")process.exit(13);
+                if(!h.provider_cache||h.provider_cache.backend!=="supabase-row-cache")process.exit(14);
+                if(!h.provider_router||h.provider_router.mode!=="primary_with_secondary_failover")process.exit(15);
+                if(h.provider_router.primary!=="the_odds_api")process.exit(16);
+                if(!h.provider_router.secondary||h.provider_router.secondary.name!=="sportsgameodds")process.exit(17);
+              ' && printf '%s' "$home" | grep -qF "v9.1.2 • PROVIDER ROUTER"; then
+                ok=1
+                break
+              fi
+            fi
+
+            sleep 10
+          done
+
+          test "$ok" -eq 1
+          echo "Live v9.1.2 verification: PASS"
+          echo "GET-only health/home verification. No odds provider endpoint was called."
+
+      - name: Summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "### AEGIS v9.1.2 Provider Router"
+            echo
+            echo "✅ Primary provider remains The Odds API"
+            echo "✅ Optional SportsGameOdds secondary adapter installed"
+            echo "✅ MLB/NCAAF full-game h2h/spreads/totals can fail over when secondary key is configured"
+            echo "✅ Primary circuit breaker prevents repeated hammering during transient failure"
+            echo "✅ Deep event markets remain primary + durable-cache protected"
+            echo "✅ Shared Data Gateway remains user-facing first layer"
+            echo "✅ Betting engine remains 8.8.0-decision-intelligence"
+            echo "✅ Full AEGIS validation passed"
+            echo "✅ Reruns are verify-only instead of failing the version guard"
+            echo
+            echo "Next: configure/test the secondary key, then set launch capacity budgets from measured demand."
+          } >> "$GITHUB_STEP_SUMMARY"
