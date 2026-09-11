@@ -1,0 +1,96 @@
+name: Tag AEGIS v9.0 Production Baseline
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Locate verified v9.0 baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BASELINE="$(git log -1 --format=%H --grep='^Lock AEGIS v9.0 production baseline$')"
+          test -n "$BASELINE"
+
+          version="$(git show "$BASELINE:package.json" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(JSON.parse(s).version))")"
+          test "$version" = "9.0.0"
+          git show "$BASELINE:public/index.html" | grep -qF "v9.0 • PRODUCTION LOCK"
+
+          echo "BASELINE_COMMIT=$BASELINE" >> "$GITHUB_ENV"
+          echo "Verified baseline commit: $BASELINE"
+
+      - name: Confirm live v9.0 identity
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BASE="https://aegis-sports-command-center.onrender.com"
+          health="$(curl -fsS --max-time 35 "$BASE/api/health")"
+          home="$(curl -fsS --max-time 35 "$BASE/")"
+
+          HEALTH="$health" node -e '
+            const h=JSON.parse(process.env.HEALTH);
+            const release=h.release_version||h.version||h.release?.version;
+            const engine=h.engine_version||h.engine?.version;
+            const persistent=Boolean(h.persistent_storage ?? h.storage?.persistent ?? h.persistence?.persistent);
+            const autopilot=Boolean(h.autopilot_enabled ?? h.autopilot?.enabled ?? h.operations?.autopilot_enabled);
+            const redundancy=Boolean(h.scheduler_redundancy ?? h.operations?.scheduler_redundancy ?? h.operations?.safeguards?.scheduler_redundancy);
+            if(release!=="9.0.0") process.exit(10);
+            if(engine!=="8.8.0-decision-intelligence") process.exit(11);
+            if(!persistent) process.exit(12);
+            if(!autopilot) process.exit(13);
+            if(!redundancy) process.exit(14);
+          '
+
+          printf '%s' "$home" | grep -qF "v9.0 • PRODUCTION LOCK"
+          echo "Live v9.0 identity: PASS"
+
+      - name: Create verified v9.0.0 tag
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "AEGIS Release Bot"
+          git config user.email "aegis-release-bot@users.noreply.github.com"
+
+          git fetch --tags origin
+
+          existing="$(git rev-list -n 1 v9.0.0 2>/dev/null || true)"
+
+          if [ -n "$existing" ]; then
+            if [ "$existing" != "$BASELINE_COMMIT" ]; then
+              echo "ERROR: v9.0.0 already exists on different commit: $existing"
+              exit 1
+            fi
+            echo "v9.0.0 already correctly tags the production baseline."
+          else
+            git tag -a v9.0.0 "$BASELINE_COMMIT" -m "AEGIS v9.0 Production Lock"
+            git push origin v9.0.0
+            echo "Created v9.0.0 on $BASELINE_COMMIT"
+          fi
+
+      - name: Done
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "### AEGIS v9.0 Production Lock — COMPLETE"
+            echo
+            echo "✅ Live v9.0 already verified"
+            echo "✅ Production baseline tagged v9.0.0"
+            echo "✅ No code or production state changed"
+            echo "✅ Ready for v9.1 Data Scale & Provider Independence"
+          } >> "$GITHUB_STEP_SUMMARY"
