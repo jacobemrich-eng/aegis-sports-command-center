@@ -1,0 +1,580 @@
+name: Apply AEGIS v9.1.1 Durable Provider Cache
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  upgrade:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Guard v9.1 Phase 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(node -p "require('./package.json').version")" = "9.1.0"
+          grep -qF "v9.1 • SHARED DATA GATEWAY" public/index.html
+          grep -qF "shared_first" src/data-gateway.js
+          grep -qF "8.8.0-decision-intelligence" src/engine.js
+          echo "v9.1 Phase 1 guard: PASS"
+
+      - name: Add provider adapter
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cat > src/odds-provider.js <<'JS'
+          'use strict';
+
+          const DEFAULT_BASE_URL='https://api.the-odds-api.com/v4';
+
+          function config(env=process.env){
+            return {
+              name:'the_odds_api',
+              baseUrl:String(env.AEGIS_ODDS_PRIMARY_BASE_URL||DEFAULT_BASE_URL).replace(/\/+$/,''),
+              apiKey:String(env.ODDS_API_KEY||'').trim(),
+              timeoutMs:Math.max(3000,Math.min(30000,Number(env.AEGIS_ODDS_PROVIDER_TIMEOUT_MS||10000)))
+            };
+          }
+
+          function endpointUrl(endpoint,cfg=config()){
+            const join=String(endpoint).includes('?')?'&':'?';
+            return `${cfg.baseUrl}/${String(endpoint).replace(/^\/+/,'')}${join}apiKey=${encodeURIComponent(cfg.apiKey)}`;
+          }
+
+          async function fetchWithTimeout(url,timeoutMs,options={}){
+            const controller=new AbortController();
+            const timer=setTimeout(()=>controller.abort(),timeoutMs);
+            try{
+              return await fetch(url,{
+                ...options,
+                signal:controller.signal,
+                headers:{
+                  'User-Agent':'SB101-AEGIS/9.1.1',
+                  'Accept':'application/json,text/plain,*/*',
+                  ...(options.headers||{})
+                }
+              });
+            }finally{
+              clearTimeout(timer);
+            }
+          }
+
+          function metaFromHeaders(headers){
+            return {
+              remaining:headers.get('x-requests-remaining'),
+              used:headers.get('x-requests-used'),
+              last:headers.get('x-requests-last')
+            };
+          }
+
+          async function fetchOdds(endpoint,{env=process.env}={}){
+            const cfg=config(env);
+            if(!cfg.apiKey)throw new Error('ODDS_API_KEY is not configured.');
+            const response=await fetchWithTimeout(endpointUrl(endpoint,cfg),cfg.timeoutMs);
+            const raw=await response.text();
+            let data;
+            try{data=JSON.parse(raw);}catch{data={raw};}
+            if(!response.ok){
+              const err=new Error(data?.message||data?.error||`Odds provider ${response.status}`);
+              err.status=response.status;
+              err.provider=cfg.name;
+              throw err;
+            }
+            return {
+              data,
+              meta:{
+                ...metaFromHeaders(response.headers),
+                provider:cfg.name,
+                source:'provider',
+                fetched_at:new Date().toISOString()
+              }
+            };
+          }
+
+          async function probeQuota({env=process.env}={}){
+            const cfg=config(env);
+            if(!cfg.apiKey)throw new Error('ODDS_API_KEY is not configured.');
+            const response=await fetchWithTimeout(`${cfg.baseUrl}/sports/?apiKey=${encodeURIComponent(cfg.apiKey)}`,cfg.timeoutMs);
+            if(!response.ok)throw new Error(`Odds provider quota probe ${response.status}`);
+            await response.arrayBuffer();
+            return {
+              ...metaFromHeaders(response.headers),
+              provider:cfg.name,
+              source:'provider_probe',
+              fetched_at:new Date().toISOString(),
+              ready:true
+            };
+          }
+
+          function retryable(error){
+            const status=Number(error?.status);
+            return error?.name==='AbortError'||!Number.isFinite(status)||status===408||status===425||status===429||status>=500;
+          }
+
+          module.exports={DEFAULT_BASE_URL,config,endpointUrl,fetchOdds,probeQuota,retryable};
+          JS
+
+      - name: Add durable raw-provider cache
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cat > src/provider-cache.js <<'JS'
+          'use strict';
+
+          const crypto=require('crypto');
+
+          const SUPABASE_URL=String(process.env.SUPABASE_URL||'').replace(/\/+$/,'');
+          const SUPABASE_KEY=String(process.env.SUPABASE_SECRET_KEY||process.env.SUPABASE_SERVICE_ROLE_KEY||'').trim();
+          const KEY_MODE=SUPABASE_KEY.startsWith('sb_secret_')?'secret':(SUPABASE_KEY?'legacy-service-role':'none');
+          const STATE_ID=String(process.env.AEGIS_STATE_ID||'main').trim()||'main';
+          const MAX_BYTES=Math.max(100000,Math.min(3000000,Number(process.env.AEGIS_PROVIDER_CACHE_MAX_BYTES||1800000)));
+          const memory=new Map();
+          const persistent=!!(SUPABASE_URL&&SUPABASE_KEY);
+
+          function headers(extra={}){
+            const h={apikey:SUPABASE_KEY,...extra};
+            if(KEY_MODE==='legacy-service-role')h.Authorization=`Bearer ${SUPABASE_KEY}`;
+            return h;
+          }
+
+          function cacheId(key){
+            const hash=crypto.createHash('sha256').update(String(key)).digest('hex').slice(0,40);
+            return `${STATE_ID}-provider-${hash}`;
+          }
+
+          function normalize(value){
+            if(!value||typeof value!=='object')return null;
+            if(!('data' in value)||!value.fetched_at)return null;
+            return value;
+          }
+
+          async function get(key){
+            if(memory.has(key))return memory.get(key);
+            if(!persistent)return null;
+            try{
+              const id=cacheId(key);
+              const r=await fetch(`${SUPABASE_URL}/rest/v1/aegis_state?id=eq.${encodeURIComponent(id)}&select=value,updated_at`,{
+                headers:headers()
+              });
+              if(!r.ok)return null;
+              const rows=await r.json();
+              const value=normalize(rows?.[0]?.value);
+              if(value)memory.set(key,value);
+              return value;
+            }catch{
+              return null;
+            }
+          }
+
+          async function set(key,value){
+            const normalized=normalize(value);
+            if(!normalized)return {ok:false,reason:'invalid'};
+            const encoded=JSON.stringify(normalized);
+            const bytes=Buffer.byteLength(encoded);
+            if(bytes>MAX_BYTES)return {ok:false,reason:'too_large',bytes,max_bytes:MAX_BYTES};
+
+            memory.set(key,normalized);
+            if(!persistent)return {ok:true,persistent:false,bytes};
+
+            try{
+              const payload={id:cacheId(key),value:normalized,updated_at:new Date().toISOString()};
+              const r=await fetch(`${SUPABASE_URL}/rest/v1/aegis_state?on_conflict=id`,{
+                method:'POST',
+                headers:headers({
+                  'Content-Type':'application/json',
+                  Prefer:'resolution=merge-duplicates,return=minimal'
+                }),
+                body:JSON.stringify(payload)
+              });
+              if(!r.ok)return {ok:false,persistent:true,status:r.status,bytes};
+              return {ok:true,persistent:true,bytes};
+            }catch(error){
+              return {ok:false,persistent:true,error:error.message,bytes};
+            }
+          }
+
+          function ageMs(entry,nowMs=Date.now()){
+            const t=entry?.fetched_at?new Date(entry.fetched_at).getTime():NaN;
+            return Number.isFinite(t)?Math.max(0,nowMs-t):Infinity;
+          }
+
+          function resetMemory(){memory.clear();}
+
+          function status(){
+            return {
+              persistent,
+              backend:persistent?'supabase-row-cache':'memory-only',
+              max_bytes:MAX_BYTES,
+              key_mode:persistent?KEY_MODE:'none'
+            };
+          }
+
+          module.exports={persistent,cacheId,get,set,ageMs,resetMemory,status};
+          JS
+
+      - name: Patch engine provider path
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p=Path("src/engine.js")
+          s=p.read_text(encoding="utf-8")
+
+          req_old="const decision = require('./decision');"
+          req_new="const decision = require('./decision');\nconst oddsProvider = require('./odds-provider');\nconst providerCache = require('./provider-cache');"
+          if "require('./odds-provider')" not in s:
+              if req_old not in s:
+                  raise SystemExit("engine require anchor missing")
+              s=s.replace(req_old,req_new,1)
+
+          const_old="const ODDS_QUOTA_RESERVE = Math.max(0, Math.min(200, Number(process.env.ODDS_QUOTA_RESERVE || 35)));"
+          const_new=const_old+"\nconst ODDS_DURABLE_STALE_MS = Math.max(ODDS_CACHE_TTL_MS, Math.min(21600000, Number(process.env.AEGIS_PROVIDER_CACHE_MAX_STALE_MS || 21600000)));"
+          if "ODDS_DURABLE_STALE_MS" not in s:
+              if const_old not in s:
+                  raise SystemExit("engine cache constant anchor missing")
+              s=s.replace(const_old,const_new,1)
+
+          start=s.find("async function oddsFetch(endpoint,{ttl=ODDS_CACHE_TTL_MS,force=false}={}){")
+          end=s.find("\nasync function oddsQuotaProbe",start)
+          if start<0 or end<0:
+              raise SystemExit("oddsFetch function bounds missing")
+
+          new_fetch='''async function oddsFetch(endpoint,{ttl=ODDS_CACHE_TTL_MS,force=false}={}){
+            const hit=ODDS_RESPONSE_CACHE.get(endpoint),age=hit?Date.now()-hit.at:Infinity;
+            if(hit&&((!force&&hit.exp>Date.now())||(force&&age<MIN_ODDS_REFRESH_MS))){
+              return {data:hit.data,meta:{...hit.meta,cached:true,cache_age_ms:age,refresh_floor_ms:MIN_ODDS_REFRESH_MS}};
+            }
+
+            const durable=await providerCache.get(endpoint);
+            const durableAge=providerCache.ageMs(durable);
+
+            if(durable&&((!force&&durableAge<ttl)||(force&&durableAge<MIN_ODDS_REFRESH_MS))){
+              const meta={
+                ...(durable.meta||{}),
+                cached:true,
+                durable_cache:true,
+                stale:false,
+                source:'durable_provider_cache',
+                cache_age_ms:durableAge,
+                refresh_floor_ms:MIN_ODDS_REFRESH_MS
+              };
+              LAST_ODDS_META={...LAST_ODDS_META,...meta};
+              ODDS_RESPONSE_CACHE.set(endpoint,{exp:Date.now()+Math.max(1000,ttl-durableAge),at:Date.now()-durableAge,data:durable.data,meta});
+              return {data:durable.data,meta};
+            }
+
+            try{
+              const upstream=await oddsProvider.fetchOdds(endpoint);
+              const data=upstream.data;
+              const meta={...upstream.meta,cached:false,durable_cache:false,stale:false};
+              LAST_ODDS_META={...LAST_ODDS_META,...meta};
+              if(Array.isArray(data))recordMarketHistory(data);
+              else if(data?.bookmakers)recordMarketHistory([data]);
+              ODDS_RESPONSE_CACHE.set(endpoint,{exp:Date.now()+ttl,at:Date.now(),data,meta});
+              providerCache.set(endpoint,{data,meta,fetched_at:meta.fetched_at}).then(result=>{
+                if(!result?.ok)console.warn(`[AEGIS provider cache] durable write skipped: ${result?.reason||result?.status||result?.error||'unknown'}`);
+              }).catch(()=>{});
+              return {data,meta};
+            }catch(error){
+              if(durable&&durableAge<=ODDS_DURABLE_STALE_MS&&oddsProvider.retryable(error)){
+                const meta={
+                  ...(durable.meta||{}),
+                  cached:true,
+                  durable_cache:true,
+                  stale:true,
+                  source:'durable_provider_cache_fallback',
+                  cache_age_ms:durableAge,
+                  provider_error:error.message,
+                  fetched_at:durable.fetched_at
+                };
+                LAST_ODDS_META={...LAST_ODDS_META,...meta};
+                ODDS_RESPONSE_CACHE.set(endpoint,{exp:Date.now()+Math.min(ttl,60000),at:Date.now()-durableAge,data:durable.data,meta});
+                return {data:durable.data,meta};
+              }
+              throw error;
+            }
+          }'''
+          s=s[:start]+new_fetch+s[end:]
+
+          qstart=s.find("async function oddsQuotaProbe({force=false}={}){")
+          qend=s.find("\nfunction isHardRock",qstart)
+          if qstart<0 or qend<0:
+              raise SystemExit("quota probe bounds missing")
+
+          new_quota='''async function oddsQuotaProbe({force=false}={}){
+            if(!ODDS_KEY)return {...LAST_ODDS_META,ready:false};
+            if(!force&&Date.now()-LAST_QUOTA_PROBE_AT<15*60*1000)return {...LAST_ODDS_META,ready:true,cached:true};
+            const meta=await oddsProvider.probeQuota();
+            LAST_ODDS_META={...LAST_ODDS_META,...meta};
+            LAST_QUOTA_PROBE_AT=Date.now();
+            return meta;
+          }'''
+          s=s[:qstart]+new_quota+s[qend:]
+
+          config_old="config:()=>({oddsReady:!!ODDS_KEY,cfbdReady:!!CFBD_KEY,bookmakers:ODDS_BOOKMAKERS,maxScanGames:MAX_SCAN_GAMES,maxDeepMarketGames:MAX_DEEP_MARKET_GAMES,maxDeepMarketCredits:MAX_DEEP_MARKET_CREDITS,oddsCacheTtlMs:ODDS_CACHE_TTL_MS,minOddsRefreshMs:MIN_ODDS_REFRESH_MS,oddsQuotaReserve:ODDS_QUOTA_RESERVE,lastOddsMeta:LAST_ODDS_META}),"
+          config_new="config:()=>({oddsReady:!!ODDS_KEY,cfbdReady:!!CFBD_KEY,bookmakers:ODDS_BOOKMAKERS,maxScanGames:MAX_SCAN_GAMES,maxDeepMarketGames:MAX_DEEP_MARKET_GAMES,maxDeepMarketCredits:MAX_DEEP_MARKET_CREDITS,oddsCacheTtlMs:ODDS_CACHE_TTL_MS,minOddsRefreshMs:MIN_ODDS_REFRESH_MS,oddsQuotaReserve:ODDS_QUOTA_RESERVE,providerCacheMaxStaleMs:ODDS_DURABLE_STALE_MS,providerCache:providerCache.status(),oddsProvider:oddsProvider.config().name,lastOddsMeta:LAST_ODDS_META}),"
+          if "providerCacheMaxStaleMs" not in s:
+              if config_old not in s:
+                  raise SystemExit("engine config export anchor missing")
+              s=s.replace(config_old,config_new,1)
+
+          p.write_text(s,encoding="utf-8")
+          print("engine provider/cache patch applied")
+          PY
+
+      - name: Add v9.1.1 health and configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,re
+
+          pkgp=Path("package.json")
+          pkg=json.loads(pkgp.read_text(encoding="utf-8"))
+          pkg["version"]="9.1.1"
+          check=pkg["scripts"]["check"]
+          if "node --check src/odds-provider.js" not in check:
+              check=check.replace(
+                  "node --check src/data-gateway.js &&",
+                  "node --check src/data-gateway.js && node --check src/odds-provider.js && node --check src/provider-cache.js &&",
+                  1
+              )
+          pkg["scripts"]["check"]=check
+          pkgp.write_text(json.dumps(pkg,indent=2,ensure_ascii=False)+"\n",encoding="utf-8")
+
+          lockp=Path("package-lock.json")
+          if lockp.exists():
+              lock=json.loads(lockp.read_text(encoding="utf-8"))
+              lock["version"]="9.1.1"
+              if isinstance(lock.get("packages"),dict) and isinstance(lock["packages"].get(""),dict):
+                  lock["packages"][""]["version"]="9.1.1"
+              lockp.write_text(json.dumps(lock,indent=2,ensure_ascii=False)+"\n",encoding="utf-8")
+
+          idxp=Path("public/index.html")
+          idx=idxp.read_text(encoding="utf-8")
+          idx=idx.replace("v9.1 • SHARED DATA GATEWAY","v9.1.1 • DURABLE PROVIDER CACHE",1)
+          idx=idx.replace("?v=9.1.0","?v=9.1.1")
+          idxp.write_text(idx,encoding="utf-8")
+
+          rendp=Path("render.yaml")
+          rend=rendp.read_text(encoding="utf-8")
+          marker='      - key: ODDS_CACHE_TTL_MS\n        value: "120000"\n'
+          addition=(
+              '      - key: AEGIS_PROVIDER_CACHE_MAX_STALE_MS\n'
+              '        value: "21600000"\n'
+              '      - key: AEGIS_PROVIDER_CACHE_MAX_BYTES\n'
+              '        value: "1800000"\n'
+              '      - key: AEGIS_ODDS_PROVIDER_TIMEOUT_MS\n'
+              '        value: "10000"\n'
+          )
+          if "AEGIS_PROVIDER_CACHE_MAX_STALE_MS" not in rend:
+              if marker not in rend:
+                  raise SystemExit("render provider-cache anchor missing")
+              rend=rend.replace(marker,addition+marker,1)
+          rendp.write_text(rend,encoding="utf-8")
+
+          sp=Path("server.js")
+          s=sp.read_text(encoding="utf-8")
+          if "provider_cache:c.providerCache" not in s:
+              pattern=re.compile(r"(odds_quota_reserve:c\.oddsQuotaReserve,)",re.M)
+              repl=(
+                  r"\1\n\n"
+                  r"      provider_cache:c.providerCache,\n"
+                  r"      provider_cache_max_stale_ms:c.providerCacheMaxStaleMs,\n"
+                  r"      odds_provider:c.oddsProvider,"
+              )
+              s,n=pattern.subn(repl,s,count=1)
+              if n!=1:
+                  raise SystemExit(f"health provider-cache anchor count {n}, expected 1")
+          sp.write_text(s,encoding="utf-8")
+
+          readmep=Path("README.md")
+          readme=readmep.read_text(encoding="utf-8")
+          readme=readme.replace(
+              "# AEGIS Sports Command Center v9.1 — Shared Data Gateway",
+              "# AEGIS Sports Command Center v9.1.1 — Durable Provider Cache",
+              1
+          )
+          if "## v9.1.1 Durable Provider Cache" not in readme:
+              readme += (
+                  "\n\n## v9.1.1 Durable Provider Cache\n\n"
+                  "Provider access is isolated behind an adapter boundary and successful raw odds responses are cached in dedicated Supabase `aegis_state` rows, separate from the main AEGIS state payload.\n\n"
+                  "Read order: in-process hot cache → durable Supabase provider cache → upstream provider.\n\n"
+                  "On retryable upstream failure, AEGIS may use a bounded stale durable response. The response is explicitly marked stale with source `durable_provider_cache_fallback`; existing source-freshness and uncertainty gates remain authoritative.\n\n"
+                  "The adapter boundary allows a separately licensed secondary provider to be added later without rewriting the betting engine.\n"
+              )
+          readmep.write_text(readme,encoding="utf-8")
+
+          for p in Path("tests").glob("*.test.js"):
+              t=p.read_text(encoding="utf-8")
+              u=t.replace("v9.1 • SHARED DATA GATEWAY","v9.1.1 • DURABLE PROVIDER CACHE")
+              u=u.replace(r"v9\.1 • SHARED DATA GATEWAY",r"v9\.1\.1 • DURABLE PROVIDER CACHE")
+              u=u.replace(r"9\.1\.0",r"9\.1\.1")
+              u=u.replace("9.1.0","9.1.1")
+              if u!=t:
+                  p.write_text(u,encoding="utf-8")
+          PY
+
+      - name: Add provider regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cat > tests/provider-cache.test.js <<'JS'
+          const test=require('node:test');
+          const assert=require('node:assert/strict');
+          const cache=require('../src/provider-cache');
+          const provider=require('../src/odds-provider');
+
+          test('provider cache IDs are deterministic and namespaced',()=>{
+            const a=cache.cacheId('sports/baseball_mlb/odds');
+            const b=cache.cacheId('sports/baseball_mlb/odds');
+            const c=cache.cacheId('sports/americanfootball_ncaaf/odds');
+            assert.equal(a,b);
+            assert.notEqual(a,c);
+            assert.match(a,/provider-/);
+          });
+
+          test('provider cache round trips in process memory',async()=>{
+            cache.resetMemory();
+            const key='test|memory';
+            const value={data:[{id:'g1'}],meta:{provider:'test'},fetched_at:new Date().toISOString()};
+            const saved=await cache.set(key,value);
+            assert.equal(saved.ok,true);
+            const got=await cache.get(key);
+            assert.deepEqual(got,value);
+          });
+
+          test('provider adapter builds encoded primary URL',()=>{
+            const cfg={name:'the_odds_api',baseUrl:'https://example.test/v4',apiKey:'a b',timeoutMs:10000};
+            const url=provider.endpointUrl('sports/baseball_mlb/odds?markets=h2h',cfg);
+            assert.equal(url,'https://example.test/v4/sports/baseball_mlb/odds?markets=h2h&apiKey=a%20b');
+          });
+
+          test('provider retry policy is limited to transient classes',()=>{
+            assert.equal(provider.retryable({status:429}),true);
+            assert.equal(provider.retryable({status:503}),true);
+            assert.equal(provider.retryable({status:401}),false);
+            assert.equal(provider.retryable({status:422}),false);
+          });
+          JS
+
+      - name: Validate v9.1.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check src/odds-provider.js
+          node --check src/provider-cache.js
+          node --check src/engine.js
+          node --check server.js
+          test "$(node -p "require('./package.json').version")" = "9.1.1"
+          grep -qF "v9.1.1 • DURABLE PROVIDER CACHE" public/index.html
+          grep -qF "durable_provider_cache_fallback" src/engine.js
+          grep -qF "providerCache:providerCache.status()" src/engine.js
+          grep -qF "provider_cache:c.providerCache" server.js
+          grep -qF "8.8.0-decision-intelligence" src/engine.js
+          npm run check
+
+      - name: Commit v9.1.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "AEGIS Release Bot"
+          git config user.email "aegis-release-bot@users.noreply.github.com"
+
+          git add \
+            src/odds-provider.js \
+            src/provider-cache.js \
+            src/engine.js \
+            server.js \
+            package.json \
+            package-lock.json \
+            public/index.html \
+            render.yaml \
+            README.md \
+            tests
+
+          if git diff --cached --name-only | grep -q '^.github/workflows/'; then
+            echo "Refusing workflow-file mutation."
+            exit 1
+          fi
+
+          git commit -m "Add AEGIS v9.1.1 durable provider cache"
+          git push origin HEAD:main
+
+      - name: Verify live v9.1.1 without odds refresh
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://aegis-sports-command-center.onrender.com"
+          ok=0
+
+          for i in $(seq 1 36); do
+            echo "Live verification attempt $i/36"
+            health="$(curl -fsS --max-time 35 "$BASE/api/health" 2>/dev/null || true)"
+            home="$(curl -fsS --max-time 35 "$BASE/" 2>/dev/null || true)"
+
+            if [ -n "$health" ] && [ -n "$home" ]; then
+              if HEALTH="$health" node -e '
+                const h=JSON.parse(process.env.HEALTH);
+                if((h.release_version||h.version)!=="9.1.1")process.exit(10);
+                if(h.engine_version!=="8.8.0-decision-intelligence")process.exit(11);
+                if(!h.persistent_storage)process.exit(12);
+                if(!h.provider_cache||h.provider_cache.backend!=="supabase-row-cache")process.exit(13);
+                if(h.odds_provider!=="the_odds_api")process.exit(14);
+                if(!h.data_gateway||h.data_gateway.mode!=="shared_first")process.exit(15);
+              ' && printf '%s' "$home" | grep -qF "v9.1.1 • DURABLE PROVIDER CACHE"; then
+                ok=1
+                break
+              fi
+            fi
+
+            sleep 10
+          done
+
+          test "$ok" -eq 1
+          echo "Live v9.1.1 verification: PASS"
+          echo "GET-only verification; no odds/provider refresh was invoked."
+
+      - name: Summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "### AEGIS v9.1.1 Durable Provider Cache"
+            echo
+            echo "✅ Provider calls isolated behind adapter boundary"
+            echo "✅ Raw successful provider responses survive Render restarts in separate Supabase rows"
+            echo "✅ Hot memory cache still serves first"
+            echo "✅ Retryable upstream failures can use bounded stale durable cache"
+            echo "✅ Stale fallback stays governed by existing freshness/uncertainty gates"
+            echo "✅ Shared-first user gateway remains active"
+            echo "✅ Betting engine remains 8.8.0-decision-intelligence"
+            echo "✅ Full AEGIS validation passed"
+            echo
+            echo "Next: licensed secondary-provider adapter + routing policy and launch-capacity planning."
+          } >> "$GITHUB_STEP_SUMMARY"
