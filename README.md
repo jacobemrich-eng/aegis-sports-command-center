@@ -1,4 +1,4 @@
-# AEGIS Sports Command Center v9.1 — Shared Data Gateway
+# AEGIS Sports Command Center v9.1.1 — Durable Provider Cache
 
 AEGIS is a free-tier-first sports research operating system built around the SB101 AEGIS decision framework.
 
@@ -238,3 +238,14 @@ Invariants:
 - Persistent Supabase board snapshots survive Render restarts.
 - Provider read-through remains bootstrap/fallback only when no usable shared board exists.
 - Phase 2 adds provider adapters, durable raw-provider cache, and provider failover.
+
+
+## v9.1.1 Durable Provider Cache
+
+Provider access is isolated behind an adapter boundary and successful raw odds responses are cached in dedicated Supabase `aegis_state` rows, separate from the main AEGIS state payload.
+
+Read order: in-process hot cache → durable Supabase provider cache → upstream provider.
+
+On retryable upstream failure, AEGIS may use a bounded stale durable response. The response is explicitly marked stale with source `durable_provider_cache_fallback`; existing source-freshness and uncertainty gates remain authoritative.
+
+The adapter boundary allows a separately licensed secondary provider to be added later without rewriting the betting engine.

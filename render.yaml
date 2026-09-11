@@ -77,6 +77,12 @@ services:
         value: "900000"
       - key: AEGIS_SHARED_BOARD_MAX_STALE_MS
         value: "21600000"
+      - key: AEGIS_PROVIDER_CACHE_MAX_STALE_MS
+        value: "21600000"
+      - key: AEGIS_PROVIDER_CACHE_MAX_BYTES
+        value: "1800000"
+      - key: AEGIS_ODDS_PROVIDER_TIMEOUT_MS
+        value: "10000"
       - key: ODDS_CACHE_TTL_MS
         value: "120000"
       - key: MIN_ODDS_REFRESH_MS

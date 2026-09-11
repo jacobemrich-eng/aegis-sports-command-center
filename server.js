@@ -147,6 +147,10 @@ auto=await safeStatus();
       min_odds_refresh_ms:c.minOddsRefreshMs,
       odds_quota_reserve:c.oddsQuotaReserve,
 
+      provider_cache:c.providerCache,
+      provider_cache_max_stale_ms:c.providerCacheMaxStaleMs,
+      odds_provider:c.oddsProvider,
+
       auth_required:!!ACCESS_PIN,
       authenticated:validSession(req),
 

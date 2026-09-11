@@ -1,6 +1,8 @@
 const http = require('http');
 const { URL } = require('url');
 const decision = require('./decision');
+const oddsProvider = require('./odds-provider');
+const providerCache = require('./provider-cache');
 
 const PORT = Number(process.env.PORT || 3000);
 const ODDS_KEY = process.env.ODDS_API_KEY || '';
@@ -12,6 +14,7 @@ const MAX_DEEP_MARKET_CREDITS = Math.max(3, Math.min(24, Number(process.env.MAX_
 const ODDS_CACHE_TTL_MS = Math.max(30000, Math.min(300000, Number(process.env.ODDS_CACHE_TTL_MS || 120000)));
 const MIN_ODDS_REFRESH_MS = Math.max(30000, Math.min(180000, Number(process.env.MIN_ODDS_REFRESH_MS || 60000)));
 const ODDS_QUOTA_RESERVE = Math.max(0, Math.min(200, Number(process.env.ODDS_QUOTA_RESERVE || 35)));
+const ODDS_DURABLE_STALE_MS = Math.max(ODDS_CACHE_TTL_MS, Math.min(21600000, Number(process.env.AEGIS_PROVIDER_CACHE_MAX_STALE_MS || 21600000)));
 const TARGET_BOOK = 'hardrockbet_fl';
 const VERSION = '8.8.0-decision-intelligence';
 let LAST_ODDS_META = {remaining:null,used:null,last:null};
@@ -146,22 +149,67 @@ async function cachedText(url,ttl=3600000,options={}){ const k=`text|${url}`; co
 function recordMarketHistory(events){ const at=new Date().toISOString(); for(const e of events||[])for(const b of e.bookmakers||[])for(const m of b.markets||[])for(const o of m.outcomes||[]){const k=[e.id,b.key,m.key,normalizeTeam(o.description||o.name),o.point==null?'':o.point].join('|');const arr=MARKET_HISTORY.get(k)||[];const last=arr[arr.length-1];if(!last||last.price!==o.price)arr.push({at,price:o.price,point:o.point});MARKET_HISTORY.set(k,arr.slice(-20));} }
 function marketHistoryFor(eventId,bookKey,market,outcome,point){const k=[eventId,bookKey,market,normalizeTeam(outcome),point==null?'':point].join('|');return MARKET_HISTORY.get(k)||[];}
 async function oddsFetch(endpoint,{ttl=ODDS_CACHE_TTL_MS,force=false}={}){
-  if(!ODDS_KEY)throw new Error('ODDS_API_KEY is not configured.');
-  const hit=ODDS_RESPONSE_CACHE.get(endpoint),age=hit?Date.now()-hit.at:Infinity; if(hit&&((!force&&hit.exp>Date.now())||(force&&age<MIN_ODDS_REFRESH_MS)))return {data:hit.data,meta:{...hit.meta,cached:true,cache_age_ms:age,refresh_floor_ms:MIN_ODDS_REFRESH_MS}};
-  const join=endpoint.includes('?')?'&':'?';
-  const url=`https://api.the-odds-api.com/v4/${endpoint}${join}apiKey=${encodeURIComponent(ODDS_KEY)}`;
-  const r=await fetchWithTimeout(url,{},10000); const text=await r.text(); let data; try{data=JSON.parse(text)}catch{data={raw:text}};
-  if(!r.ok)throw new Error(data.message||data.error||`Odds API ${r.status}`);
-  const meta={remaining:r.headers.get('x-requests-remaining'),used:r.headers.get('x-requests-used'),last:r.headers.get('x-requests-last'),cached:false,fetched_at:new Date().toISOString()}; LAST_ODDS_META=meta; if(Array.isArray(data))recordMarketHistory(data); else if(data?.bookmakers)recordMarketHistory([data]); ODDS_RESPONSE_CACHE.set(endpoint,{exp:Date.now()+ttl,at:Date.now(),data,meta}); return {data,meta};
+  const hit=ODDS_RESPONSE_CACHE.get(endpoint),age=hit?Date.now()-hit.at:Infinity;
+  if(hit&&((!force&&hit.exp>Date.now())||(force&&age<MIN_ODDS_REFRESH_MS))){
+    return {data:hit.data,meta:{...hit.meta,cached:true,cache_age_ms:age,refresh_floor_ms:MIN_ODDS_REFRESH_MS}};
+  }
+
+  const durable=await providerCache.get(endpoint);
+  const durableAge=providerCache.ageMs(durable);
+
+  if(durable&&((!force&&durableAge<ttl)||(force&&durableAge<MIN_ODDS_REFRESH_MS))){
+    const meta={
+      ...(durable.meta||{}),
+      cached:true,
+      durable_cache:true,
+      stale:false,
+      source:'durable_provider_cache',
+      cache_age_ms:durableAge,
+      refresh_floor_ms:MIN_ODDS_REFRESH_MS
+    };
+    LAST_ODDS_META={...LAST_ODDS_META,...meta};
+    ODDS_RESPONSE_CACHE.set(endpoint,{exp:Date.now()+Math.max(1000,ttl-durableAge),at:Date.now()-durableAge,data:durable.data,meta});
+    return {data:durable.data,meta};
+  }
+
+  try{
+    const upstream=await oddsProvider.fetchOdds(endpoint);
+    const data=upstream.data;
+    const meta={...upstream.meta,cached:false,durable_cache:false,stale:false};
+    LAST_ODDS_META={...LAST_ODDS_META,...meta};
+    if(Array.isArray(data))recordMarketHistory(data);
+    else if(data?.bookmakers)recordMarketHistory([data]);
+    ODDS_RESPONSE_CACHE.set(endpoint,{exp:Date.now()+ttl,at:Date.now(),data,meta});
+    providerCache.set(endpoint,{data,meta,fetched_at:meta.fetched_at}).then(result=>{
+      if(!result?.ok)console.warn(`[AEGIS provider cache] durable write skipped: ${result?.reason||result?.status||result?.error||'unknown'}`);
+    }).catch(()=>{});
+    return {data,meta};
+  }catch(error){
+    if(durable&&durableAge<=ODDS_DURABLE_STALE_MS&&oddsProvider.retryable(error)){
+      const meta={
+        ...(durable.meta||{}),
+        cached:true,
+        durable_cache:true,
+        stale:true,
+        source:'durable_provider_cache_fallback',
+        cache_age_ms:durableAge,
+        provider_error:error.message,
+        fetched_at:durable.fetched_at
+      };
+      LAST_ODDS_META={...LAST_ODDS_META,...meta};
+      ODDS_RESPONSE_CACHE.set(endpoint,{exp:Date.now()+Math.min(ttl,60000),at:Date.now()-durableAge,data:durable.data,meta});
+      return {data:durable.data,meta};
+    }
+    throw error;
+  }
 }
 async function oddsQuotaProbe({force=false}={}){
   if(!ODDS_KEY)return {...LAST_ODDS_META,ready:false};
   if(!force&&Date.now()-LAST_QUOTA_PROBE_AT<15*60*1000)return {...LAST_ODDS_META,ready:true,cached:true};
-  const url=`https://api.the-odds-api.com/v4/sports/?apiKey=${encodeURIComponent(ODDS_KEY)}`;
-  const r=await fetchWithTimeout(url,{},10000);if(!r.ok)throw new Error(`Odds API quota probe ${r.status}`);
-  await r.arrayBuffer();
-  const meta={remaining:r.headers.get('x-requests-remaining'),used:r.headers.get('x-requests-used'),last:r.headers.get('x-requests-last'),cached:false,fetched_at:new Date().toISOString(),probe:true,ready:true};
-  LAST_ODDS_META={...LAST_ODDS_META,...meta};LAST_QUOTA_PROBE_AT=Date.now();return meta;
+  const meta=await oddsProvider.probeQuota();
+  LAST_ODDS_META={...LAST_ODDS_META,...meta};
+  LAST_QUOTA_PROBE_AT=Date.now();
+  return meta;
 }
 function isHardRock(book){ return String(book?.key||'').startsWith('hardrockbet'); }
 function sanitizeEvent(e){ return {id:e.id,sport_key:e.sport_key,sport_title:e.sport_title,commence_time:e.commence_time,home_team:e.home_team,away_team:e.away_team,bookmakers:e.bookmakers||[]}; }
@@ -874,7 +922,7 @@ async function scanSlate(events,opts={}){
 
 module.exports = {
   VERSION, MODELS, SPORTS,
-  config:()=>({oddsReady:!!ODDS_KEY,cfbdReady:!!CFBD_KEY,bookmakers:ODDS_BOOKMAKERS,maxScanGames:MAX_SCAN_GAMES,maxDeepMarketGames:MAX_DEEP_MARKET_GAMES,maxDeepMarketCredits:MAX_DEEP_MARKET_CREDITS,oddsCacheTtlMs:ODDS_CACHE_TTL_MS,minOddsRefreshMs:MIN_ODDS_REFRESH_MS,oddsQuotaReserve:ODDS_QUOTA_RESERVE,lastOddsMeta:LAST_ODDS_META}),
+  config:()=>({oddsReady:!!ODDS_KEY,cfbdReady:!!CFBD_KEY,bookmakers:ODDS_BOOKMAKERS,maxScanGames:MAX_SCAN_GAMES,maxDeepMarketGames:MAX_DEEP_MARKET_GAMES,maxDeepMarketCredits:MAX_DEEP_MARKET_CREDITS,oddsCacheTtlMs:ODDS_CACHE_TTL_MS,minOddsRefreshMs:MIN_ODDS_REFRESH_MS,oddsQuotaReserve:ODDS_QUOTA_RESERVE,providerCacheMaxStaleMs:ODDS_DURABLE_STALE_MS,providerCache:providerCache.status(),oddsProvider:oddsProvider.config().name,lastOddsMeta:LAST_ODDS_META}),
   oddsFetch, oddsQuotaProbe, refreshEventMarkets, pregameOnly, sanitizeEvent, scanSlate, resolveFinalScore, settledBetOutcome,
   sameTeam, teamSimilarity, findRatingMatch, classificationMatch, resolvedNcaafClass, cfbdGameMatch, ncaafCrossClassBaseline, marketBase, mlbPeriodInnings, probToAmerican, executionBands, dataFreshnessGrade, starterRegression, analyzeEvent
 };
