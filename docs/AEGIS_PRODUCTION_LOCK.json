@@ -1,0 +1,14 @@
+{
+  "platform_release": "9.0.0",
+  "engine_version": "8.8.0-decision-intelligence",
+  "governance": "SB101 AEGIS v1.1 — September Daily-Use Freeze",
+  "automatic_release_sports": [
+    "MLB",
+    "NCAAF"
+  ],
+  "scheduler_failover_verified": true,
+  "status_canonicalization_verified": true,
+  "persistence_hardening_verified": true,
+  "production_lock": true,
+  "next_major_milestone": "v9.1 Data Scale & Provider Independence"
+}

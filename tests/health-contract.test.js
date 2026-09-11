@@ -37,10 +37,10 @@ function greenInput(){
 }
 
 test(
-  'platform release version is v8.9.3 and separate from engine history',
+  'platform release version is v9.0.0 and separate from engine history',
   () => {
-    assert.equal(pkg.version, '8.9.3');
-    assert.equal(release.APP_VERSION, '8.9.3');
+    assert.equal(pkg.version, '9.0.0');
+    assert.equal(release.APP_VERSION, '9.0.0');
 
     const engine = require('../src/engine');
 

@@ -1,8 +1,8 @@
-# AEGIS Sports Command Center v8.9.3 — Canonical Operations Status
+# AEGIS Sports Command Center v9.0 — Production Lock
 
 AEGIS is a free-tier-first sports research operating system built around the SB101 AEGIS decision framework.
 
-**Version taxonomy:** platform release **v8.9.3**; canonical betting governance **SB101 AEGIS v1.1 — September Daily-Use Freeze**. Platform releases do not silently rewrite historical model versions. v8 turns the existing one-tap research engine into a scheduled, persistent daily workflow for **MLB and NCAAF**, while keeping the other registered sport systems available for research and validation.
+**Version taxonomy:** platform release **v9.0.0**; canonical betting governance **SB101 AEGIS v1.1 — September Daily-Use Freeze**. Platform releases do not silently rewrite historical model versions. v8 turns the existing one-tap research engine into a scheduled, persistent daily workflow for **MLB and NCAAF**, while keeping the other registered sport systems available for research and validation.
 
 ## What v8 automates
 
@@ -206,3 +206,19 @@ Recommended external heartbeat cadence: every 10 minutes during 07:00–23:00 Am
 - Adds `last_success_source` to the Operations contract for auditability.
 - Does not modify scheduler cadence, backup heartbeat behavior, sportsbook quota policy, release sports, betting models, or SB101 AEGIS governance.
 - The v8.8 Decision Intelligence engine remains frozen at `8.8.0-decision-intelligence`.
+
+
+## v9.0 Production Lock
+
+v9.0 freezes the proven production architecture after successful end-to-end scheduler failover, canonical operations-status synchronization, Supabase persistence hardening, and full repository validation.
+
+Production invariants:
+- Platform release: **v9.0.0**.
+- Frozen betting engine identity: **8.8.0-decision-intelligence**.
+- Canonical betting governance remains **SB101 AEGIS v1.1 — September Daily-Use Freeze**.
+- Automatic release sports remain **MLB and NCAAF**.
+- GitHub AEGIS Autopilot remains the primary scheduler.
+- External heartbeat remains the independent recovery path.
+- Supabase remains the persistent production state store.
+- NFL shadow scheduling remains research/shadow-only.
+- Permanent AEGIS Production CI protects the locked baseline.
