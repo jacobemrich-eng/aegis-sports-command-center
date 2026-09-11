@@ -1,0 +1,517 @@
+name: Apply AEGIS v9.1 Shared Data Gateway Safe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  upgrade:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Guard v9.0 baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(node -p "require('./package.json').version")" = "9.0.0"
+          grep -qF "v9.0 • PRODUCTION LOCK" public/index.html
+          grep -qF "8.8.0-decision-intelligence" src/engine.js
+          grep -qF "AEGIS_PERSISTENCE_HARDENING_V1" src/store.js
+          echo "v9.0 production baseline guard: PASS"
+
+      - name: Add shared data gateway
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cat > src/data-gateway.js <<'JS'
+          'use strict';
+
+          const DEFAULT_MAX_AGE_MS = 15 * 60 * 1000;
+          const DEFAULT_MAX_STALE_MS = 6 * 60 * 60 * 1000;
+          const MODES = new Set(['shared_first','legacy']);
+
+          function finiteMs(value,fallback){
+            const n=Number(value);
+            return Number.isFinite(n)&&n>=0?n:fallback;
+          }
+
+          function config(env=process.env){
+            const raw=String(env.AEGIS_PUBLIC_ODDS_MODE||'shared_first').trim().toLowerCase();
+            return {
+              mode:MODES.has(raw)?raw:'shared_first',
+              maxAgeMs:finiteMs(env.AEGIS_SHARED_BOARD_MAX_AGE_MS,DEFAULT_MAX_AGE_MS),
+              maxStaleMs:finiteMs(env.AEGIS_SHARED_BOARD_MAX_STALE_MS,DEFAULT_MAX_STALE_MS)
+            };
+          }
+
+          function boardSnapshot(state,sport,{nowMs=Date.now(),maxAgeMs=DEFAULT_MAX_AGE_MS,maxStaleMs=DEFAULT_MAX_STALE_MS}={}){
+            const row=state?.board_snapshots?.[sport]||null;
+            const events=Array.isArray(row?.events)?row.events:[];
+            const fetchedAt=row?.odds_fetched_at||row?.analyzed_at||null;
+            const t=fetchedAt?new Date(fetchedAt).getTime():NaN;
+            const ageMs=Number.isFinite(t)?Math.max(0,nowMs-t):Infinity;
+            const available=events.length>0&&Number.isFinite(ageMs)&&ageMs<=maxStaleMs;
+            const fresh=available&&ageMs<=maxAgeMs;
+            return {
+              available,
+              fresh,
+              stale:available&&!fresh,
+              events,
+              fetched_at:fetchedAt,
+              age_ms:Number.isFinite(ageMs)?ageMs:null,
+              source:'persistent_shared_board'
+            };
+          }
+
+          function shouldUseShared(snapshot,mode='shared_first'){
+            return mode==='shared_first'&&!!snapshot?.available;
+          }
+
+          function publicProviderForceRequested(queryForce,mode='shared_first'){
+            return mode==='legacy'&&!!queryForce;
+          }
+
+          module.exports={
+            DEFAULT_MAX_AGE_MS,
+            DEFAULT_MAX_STALE_MS,
+            config,
+            boardSnapshot,
+            shouldUseShared,
+            publicProviderForceRequested
+          };
+          JS
+
+      - name: Patch server for shared-first public reads
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p=Path("server.js")
+          s=p.read_text(encoding="utf-8")
+
+          require_old="const heartbeat = require('./src/heartbeat');"
+          require_new="const heartbeat = require('./src/heartbeat');\nconst dataGateway = require('./src/data-gateway');"
+          if require_new not in s:
+              if require_old not in s:
+                  raise SystemExit("data-gateway require anchor missing")
+              s=s.replace(require_old,require_new,1)
+
+          helper_old="""function baseOddsEndpoint(sport,markets){const cfg=engine.config();return `sports/${encodeURIComponent(sport)}/odds?bookmakers=${encodeURIComponent(cfg.bookmakers)}&markets=${encodeURIComponent(markets)}&oddsFormat=american&dateFormat=iso`;}
+          async function safeStatus(){try{return await autopilot.status();}catch(e){return {enabled:autopilot.config.ENABLED,persistent:store.persistent,last_error:e.message,alerts:[{severity:'error',message:e.message}]};}}"""
+
+          helper_new="""function baseOddsEndpoint(sport,markets){const cfg=engine.config();return `sports/${encodeURIComponent(sport)}/odds?bookmakers=${encodeURIComponent(cfg.bookmakers)}&markets=${encodeURIComponent(markets)}&oddsFormat=american&dateFormat=iso`;}
+          const DATA_GATEWAY=dataGateway.config();
+          async function sharedBoard(sport){
+            try{
+              const state=await store.load();
+              return dataGateway.boardSnapshot(state,sport,{
+                maxAgeMs:DATA_GATEWAY.maxAgeMs,
+                maxStaleMs:DATA_GATEWAY.maxStaleMs
+              });
+            }catch(e){
+              return {available:false,fresh:false,stale:false,events:[],fetched_at:null,age_ms:null,source:'persistent_shared_board',error:e.message};
+            }
+          }
+          async function safeStatus(){try{return await autopilot.status();}catch(e){return {enabled:autopilot.config.ENABLED,persistent:store.persistent,last_error:e.message,alerts:[{severity:'error',message:e.message}]};}}"""
+
+          if helper_new not in s:
+              if helper_old not in s:
+                  raise SystemExit("server helper anchor missing")
+              s=s.replace(helper_old,helper_new,1)
+
+          odds_old="""    if(req.method==='GET'&&u.pathname==='/api/odds'){
+                if(!rateLimit(req,res,'odds',40))return;
+                const sport=u.searchParams.get('sport')||'baseball_mlb',markets=u.searchParams.get('markets')||'h2h,spreads,totals',force=u.searchParams.get('force')==='1';
+                const r=await engine.oddsFetch(baseOddsEndpoint(sport,markets),{force});
+                const events=engine.pregameOnly(r.data),fetchedAt=r.meta?.fetched_at||(r.meta?.cached?new Date(Date.now()-(r.meta.cache_age_ms||0)).toISOString():new Date().toISOString());
+                return send(res,200,{events,filtered_live_count:(r.data||[]).length-events.length,quota:r.meta,fetched_at:fetchedAt,cached:!!r.meta?.cached});
+              }"""
+
+          odds_new="""    if(req.method==='GET'&&u.pathname==='/api/odds'){
+                if(!rateLimit(req,res,'odds',40))return;
+                const sport=u.searchParams.get('sport')||'baseball_mlb',
+                      markets=u.searchParams.get('markets')||'h2h,spreads,totals',
+                      queryForce=u.searchParams.get('force')==='1',
+                      shared=await sharedBoard(sport);
+
+                if(dataGateway.shouldUseShared(shared,DATA_GATEWAY.mode)){
+                  const events=engine.pregameOnly(shared.events).map(engine.sanitizeEvent);
+                  return send(res,200,{
+                    events,
+                    filtered_live_count:Math.max(0,shared.events.length-events.length),
+                    quota:engine.config().lastOddsMeta||null,
+                    fetched_at:shared.fetched_at,
+                    cached:true,
+                    source:shared.source,
+                    stale:shared.stale,
+                    cache_age_ms:shared.age_ms,
+                    gateway_mode:DATA_GATEWAY.mode
+                  });
+                }
+
+                const force=dataGateway.publicProviderForceRequested(queryForce,DATA_GATEWAY.mode);
+                const r=await engine.oddsFetch(baseOddsEndpoint(sport,markets),{force});
+                const events=engine.pregameOnly(r.data),
+                      fetchedAt=r.meta?.fetched_at||(r.meta?.cached?new Date(Date.now()-(r.meta.cache_age_ms||0)).toISOString():new Date().toISOString());
+                return send(res,200,{
+                  events,
+                  filtered_live_count:(r.data||[]).length-events.length,
+                  quota:r.meta,
+                  fetched_at:fetchedAt,
+                  cached:!!r.meta?.cached,
+                  source:'provider_read_through',
+                  stale:false,
+                  gateway_mode:DATA_GATEWAY.mode
+                });
+              }"""
+
+          if odds_new not in s:
+              if odds_old not in s:
+                  raise SystemExit("/api/odds anchor missing")
+              s=s.replace(odds_old,odds_new,1)
+
+          scan_old="""    if(req.method==='POST'&&u.pathname==='/api/scan'){
+                if(!rateLimit(req,res,'scan',24))return;
+                const body=JSON.parse(await readBody(req)||'{}');
+                let events=(body.events||[]).map(engine.sanitizeEvent),boardRefreshed=false;
+                const age=body.board_synced_at?Date.now()-new Date(body.board_synced_at).getTime():Infinity;
+                const sport=body.sport||events[0]?.sport_key||'baseball_mlb',markets=body.markets||'h2h,spreads,totals';
+                if(!events.length||!Number.isFinite(age)||age>180000){
+                  const r=await engine.oddsFetch(baseOddsEndpoint(sport,markets),{force:true});events=engine.pregameOnly(r.data).map(engine.sanitizeEvent);boardRefreshed=true;
+                }
+                if(!events.length)return send(res,400,{error:'No upcoming events were supplied or found.'});
+                const out=await engine.scanSlate(events);out.board_refreshed=boardRefreshed;out.board_age_ms=boardRefreshed?0:Math.max(0,age);out.release_enabled=autopilot.config.RELEASE_SPORTS.includes(sport);out.autopilot={generated:false,reason:'manual in-depth scan',release_enabled:out.release_enabled};
+                try{out.persistence=await autopilot.captureScan(sport,out,events,'manual in-depth scan');}catch(e){out.persistence={saved:false,error:e.message};}
+                return send(res,200,out);
+              }"""
+
+          scan_new="""    if(req.method==='POST'&&u.pathname==='/api/scan'){
+                if(!rateLimit(req,res,'scan',24))return;
+                const body=JSON.parse(await readBody(req)||'{}');
+                let events=(body.events||[]).map(engine.sanitizeEvent),
+                    boardRefreshed=false,
+                    boardSource='request',
+                    boardAge=body.board_synced_at?Date.now()-new Date(body.board_synced_at).getTime():Infinity;
+                const sport=body.sport||events[0]?.sport_key||'baseball_mlb',
+                      markets=body.markets||'h2h,spreads,totals';
+
+                if(!events.length||!Number.isFinite(boardAge)||boardAge>180000){
+                  const shared=await sharedBoard(sport);
+                  if(dataGateway.shouldUseShared(shared,DATA_GATEWAY.mode)){
+                    events=engine.pregameOnly(shared.events).map(engine.sanitizeEvent);
+                    boardSource=shared.source;
+                    boardAge=shared.age_ms;
+                  }else{
+                    const r=await engine.oddsFetch(baseOddsEndpoint(sport,markets),{force:false});
+                    events=engine.pregameOnly(r.data).map(engine.sanitizeEvent);
+                    boardRefreshed=!r.meta?.cached;
+                    boardSource='provider_read_through';
+                    boardAge=r.meta?.cached?Number(r.meta.cache_age_ms||0):0;
+                  }
+                }
+
+                if(!events.length)return send(res,400,{error:'No upcoming events were supplied or found.'});
+                const out=await engine.scanSlate(events);
+                out.board_refreshed=boardRefreshed;
+                out.board_age_ms=Number.isFinite(boardAge)?Math.max(0,boardAge):null;
+                out.board_source=boardSource;
+                out.gateway_mode=DATA_GATEWAY.mode;
+                out.release_enabled=autopilot.config.RELEASE_SPORTS.includes(sport);
+                out.autopilot={generated:false,reason:'manual in-depth scan',release_enabled:out.release_enabled};
+                try{out.persistence=await autopilot.captureScan(sport,out,events,'manual in-depth scan');}catch(e){out.persistence={saved:false,error:e.message};}
+                return send(res,200,out);
+              }"""
+
+          if scan_new not in s:
+              if scan_old not in s:
+                  raise SystemExit("/api/scan anchor missing")
+              s=s.replace(scan_old,scan_new,1)
+
+          # Health contract patch: semantic match, not exact indentation.
+          import re
+          if "data_gateway:{" not in s:
+              pattern=re.compile(
+                  r"(auto_deep_credit_cap:\s*\n\s*autopilot\.config\.AUTO_DEEP_CREDIT_CAP)(\s*\n\s*}\);)",
+                  re.M
+              )
+              repl=(
+                  r"\1,\n"
+                  r"      data_gateway:{\n"
+                  r"        mode:DATA_GATEWAY.mode,\n"
+                  r"        shared_board_max_age_ms:DATA_GATEWAY.maxAgeMs,\n"
+                  r"        shared_board_max_stale_ms:DATA_GATEWAY.maxStaleMs,\n"
+                  r"        public_force_refresh_enabled:DATA_GATEWAY.mode==='legacy'\n"
+                  r"      }\2"
+              )
+              s,n=pattern.subn(repl,s,count=1)
+              if n!=1:
+                  raise SystemExit(f"health response semantic anchor count was {n}, expected 1")
+
+          p.write_text(s,encoding="utf-8")
+          print("server shared-data gateway patch applied")
+          PY
+
+      - name: Add v9.1 configuration and identity
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+
+          pkgp=Path("package.json")
+          pkg=json.loads(pkgp.read_text(encoding="utf-8"))
+          pkg["version"]="9.1.0"
+          check=pkg["scripts"]["check"]
+          if "node --check src/data-gateway.js" not in check:
+              check=check.replace(
+                  "node --check src/heartbeat.js &&",
+                  "node --check src/heartbeat.js && node --check src/data-gateway.js &&",
+                  1
+              )
+          pkg["scripts"]["check"]=check
+          pkgp.write_text(json.dumps(pkg,indent=2,ensure_ascii=False)+"\n",encoding="utf-8")
+
+          lockp=Path("package-lock.json")
+          if lockp.exists():
+              lock=json.loads(lockp.read_text(encoding="utf-8"))
+              lock["version"]="9.1.0"
+              if isinstance(lock.get("packages"),dict) and isinstance(lock["packages"].get(""),dict):
+                  lock["packages"][""]["version"]="9.1.0"
+              lockp.write_text(json.dumps(lock,indent=2,ensure_ascii=False)+"\n",encoding="utf-8")
+
+          idxp=Path("public/index.html")
+          idx=idxp.read_text(encoding="utf-8")
+          idx=idx.replace("v9.0 • PRODUCTION LOCK","v9.1 • SHARED DATA GATEWAY",1)
+          idx=idx.replace("?v=9.0.0","?v=9.1.0")
+          idxp.write_text(idx,encoding="utf-8")
+
+          rendp=Path("render.yaml")
+          rend=rendp.read_text(encoding="utf-8")
+          marker='      - key: ODDS_CACHE_TTL_MS\n        value: "120000"\n'
+          addition=(
+              '      - key: AEGIS_PUBLIC_ODDS_MODE\n'
+              '        value: shared_first\n'
+              '      - key: AEGIS_SHARED_BOARD_MAX_AGE_MS\n'
+              '        value: "900000"\n'
+              '      - key: AEGIS_SHARED_BOARD_MAX_STALE_MS\n'
+              '        value: "21600000"\n'
+          )
+          if "AEGIS_PUBLIC_ODDS_MODE" not in rend:
+              if marker not in rend:
+                  raise SystemExit("render cache env anchor missing")
+              rend=rend.replace(marker,addition+marker,1)
+          rendp.write_text(rend,encoding="utf-8")
+
+          readmep=Path("README.md")
+          readme=readmep.read_text(encoding="utf-8")
+          readme=readme.replace(
+              "# AEGIS Sports Command Center v9.0 — Production Lock",
+              "# AEGIS Sports Command Center v9.1 — Shared Data Gateway",
+              1
+          )
+          if "## v9.1 Shared Data Gateway" not in readme:
+              readme += """
+
+          ## v9.1 Shared Data Gateway
+
+          v9.1 begins Data Scale & Provider Independence without changing the frozen betting engine.
+
+          Phase 1 routes normal browser/user odds reads through the persistent shared board produced by Autopilot before any provider read-through. Many users can therefore reuse one centrally refreshed dataset instead of multiplying sportsbook-provider calls per user.
+
+          Invariants:
+          - Betting engine remains `8.8.0-decision-intelligence`.
+          - MLB/NCAAF automatic release authority is unchanged.
+          - Autopilot remains the canonical upstream refresher.
+          - Browser `force=1` cannot bypass shared-first mode.
+          - Persistent Supabase board snapshots survive Render restarts.
+          - Provider read-through remains bootstrap/fallback only when no usable shared board exists.
+          - Phase 2 adds provider adapters, durable raw-provider cache, and provider failover.
+          """
+          readmep.write_text(readme,encoding="utf-8")
+
+          for p in Path("tests").glob("*.test.js"):
+              t=p.read_text(encoding="utf-8")
+              u=t.replace("v9.0 • PRODUCTION LOCK","v9.1 • SHARED DATA GATEWAY")
+              u=u.replace(r"v9\.0 • PRODUCTION LOCK",r"v9\.1 • SHARED DATA GATEWAY")
+              u=u.replace(r"9\.0\.0",r"9\.1\.0")
+              u=u.replace("9.0.0","9.1.0")
+              if u!=t:
+                  p.write_text(u,encoding="utf-8")
+          PY
+
+      - name: Add gateway regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cat > tests/data-gateway.test.js <<'JS'
+          const test = require('node:test');
+          const assert = require('node:assert/strict');
+          const gateway = require('../src/data-gateway');
+
+          test('shared board is fresh inside max age',()=>{
+            const now=Date.parse('2026-09-11T12:00:00Z');
+            const state={board_snapshots:{baseball_mlb:{
+              odds_fetched_at:'2026-09-11T11:55:00Z',
+              events:[{id:'g1'}]
+            }}};
+            const s=gateway.boardSnapshot(state,'baseball_mlb',{nowMs:now,maxAgeMs:10*60e3,maxStaleMs:60*60e3});
+            assert.equal(s.available,true);
+            assert.equal(s.fresh,true);
+            assert.equal(s.stale,false);
+            assert.equal(s.events.length,1);
+          });
+
+          test('shared board may be stale but still reusable',()=>{
+            const now=Date.parse('2026-09-11T12:00:00Z');
+            const state={board_snapshots:{baseball_mlb:{
+              odds_fetched_at:'2026-09-11T11:30:00Z',
+              events:[{id:'g1'}]
+            }}};
+            const s=gateway.boardSnapshot(state,'baseball_mlb',{nowMs:now,maxAgeMs:10*60e3,maxStaleMs:60*60e3});
+            assert.equal(s.available,true);
+            assert.equal(s.fresh,false);
+            assert.equal(s.stale,true);
+            assert.equal(gateway.shouldUseShared(s,'shared_first'),true);
+          });
+
+          test('snapshot beyond max stale is not reused',()=>{
+            const now=Date.parse('2026-09-11T12:00:00Z');
+            const state={board_snapshots:{baseball_mlb:{
+              odds_fetched_at:'2026-09-11T05:00:00Z',
+              events:[{id:'g1'}]
+            }}};
+            const s=gateway.boardSnapshot(state,'baseball_mlb',{nowMs:now,maxAgeMs:10*60e3,maxStaleMs:6*60*60e3});
+            assert.equal(s.available,false);
+          });
+
+          test('browser force cannot bypass shared-first mode',()=>{
+            assert.equal(gateway.publicProviderForceRequested(true,'shared_first'),false);
+            assert.equal(gateway.publicProviderForceRequested(true,'legacy'),true);
+          });
+
+          test('invalid mode falls back to shared_first',()=>{
+            const c=gateway.config({AEGIS_PUBLIC_ODDS_MODE:'anything'});
+            assert.equal(c.mode,'shared_first');
+          });
+          JS
+
+      - name: Validate v9.1 shared gateway
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          node --check src/data-gateway.js
+          node --check server.js
+          node -e "const p=require('./package.json'); if(p.version!=='9.1.0')process.exit(1)"
+          grep -qF "v9.1 • SHARED DATA GATEWAY" public/index.html
+          grep -qF "AEGIS_PUBLIC_ODDS_MODE" render.yaml
+          grep -qF "shared_first" render.yaml
+          grep -qF "8.8.0-decision-intelligence" src/engine.js
+          npm run check
+
+      - name: Commit v9.1 Phase 1
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "AEGIS Release Bot"
+          git config user.email "aegis-release-bot@users.noreply.github.com"
+
+          git add \
+            src/data-gateway.js \
+            server.js \
+            package.json \
+            package-lock.json \
+            public/index.html \
+            render.yaml \
+            README.md \
+            tests
+
+          if git diff --cached --name-only | grep -q '^.github/workflows/'; then
+            echo "Refusing workflow-file mutation."
+            exit 1
+          fi
+
+          git commit -m "Add AEGIS v9.1 shared data gateway"
+          git push origin HEAD:main
+          echo "V91_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Verify live v9.1 without provider refresh
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BASE="https://aegis-sports-command-center.onrender.com"
+          ok=0
+
+          for i in $(seq 1 36); do
+            echo "Live verification attempt $i/36"
+            health="$(curl -fsS --max-time 35 "$BASE/api/health" 2>/dev/null || true)"
+            home="$(curl -fsS --max-time 35 "$BASE/" 2>/dev/null || true)"
+
+            if [ -n "$health" ] && [ -n "$home" ]; then
+              if HEALTH="$health" node -e '
+                const h=JSON.parse(process.env.HEALTH);
+                const release=h.release_version||h.version;
+                const engine=h.engine_version;
+                const gateway=h.data_gateway;
+                if(release!=="9.1.0")process.exit(10);
+                if(engine!=="8.8.0-decision-intelligence")process.exit(11);
+                if(!h.persistent_storage)process.exit(12);
+                if(!h.autopilot_enabled)process.exit(13);
+                if(!gateway||gateway.mode!=="shared_first")process.exit(14);
+                if(gateway.public_force_refresh_enabled!==false)process.exit(15);
+              ' && printf '%s' "$home" | grep -qF "v9.1 • SHARED DATA GATEWAY"; then
+                ok=1
+                break
+              fi
+            fi
+
+            sleep 10
+          done
+
+          test "$ok" -eq 1
+          echo "Live v9.1 Phase 1 verification: PASS"
+          echo "Only GET /api/health and GET / were used; no odds refresh was invoked."
+
+      - name: Summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "### AEGIS v9.1 Shared Data Gateway — Phase 1"
+            echo
+            echo "✅ User/browser traffic is shared-board-first"
+            echo "✅ Browser force refresh is blocked in shared-first mode"
+            echo "✅ Supabase-persisted Autopilot boards are reused across users/restarts"
+            echo "✅ Provider read-through remains bootstrap/fallback only"
+            echo "✅ Betting engine remains 8.8.0-decision-intelligence"
+            echo "✅ MLB/NCAAF release authority unchanged"
+            echo "✅ Full validation passed"
+            echo "✅ Live Render verified with GET-only checks"
+            echo
+            echo "Next: Phase 2 provider adapters, durable raw-provider cache, and provider failover."
+          } >> "$GITHUB_STEP_SUMMARY"
