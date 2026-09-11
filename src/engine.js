@@ -3,6 +3,7 @@ const { URL } = require('url');
 const decision = require('./decision');
 const oddsProvider = require('./odds-provider');
 const providerCache = require('./provider-cache');
+const providerRouter = require('./provider-router');
 
 const PORT = Number(process.env.PORT || 3000);
 const ODDS_KEY = process.env.ODDS_API_KEY || '';
@@ -173,7 +174,7 @@ async function oddsFetch(endpoint,{ttl=ODDS_CACHE_TTL_MS,force=false}={}){
   }
 
   try{
-    const upstream=await oddsProvider.fetchOdds(endpoint);
+    const upstream=await providerRouter.fetchOdds(endpoint);
     const data=upstream.data;
     const meta={...upstream.meta,cached:false,durable_cache:false,stale:false};
     LAST_ODDS_META={...LAST_ODDS_META,...meta};
@@ -922,7 +923,7 @@ async function scanSlate(events,opts={}){
 
 module.exports = {
   VERSION, MODELS, SPORTS,
-  config:()=>({oddsReady:!!ODDS_KEY,cfbdReady:!!CFBD_KEY,bookmakers:ODDS_BOOKMAKERS,maxScanGames:MAX_SCAN_GAMES,maxDeepMarketGames:MAX_DEEP_MARKET_GAMES,maxDeepMarketCredits:MAX_DEEP_MARKET_CREDITS,oddsCacheTtlMs:ODDS_CACHE_TTL_MS,minOddsRefreshMs:MIN_ODDS_REFRESH_MS,oddsQuotaReserve:ODDS_QUOTA_RESERVE,providerCacheMaxStaleMs:ODDS_DURABLE_STALE_MS,providerCache:providerCache.status(),oddsProvider:oddsProvider.config().name,lastOddsMeta:LAST_ODDS_META}),
+  config:()=>({oddsReady:!!ODDS_KEY,cfbdReady:!!CFBD_KEY,bookmakers:ODDS_BOOKMAKERS,maxScanGames:MAX_SCAN_GAMES,maxDeepMarketGames:MAX_DEEP_MARKET_GAMES,maxDeepMarketCredits:MAX_DEEP_MARKET_CREDITS,oddsCacheTtlMs:ODDS_CACHE_TTL_MS,minOddsRefreshMs:MIN_ODDS_REFRESH_MS,oddsQuotaReserve:ODDS_QUOTA_RESERVE,providerCacheMaxStaleMs:ODDS_DURABLE_STALE_MS,providerCache:providerCache.status(),oddsProvider:oddsProvider.config().name,providerRouter:providerRouter.status(),lastOddsMeta:LAST_ODDS_META}),
   oddsFetch, oddsQuotaProbe, refreshEventMarkets, pregameOnly, sanitizeEvent, scanSlate, resolveFinalScore, settledBetOutcome,
   sameTeam, teamSimilarity, findRatingMatch, classificationMatch, resolvedNcaafClass, cfbdGameMatch, ncaafCrossClassBaseline, marketBase, mlbPeriodInnings, probToAmerican, executionBands, dataFreshnessGrade, starterRegression, analyzeEvent
 };

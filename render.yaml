@@ -83,6 +83,20 @@ services:
         value: "1800000"
       - key: AEGIS_ODDS_PROVIDER_TIMEOUT_MS
         value: "10000"
+      - key: SPORTSGAMEODDS_API_KEY
+        sync: false
+      - key: AEGIS_ODDS_SECONDARY_ENABLED
+        value: "true"
+      - key: AEGIS_ODDS_SECONDARY_BASE_URL
+        value: https://api.sportsgameodds.com/v2
+      - key: AEGIS_ODDS_SECONDARY_TIMEOUT_MS
+        value: "10000"
+      - key: AEGIS_ODDS_SECONDARY_MAX_PAGES
+        value: "3"
+      - key: AEGIS_PRIMARY_PROVIDER_FAILURE_THRESHOLD
+        value: "2"
+      - key: AEGIS_PRIMARY_PROVIDER_COOLDOWN_MS
+        value: "180000"
       - key: ODDS_CACHE_TTL_MS
         value: "120000"
       - key: MIN_ODDS_REFRESH_MS

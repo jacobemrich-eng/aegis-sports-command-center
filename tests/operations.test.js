@@ -90,15 +90,15 @@ test('v8.9.1 UI is additive, redundant, cache-busted, and free of common mojibak
   assert.doesNotMatch(js,/MutationObserver/);
   assert.doesNotMatch(js,/[ÃÂ�â]|[\u0080-\u009f]/u);
   assert.match(js,/AEGIS IS OPERATING HANDS-OFF/);
-  assert.match(html,/v9\.1\.1 • DURABLE PROVIDER CACHE/);
-  assert.match(html,/\/app-v8_9\.js\?v=9\.1\.1/);
-  assert.match(html,/\/visual-v8_9\.css\?v=9\.1\.1/);
+  assert.match(html,/v9\.1\.2 • PROVIDER ROUTER/);
+  assert.match(html,/\/app-v8_9\.js\?v=9\.1\.2/);
+  assert.match(html,/\/visual-v8_9\.css\?v=9\.1\.2/);
 });
 
 test('v8.9.1 platform release does not rewrite the v8.8 Decision Intelligence engine',()=>{
   const pkg=require('../package.json');
   const engine=require('../src/engine');
-  assert.equal(pkg.version,'9.1.1');
+  assert.equal(pkg.version,'9.1.2');
   assert.equal(engine.VERSION,'8.8.0-decision-intelligence');
 });
 

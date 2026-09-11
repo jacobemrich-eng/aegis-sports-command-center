@@ -1,4 +1,4 @@
-# AEGIS Sports Command Center v9.1.1 — Durable Provider Cache
+# AEGIS Sports Command Center v9.1.2 — Provider Router
 
 AEGIS is a free-tier-first sports research operating system built around the SB101 AEGIS decision framework.
 
@@ -249,3 +249,10 @@ Read order: in-process hot cache → durable Supabase provider cache → upstrea
 On retryable upstream failure, AEGIS may use a bounded stale durable response. The response is explicitly marked stale with source `durable_provider_cache_fallback`; existing source-freshness and uncertainty gates remain authoritative.
 
 The adapter boundary allows a separately licensed secondary provider to be added later without rewriting the betting engine.
+
+
+## v9.1.2 Provider Router
+
+AEGIS now has a provider-routing boundary around the frozen betting engine. The Odds API remains the primary source. SportsGameOdds is an optional independent secondary source for MLB/NCAAF full-game moneyline, spread and total slates.
+
+The secondary is dormant unless `SPORTSGAMEODDS_API_KEY` is configured. Retryable primary failures can route supported requests to the secondary. A small circuit breaker prevents repeatedly hammering a failing primary. Event-specific deep-market requests remain primary + durable-cache protected until cross-provider event identity is formally mapped.

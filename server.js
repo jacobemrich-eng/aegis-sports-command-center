@@ -150,6 +150,7 @@ auto=await safeStatus();
       provider_cache:c.providerCache,
       provider_cache_max_stale_ms:c.providerCacheMaxStaleMs,
       odds_provider:c.oddsProvider,
+      provider_router:c.providerRouter,
 
       auth_required:!!ACCESS_PIN,
       authenticated:validSession(req),
