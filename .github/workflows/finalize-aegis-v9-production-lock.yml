@@ -1,0 +1,142 @@
+name: Finalize AEGIS v9.0 Production Lock
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Locate and validate v9.0 baseline commit
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BASELINE="$(git log -1 --format=%H --grep='^Lock AEGIS v9.0 production baseline$')"
+          test -n "$BASELINE"
+
+          version="$(git show "$BASELINE:package.json" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(JSON.parse(s).version))")"
+          test "$version" = "9.0.0"
+          git show "$BASELINE:public/index.html" | grep -qF "v9.0 • PRODUCTION LOCK"
+
+          echo "BASELINE_COMMIT=$BASELINE" >> "$GITHUB_ENV"
+          echo "AEGIS v9.0 baseline commit: $BASELINE"
+
+      - name: Re-run full AEGIS validation
+        run: |
+          set -euo pipefail
+          npm run check
+
+      - name: Verify live Render health contract
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BASE="https://aegis-sports-command-center.onrender.com"
+          ok=0
+
+          for i in $(seq 1 40); do
+            echo "Live verification attempt $i/40"
+
+            health="$(curl -fsS --max-time 35 "$BASE/api/health" 2>/dev/null || true)"
+            home="$(curl -fsS --max-time 35 "$BASE/" 2>/dev/null || true)"
+
+            if [ -z "$health" ] || [ -z "$home" ]; then
+              echo "  service not reachable yet"
+              sleep 15
+              continue
+            fi
+
+            summary="$(HEALTH="$health" node -e 'const h=JSON.parse(process.env.HEALTH); const out={release:h.release_version||h.version||h.release?.version||null,engine:h.engine_version||h.engine?.version||null,persistent:Boolean(h.persistent_storage ?? h.storage?.persistent ?? h.persistence?.persistent),autopilot:Boolean(h.autopilot_enabled ?? h.autopilot?.enabled ?? h.operations?.autopilot_enabled),redundancy:Boolean(h.scheduler_redundancy ?? h.operations?.scheduler_redundancy ?? h.operations?.safeguards?.scheduler_redundancy),deploy_commit:h.deploy?.git_commit||h.git_commit||h.render_git_commit||h.release?.git_commit||null,status:h.status||null}; process.stdout.write(JSON.stringify(out));')"
+            echo "  health: $summary"
+
+            if HEALTH="$health" node -e 'const h=JSON.parse(process.env.HEALTH); const release=h.release_version||h.version||h.release?.version; const engine=h.engine_version||h.engine?.version; const persistent=Boolean(h.persistent_storage ?? h.storage?.persistent ?? h.persistence?.persistent); const autopilot=Boolean(h.autopilot_enabled ?? h.autopilot?.enabled ?? h.operations?.autopilot_enabled); const redundancy=Boolean(h.scheduler_redundancy ?? h.operations?.scheduler_redundancy ?? h.operations?.safeguards?.scheduler_redundancy); if(release!=="9.0.0")process.exit(10); if(engine!=="8.8.0-decision-intelligence")process.exit(11); if(!persistent)process.exit(12); if(!autopilot)process.exit(13); if(!redundancy)process.exit(14);'
+            then
+              if printf '%s' "$home" | grep -qF "v9.0 • PRODUCTION LOCK"; then
+                live_commit="$(HEALTH="$health" node -e 'const h=JSON.parse(process.env.HEALTH); process.stdout.write(String(h.deploy?.git_commit||h.git_commit||h.render_git_commit||h.release?.git_commit||""));')"
+
+                if [ -n "$live_commit" ]; then
+                  git fetch origin "$live_commit" >/dev/null 2>&1 || true
+                  if git cat-file -e "$live_commit^{commit}" 2>/dev/null; then
+                    if ! git merge-base --is-ancestor "$BASELINE_COMMIT" "$live_commit"; then
+                      echo "  live Render commit does not contain the v9.0 baseline yet"
+                      sleep 15
+                      continue
+                    fi
+                  fi
+                fi
+
+                ok=1
+                break
+              else
+                echo "  health is v9.0 but homepage pill is not updated yet"
+              fi
+            fi
+
+            sleep 15
+          done
+
+          if [ "$ok" -ne 1 ]; then
+            echo "Live v9.0 verification did not pass within the verification window."
+            exit 1
+          fi
+
+          echo "Live Render v9.0 verification: PASS"
+          echo "Verification used GET /api/health and GET / only."
+
+      - name: Tag verified production baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git fetch --tags origin
+          existing="$(git rev-list -n 1 v9.0.0 2>/dev/null || true)"
+
+          if [ -n "$existing" ]; then
+            if [ "$existing" != "$BASELINE_COMMIT" ]; then
+              echo "v9.0.0 already exists on a different commit: $existing"
+              exit 1
+            fi
+            echo "v9.0.0 already points to the verified production baseline."
+          else
+            git tag -a v9.0.0 "$BASELINE_COMMIT" -m "AEGIS v9.0 Production Lock"
+            git push origin v9.0.0
+            echo "Created v9.0.0 tag on $BASELINE_COMMIT"
+          fi
+
+      - name: Final production lock summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "### AEGIS v9.0 Production Lock — VERIFIED"
+            echo
+            echo "✅ v9.0 production baseline commit located"
+            echo "✅ Full AEGIS validation passed"
+            echo "✅ Live Render release = 9.0.0"
+            echo "✅ Engine remains 8.8.0-decision-intelligence"
+            echo "✅ Persistent storage confirmed"
+            echo "✅ Autopilot enabled"
+            echo "✅ Scheduler redundancy present"
+            echo "✅ v9.0 homepage identity confirmed"
+            echo "✅ Baseline tagged v9.0.0"
+            echo "No sportsbook refresh or Supabase mutation was invoked by this finalizer."
+          } >> "$GITHUB_STEP_SUMMARY"
