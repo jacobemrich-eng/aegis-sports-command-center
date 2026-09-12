@@ -10,6 +10,7 @@ const release = require('./src/release');
 const operations = require('./src/operations');
 const heartbeat = require('./src/heartbeat');
 const dataGateway = require('./src/data-gateway');
+const providerRouter = require('./src/provider-router');
 
 const PORT = Number(process.env.PORT || 3000);
 const ROOT = __dirname;
@@ -43,6 +44,7 @@ function validAutopilot(req){return !!AUTOPILOT_SECRET&&secureEqual(bearer(req),
 function ip(req){return String(req.headers['x-forwarded-for']||req.socket.remoteAddress||'unknown').split(',')[0].trim();}
 function rateLimit(req,res,bucket,limit,windowMs=3600e3){const key=`${bucket}|${ip(req)}`,t=Date.now(),row=RATE.get(key)||{start:t,count:0};if(t-row.start>windowMs){row.start=t;row.count=0;}row.count++;RATE.set(key,row);if(row.count>limit){const retry=Math.ceil((row.start+windowMs-t)/1000);send(res,429,{error:`AEGIS rate limit reached for ${bucket}. Try again in ${Math.ceil(retry/60)} minute(s).`},'application/json',{'Retry-After':String(retry)});return false;}return true;}
 function requireAuth(req,res){if(validSession(req))return true;send(res,401,{error:'AEGIS access is locked. Enter the configured access PIN.',auth_required:true});return false;}
+function requireAdminAuth(req,res){if(ACCESS_PIN&&validSession(req))return true;send(res,401,{error:'AEGIS administrator authentication is required.',auth_required:true});return false;}
 function mime(file){const ext=path.extname(file).toLowerCase();return ({'.html':'text/html; charset=utf-8','.js':'application/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.ico':'image/x-icon'}[ext]||'application/octet-stream');}
 function serveFile(res,file){try{const buf=fs.readFileSync(file);res.writeHead(200,{'Content-Type':mime(file),'Cache-Control':file.endsWith('.html')?'no-store':'public, max-age=180',...SECURITY_HEADERS});res.end(buf);}catch{send(res,404,{error:'Not found'});}}
 function publicFile(urlPath){
@@ -381,6 +383,27 @@ if(req.method==='POST'&&u.pathname==='/api/autopilot/heartbeat'){
     }
 
     if(u.pathname.startsWith('/api/')&&!requireAuth(req,res))return;
+
+    if(req.method==='POST'&&u.pathname==='/api/admin/diagnostics/provider-failover'){
+      if(!requireAdminAuth(req,res))return;
+      if(!rateLimit(req,res,'provider-failover-diagnostic',2,60*60*1000))return;
+
+      let body;
+      try{body=JSON.parse(await readBody(req)||'{}');}
+      catch{return send(res,400,{success:false,provider_used:null,route:'diagnostic_rejected',sport:null,normalized_event_count:0,bookmaker_count:0,hard_rock_bet_present:false,elapsed_ms:0,production_route_untouched:true,error:'invalid_request'});}
+
+      try{
+        const result=await providerRouter.diagnoseFailover({
+          sport:body.sport,
+          markets:body.markets,
+          bookmakers:engine.config().bookmakers
+        });
+        return send(res,result.success?200:502,result);
+      }catch(error){
+        const status=Number(error?.status)===400?400:500;
+        return send(res,status,{success:false,provider_used:null,route:'diagnostic_rejected',sport:String(body.sport||'').slice(0,40),normalized_event_count:0,bookmaker_count:0,hard_rock_bet_present:false,elapsed_ms:0,production_route_untouched:true,error:status===400?String(error.code||'invalid_request'):'diagnostic_failed'});
+      }
+    }
 
     if(req.method==='GET'&&u.pathname==='/api/autopilot/status')return send(res,200,await autopilot.status());
     if(req.method==='GET'&&u.pathname==='/api/cards/latest'){
