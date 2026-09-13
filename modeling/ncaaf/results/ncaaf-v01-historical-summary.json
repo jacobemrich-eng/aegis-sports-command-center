@@ -1,0 +1,92 @@
+{
+  "engine_version": "NCAAF_v0.1_POSSESSION_ENSEMBLE_CANDIDATE",
+  "feature_schema_version": "AEGIS_NCAAF_PREGAME_FEATURES_v1",
+  "dataset_sha256": "ac41d40b19a2840e0cccf5ef7a6436dbc2e44edd231a86d14256e733444fb94e",
+  "target_seasons": [2019, 2020, 2021, 2022, 2023, 2024, 2025],
+  "prior_context_seasons": [2018],
+  "games": 5722,
+  "market_rows": 5692,
+  "feature_count": 38,
+  "simulations_per_game": 20000,
+  "weights_changed": false,
+  "holdout_used_for_selection": false,
+  "leakage_check_passed": true,
+  "market_role": "post_blind_evaluation_comparator_only",
+  "market_timestamp_classification": "closing_or_latest_unknown_timestamp",
+  "splits": {
+    "development_2019_2022": {
+      "n": 3093,
+      "margin_mae": 16.207834044616877,
+      "total_mae": 14.50270190753314,
+      "market_margin_mae": 12.342299578059071,
+      "market_total_mae": 12.706164124202099
+    },
+    "validation_2023": {
+      "n": 868,
+      "margin_mae": 15.666153513824884,
+      "total_mae": 14.045708467741935,
+      "market_margin_mae": 11.937610789980733,
+      "market_total_mae": 12.641011560693642
+    },
+    "untouched_holdout_2024_2025": {
+      "n": 1761,
+      "market_n": 1746,
+      "margin_mae": 16.489389040318002,
+      "margin_rmse": 21.07131653402157,
+      "total_mae": 13.34490567859171,
+      "total_rmse": 16.965617470058355,
+      "win_brier": 0.2008209902129472,
+      "win_log_loss": 0.5909734856831174,
+      "ats_brier": 0.32581212437843543,
+      "total_brier": 0.2712513842711705,
+      "market_margin_mae": 12.002100038182512,
+      "market_total_mae": 12.445296084049666,
+      "model_beat_market_pct": 0.3654066437571592,
+      "ats_diagnostic": {"wins": 860, "losses": 878},
+      "total_diagnostic": {"wins": 895, "losses": 839},
+      "first_half_margin_mae": 11.447046311044257,
+      "first_half_total_mae": 8.904995086200886
+    }
+  },
+  "holdout_by_week": {
+    "week_0_1": {"n": 196, "margin_mae": 23.446303571428572, "market_margin_mae": 12.236187845303867, "total_mae": 13.855592346938776, "market_total_mae": 12.335635359116022, "model_beat_market_pct": 0.26519337016574585},
+    "weeks_2_4": {"n": 420, "margin_mae": 19.505219404761906, "market_margin_mae": 12.539285714285715, "total_mae": 13.704586547619048, "market_total_mae": 12.421439936356403, "model_beat_market_pct": 0.3261904761904762},
+    "weeks_5_plus": {"n": 1145, "margin_mae": 14.192267641921397, "market_margin_mae": 11.768049490538573, "total_mae": 13.125551484716157, "market_total_mae": 12.471360989810771, "model_beat_market_pct": 0.3956331877729258}
+  },
+  "holdout_by_class": {
+    "FBS_vs_FBS": {"n": 1514, "margin_mae": 14.81649431968296, "market_margin_mae": 12.028952003522678, "total_mae": 13.115565455746367, "market_total_mae": 12.541033685601057, "model_beat_market_pct": 0.39233817701453105},
+    "FBS_vs_FCS": {"n": 247, "margin_mae": 26.74348866396761, "market_margin_mae": 11.826867816091953, "total_mae": 14.75065910931174, "market_total_mae": 11.817821067821068, "model_beat_market_pct": 0.1896551724137931}
+  },
+  "holdout_by_disagreement": {
+    "le_1": {"n": 151, "model_margin_mae": 12.117711589403973, "market_margin_mae": 12.121136865342164, "model_beat_market_pct": 0.5298013245033113, "ats_brier": 0.24984893430848734, "win_log_loss": 0.6773841789209508, "ats_wins": 81, "ats_losses": 70},
+    "1_3": {"n": 251, "model_margin_mae": 12.671510756972111, "market_margin_mae": 12.38230411686587, "model_beat_market_pct": 0.42231075697211157, "ats_brier": 0.2573141602547351, "win_log_loss": 0.6716359944382565, "ats_wins": 115, "ats_losses": 136},
+    "3_5": {"n": 255, "model_margin_mae": 12.548674509803922, "market_margin_mae": 11.826960784313725, "model_beat_market_pct": 0.4117647058823529, "ats_brier": 0.26473874586426194, "win_log_loss": 0.6477437574067891, "ats_wins": 125, "ats_losses": 129},
+    "5_7": {"n": 189, "model_margin_mae": 11.292353174603175, "market_margin_mae": 10.494488536155202, "model_beat_market_pct": 0.43386243386243384, "ats_brier": 0.27491190115409875, "win_log_loss": 0.6630344115603363, "ats_wins": 95, "ats_losses": 93},
+    "7_plus": {"n": 900, "model_margin_mae": 20.438189555555557, "market_margin_mae": 12.242314814814815, "model_beat_market_pct": 0.29444444444444445, "ats_brier": 0.38592992169877804, "win_log_loss": 0.5245148577791412, "ats_wins": 444, "ats_losses": 450}
+  },
+  "holdout_large_favorites": {
+    "n": 385,
+    "margin_mae": 26.867102857142857,
+    "market_margin_mae": 11.667748917748918,
+    "total_mae": 13.827447012987014,
+    "market_total_mae": 11.673160173160174,
+    "model_beat_market_pct": 0.17922077922077922,
+    "first_half_margin_mae": 16.261487131073693
+  },
+  "holdout_dispersion_error_correlation": 0.20158400094460152,
+  "holdout_data_quality": {"B": 564, "C": 918, "D": 279},
+  "research_ablation_validation_delta_margin_mae": {
+    "Power/Talent": 0.8593285467117973,
+    "Efficiency/EPA": -0.07348483714278764,
+    "Drive": -0.0072947980665922785,
+    "Explosiveness/Havoc": -0.2869716497871959,
+    "Trenches": -0.2630251230691787,
+    "Personnel": -0.16687887326303752,
+    "Tempo": -0.3168250444218259,
+    "Special Teams": -0.3168250444218259,
+    "Situational": -0.48395028726063494,
+    "Structural Break / Uncertainty": "diagnostic_only_not_removed"
+  },
+  "automatic_promotion_allowed": false,
+  "final_status": "NCAAF_V01_RESEARCH_CONTINUE"
+}
