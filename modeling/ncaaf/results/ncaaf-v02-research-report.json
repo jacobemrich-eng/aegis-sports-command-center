@@ -1,0 +1,2734 @@
+{
+  "engine_version": "NCAAF_v0.2_RESEARCH_CANDIDATE",
+  "research_chronology": {
+    "training_foundation": [
+      2019,
+      2020,
+      2021
+    ],
+    "validation_a": [
+      2022
+    ],
+    "validation_b": [
+      2023
+    ],
+    "observed_audit": [
+      2024,
+      2025
+    ],
+    "next_untouched": [
+      2026
+    ]
+  },
+  "selection": {
+    "foundation": {
+      "prior_equivalent_games": 3.0,
+      "alpha": 200.0,
+      "trials": [
+        {
+          "prior_equivalent_games": 3.0,
+          "alpha": 1.0,
+          "margin_mae": 13.151738104038042,
+          "total_mae": 13.422427609292237,
+          "first_half_margin_mae": 9.776822724516428,
+          "selection_score": 19.80495231219361
+        },
+        {
+          "prior_equivalent_games": 3.0,
+          "alpha": 10.0,
+          "margin_mae": 13.131525629342637,
+          "total_mae": 13.44022407650148,
+          "first_half_margin_mae": 9.777607356098464,
+          "selection_score": 19.791125527337847
+        },
+        {
+          "prior_equivalent_games": 3.0,
+          "alpha": 50.0,
+          "margin_mae": 13.087964662223007,
+          "total_mae": 13.477085976785066,
+          "first_half_margin_mae": 9.779350638526564,
+          "selection_score": 19.760814881803093
+        },
+        {
+          "prior_equivalent_games": 3.0,
+          "alpha": 200.0,
+          "margin_mae": 13.043830263762665,
+          "total_mae": 13.525207991037613,
+          "first_half_margin_mae": 9.772914360289215,
+          "selection_score": 19.732235932683672
+        },
+        {
+          "prior_equivalent_games": 5.0,
+          "alpha": 1.0,
+          "margin_mae": 13.175779122320172,
+          "total_mae": 13.421557371599397,
+          "first_half_margin_mae": 9.778998728049785,
+          "selection_score": 19.82912394798992
+        },
+        {
+          "prior_equivalent_games": 5.0,
+          "alpha": 10.0,
+          "margin_mae": 13.149580750048782,
+          "total_mae": 13.439434224270867,
+          "first_half_margin_mae": 9.778185043046967,
+          "selection_score": 19.80901973715298
+        },
+        {
+          "prior_equivalent_games": 5.0,
+          "alpha": 50.0,
+          "margin_mae": 13.103942509052077,
+          "total_mae": 13.481394181140505,
+          "first_half_margin_mae": 9.776544143064607,
+          "selection_score": 19.777739301064173
+        },
+        {
+          "prior_equivalent_games": 5.0,
+          "alpha": 200.0,
+          "margin_mae": 13.057384244847523,
+          "total_mae": 13.53901806199871,
+          "first_half_margin_mae": 9.769823130240685,
+          "selection_score": 19.750005192595207
+        },
+        {
+          "prior_equivalent_games": 8.0,
+          "alpha": 1.0,
+          "margin_mae": 13.19277462808684,
+          "total_mae": 13.424328761068036,
+          "first_half_margin_mae": 9.781753932542191,
+          "selection_score": 19.84764048096909
+        },
+        {
+          "prior_equivalent_games": 8.0,
+          "alpha": 10.0,
+          "margin_mae": 13.164826287687884,
+          "total_mae": 13.442458533928288,
+          "first_half_margin_mae": 9.778370647489703,
+          "selection_score": 19.825360904060723
+        },
+        {
+          "prior_equivalent_games": 8.0,
+          "alpha": 50.0,
+          "margin_mae": 13.115617827554212,
+          "total_mae": 13.48969995664435,
+          "first_half_margin_mae": 9.773593195769156,
+          "selection_score": 19.791731451533565
+        },
+        {
+          "prior_equivalent_games": 8.0,
+          "alpha": 200.0,
+          "margin_mae": 13.06736248186796,
+          "total_mae": 13.554190951453947,
+          "first_half_margin_mae": 9.767672743719935,
+          "selection_score": 19.76486386362083
+        },
+        {
+          "prior_equivalent_games": 12.0,
+          "alpha": 1.0,
+          "margin_mae": 13.205524137023293,
+          "total_mae": 13.428648293404276,
+          "first_half_margin_mae": 9.784406604564495,
+          "selection_score": 19.862432360627686
+        },
+        {
+          "prior_equivalent_games": 12.0,
+          "alpha": 10.0,
+          "margin_mae": 13.176565623326455,
+          "total_mae": 13.446994566227156,
+          "first_half_margin_mae": 9.779170906557276,
+          "selection_score": 19.838847902817417
+        },
+        {
+          "prior_equivalent_games": 12.0,
+          "alpha": 50.0,
+          "margin_mae": 13.123511714831828,
+          "total_mae": 13.497060002365982,
+          "first_half_margin_mae": 9.771860749479218,
+          "selection_score": 19.801854865555764
+        },
+        {
+          "prior_equivalent_games": 12.0,
+          "alpha": 200.0,
+          "margin_mae": 13.074116399244131,
+          "total_mae": 13.566333592761156,
+          "first_half_margin_mae": 9.766676109555132,
+          "selection_score": 19.77566837862156
+        }
+      ]
+    },
+    "blends": {
+      "margin": 1.0,
+      "margin_trials": [
+        {
+          "statistical_weight": 0.0,
+          "mae": 15.842260226743806
+        },
+        {
+          "statistical_weight": 0.25,
+          "mae": 14.668630421384027
+        },
+        {
+          "statistical_weight": 0.5,
+          "mae": 13.816953158337986
+        },
+        {
+          "statistical_weight": 0.75,
+          "mae": 13.261022998772937
+        },
+        {
+          "statistical_weight": 1.0,
+          "mae": 13.043830263762665
+        }
+      ],
+      "total": 1.0,
+      "total_trials": [
+        {
+          "statistical_weight": 0.0,
+          "mae": 14.731036097501745
+        },
+        {
+          "statistical_weight": 0.25,
+          "mae": 14.200423411417306
+        },
+        {
+          "statistical_weight": 0.5,
+          "mae": 13.81474980507351
+        },
+        {
+          "statistical_weight": 0.75,
+          "mae": 13.57974055330782
+        },
+        {
+          "statistical_weight": 1.0,
+          "mae": 13.525207991037613
+        }
+      ]
+    },
+    "calibration": {
+      "alpha": 200.0,
+      "trials": [
+        {
+          "alpha": 1.0,
+          "margin_mae": 13.1014569953926,
+          "total_mae": 13.489023908764485,
+          "selection_score": 17.82261536346017
+        },
+        {
+          "alpha": 10.0,
+          "margin_mae": 13.095388036739411,
+          "total_mae": 13.489076902027659,
+          "selection_score": 17.81656495244909
+        },
+        {
+          "alpha": 50.0,
+          "margin_mae": 13.071866392060352,
+          "total_mae": 13.491478607829187,
+          "selection_score": 17.793883904800566
+        },
+        {
+          "alpha": 200.0,
+          "margin_mae": 13.030299102742777,
+          "total_mae": 13.499823178198557,
+          "selection_score": 17.755237215112274
+        }
+      ]
+    }
+  },
+  "regularized_ablation": {
+    "fit_years": [
+      2019,
+      2020,
+      2021
+    ],
+    "evaluation_year": [
+      2022
+    ],
+    "observed_audit_used": false,
+    "baseline": {
+      "margin_mae": 13.043830263762665,
+      "total_mae": 13.525207991037613
+    },
+    "families": {
+      "Power/Talent": {
+        "removed_features": [
+          "component_power",
+          "prior_schedule_diff",
+          "talent_diff",
+          "class_talent_gap"
+        ],
+        "margin_mae": 13.379742443151887,
+        "margin_delta_vs_full": 0.33591217938922213,
+        "total_mae": 13.525008641798564,
+        "total_delta_vs_full": -0.00019934923904862956,
+        "interpretation": "aggregate statistical representation only; possession/matchup concept retained"
+      },
+      "Efficiency/EPA": {
+        "removed_features": [
+          "component_efficiency_epa",
+          "net_epa_diff",
+          "offense_epa_sum"
+        ],
+        "margin_mae": 13.051429570775106,
+        "margin_delta_vs_full": 0.007599307012441159,
+        "total_mae": 13.574015272107333,
+        "total_delta_vs_full": 0.04880728106972043,
+        "interpretation": "aggregate statistical representation only; possession/matchup concept retained"
+      },
+      "Drive": {
+        "removed_features": [
+          "component_drive_efficiency",
+          "drive_diff",
+          "points_per_drive_sum"
+        ],
+        "margin_mae": 13.053114284991977,
+        "margin_delta_vs_full": 0.0092840212293126,
+        "total_mae": 13.527361703951724,
+        "total_delta_vs_full": 0.002153712914111594,
+        "interpretation": "aggregate statistical representation only; possession/matchup concept retained"
+      },
+      "Explosiveness/Havoc": {
+        "removed_features": [
+          "component_explosiveness_havoc",
+          "explosiveness_diff",
+          "havoc_diff",
+          "explosiveness_sum"
+        ],
+        "margin_mae": 13.009759263404094,
+        "margin_delta_vs_full": -0.03407100035857091,
+        "total_mae": 13.57811970046608,
+        "total_delta_vs_full": 0.0529117094284679,
+        "interpretation": "aggregate statistical representation only; possession/matchup concept retained"
+      },
+      "Trenches": {
+        "removed_features": [
+          "component_matchup_trenches",
+          "trench_diff"
+        ],
+        "margin_mae": 13.106349024479213,
+        "margin_delta_vs_full": 0.06251876071654827,
+        "total_mae": 13.526405642904983,
+        "total_delta_vs_full": 0.0011976518673701975,
+        "interpretation": "aggregate statistical representation only; possession/matchup concept retained"
+      },
+      "Personnel": {
+        "removed_features": [
+          "component_personnel_situational",
+          "returning_diff",
+          "qb_continuity_diff"
+        ],
+        "margin_mae": 13.050115135047639,
+        "margin_delta_vs_full": 0.006284871284973903,
+        "total_mae": 13.525008641798564,
+        "total_delta_vs_full": -0.00019934923904862956,
+        "interpretation": "aggregate statistical representation only; possession/matchup concept retained"
+      },
+      "Tempo/Special Teams": {
+        "removed_features": [
+          "component_special_teams_context",
+          "pace_sum"
+        ],
+        "margin_mae": 13.043619102864927,
+        "margin_delta_vs_full": -0.00021116089773798308,
+        "total_mae": 13.515466496797757,
+        "total_delta_vs_full": -0.009741494239856152,
+        "interpretation": "aggregate statistical representation only; possession/matchup concept retained"
+      },
+      "Situational/Structural": {
+        "removed_features": [
+          "home_field",
+          "minimum_effective_sample_size",
+          "structural_possible",
+          "structural_confirmed",
+          "cross_class",
+          "class_direction"
+        ],
+        "margin_mae": 13.096231387237129,
+        "margin_delta_vs_full": 0.05240112347446413,
+        "total_mae": 13.64996401283505,
+        "total_delta_vs_full": 0.12475602179743639,
+        "interpretation": "aggregate statistical representation only; possession/matchup concept retained"
+      }
+    }
+  },
+  "validation_a": {
+    "v01": {
+      "n": 854,
+      "market_n": 850,
+      "margin_mae": 15.85964449648712,
+      "margin_rmse": 20.4274004334444,
+      "total_mae": 14.256537587822015,
+      "total_rmse": 17.919063872748435,
+      "win_brier": 0.2021738936592506,
+      "win_log_loss": 0.5924086926487283,
+      "ats_brier": 0.32314416102406884,
+      "total_brier": 0.2972992676761563,
+      "market_margin_mae": 12.207647058823529,
+      "market_total_mae": 12.066274509803922,
+      "model_beat_market_pct": 0.3952941176470588,
+      "ats_diagnostic": {
+        "WIN": 428,
+        "LOSS": 415
+      },
+      "total_diagnostic": {
+        "WIN": 413,
+        "LOSS": 431
+      },
+      "first_half_margin_mae": 11.3065103867206,
+      "first_half_total_mae": 9.157480153987164
+    },
+    "v02": {
+      "n": 854,
+      "market_n": 850,
+      "margin_mae": 13.030299102742777,
+      "margin_rmse": 16.41630627977953,
+      "total_mae": 13.499823178198557,
+      "total_rmse": 16.944193669221637,
+      "win_brier": 0.17433863545147693,
+      "win_log_loss": 0.5146185937271894,
+      "ats_brier": 0.2711950293557943,
+      "total_brier": 0.2735081547127717,
+      "market_margin_mae": 12.207647058823529,
+      "market_total_mae": 12.066274509803922,
+      "model_beat_market_pct": 0.44,
+      "ats_diagnostic": {
+        "WIN": 413,
+        "LOSS": 430
+      },
+      "total_diagnostic": {
+        "WIN": 422,
+        "LOSS": 422
+      },
+      "first_half_margin_mae": 9.772914360289215,
+      "first_half_total_mae": 9.024202060997757
+    }
+  },
+  "validation_b": {
+    "v01": {
+      "n": 868,
+      "market_n": 865,
+      "margin_mae": 15.666153513824884,
+      "margin_rmse": 20.08154389546369,
+      "total_mae": 14.045708467741935,
+      "total_rmse": 17.651629579020817,
+      "win_brier": 0.19547135135656682,
+      "win_log_loss": 0.5789657107776912,
+      "ats_brier": 0.31676809544869095,
+      "total_brier": 0.2843513662139763,
+      "market_margin_mae": 11.937610789980733,
+      "market_total_mae": 12.641011560693642,
+      "model_beat_market_pct": 0.4046242774566474,
+      "ats_diagnostic": {
+        "LOSS": 410,
+        "WIN": 449
+      },
+      "total_diagnostic": {
+        "WIN": 433,
+        "LOSS": 431
+      },
+      "first_half_margin_mae": 10.777620448447905,
+      "first_half_total_mae": 9.12821547240862
+    },
+    "v02": {
+      "n": 868,
+      "market_n": 865,
+      "margin_mae": 12.445615086070267,
+      "margin_rmse": 15.713865035356992,
+      "total_mae": 13.528421889639299,
+      "total_rmse": 16.793988453731377,
+      "win_brier": 0.1565943657503747,
+      "win_log_loss": 0.47151112532466327,
+      "ats_brier": 0.2589104692334818,
+      "total_brier": 0.26642367471013767,
+      "market_margin_mae": 11.937610789980733,
+      "market_total_mae": 12.641011560693642,
+      "model_beat_market_pct": 0.45895953757225433,
+      "ats_diagnostic": {
+        "WIN": 450,
+        "LOSS": 409
+      },
+      "total_diagnostic": {
+        "LOSS": 409,
+        "WIN": 455
+      },
+      "first_half_margin_mae": 9.44868256642611,
+      "first_half_total_mae": 8.963350898579801
+    }
+  },
+  "observed_audit": {
+    "label": "OBSERVED_AUDIT_NOT_UNTOUCHED",
+    "comparison": {
+      "v01": {
+        "n": 1761,
+        "market_n": 1746,
+        "margin_mae": 16.489389040318002,
+        "margin_rmse": 21.07131653402157,
+        "total_mae": 13.34490567859171,
+        "total_rmse": 16.965617470058355,
+        "win_brier": 0.2008209902129472,
+        "win_log_loss": 0.5909734856831174,
+        "ats_brier": 0.32581212437843543,
+        "total_brier": 0.2712513842711705,
+        "market_margin_mae": 12.002100038182512,
+        "market_total_mae": 12.445296084049666,
+        "model_beat_market_pct": 0.3654066437571592,
+        "ats_diagnostic": {
+          "WIN": 860,
+          "LOSS": 878
+        },
+        "total_diagnostic": {
+          "WIN": 895,
+          "LOSS": 839
+        },
+        "first_half_margin_mae": 11.447046311044257,
+        "first_half_total_mae": 8.904995086200886
+      },
+      "v02": {
+        "n": 1761,
+        "market_n": 1746,
+        "margin_mae": 13.570290382154305,
+        "margin_rmse": 17.264115528950988,
+        "total_mae": 12.977544907960247,
+        "total_rmse": 16.30072658237976,
+        "win_brier": 0.1745439966823851,
+        "win_log_loss": 0.518372792116132,
+        "ats_brier": 0.2822440395861129,
+        "total_brier": 0.26063303020316264,
+        "market_margin_mae": 12.002100038182512,
+        "market_total_mae": 12.445296084049666,
+        "model_beat_market_pct": 0.4152348224513173,
+        "ats_diagnostic": {
+          "WIN": 840,
+          "LOSS": 898
+        },
+        "total_diagnostic": {
+          "LOSS": 827,
+          "WIN": 907
+        },
+        "first_half_margin_mae": 9.926717021561117,
+        "first_half_total_mae": 8.74942347157412
+      }
+    },
+    "v01_diagnostics": {
+      "by_week": {
+        "week_0_1": {
+          "n": 196,
+          "market_n": 181,
+          "margin_mae": 23.446303571428572,
+          "margin_rmse": 28.23486738319181,
+          "total_mae": 13.855592346938776,
+          "total_rmse": 18.06013729995468,
+          "win_brier": 0.18806589761479592,
+          "win_log_loss": 0.5672608370477183,
+          "ats_brier": 0.4007382797305267,
+          "total_brier": 0.28493262486808396,
+          "market_margin_mae": 12.236187845303867,
+          "market_total_mae": 12.335635359116022,
+          "model_beat_market_pct": 0.26519337016574585,
+          "ats_diagnostic": {
+            "WIN": 90,
+            "LOSS": 90
+          },
+          "total_diagnostic": {
+            "WIN": 108,
+            "LOSS": 72
+          },
+          "first_half_margin_mae": 14.27575719350741,
+          "first_half_total_mae": 9.40777041671938
+        },
+        "weeks_2_4": {
+          "n": 420,
+          "market_n": 420,
+          "margin_mae": 19.505219404761906,
+          "margin_rmse": 24.584937362013452,
+          "total_mae": 13.704586547619048,
+          "total_rmse": 17.30623674897995,
+          "win_brier": 0.17937443829761904,
+          "win_log_loss": 0.5441450635754526,
+          "ats_brier": 0.3664102619697108,
+          "total_brier": 0.2792552066803645,
+          "market_margin_mae": 12.539285714285715,
+          "market_total_mae": 12.421439936356403,
+          "model_beat_market_pct": 0.3261904761904762,
+          "ats_diagnostic": {
+            "LOSS": 215,
+            "WIN": 203
+          },
+          "total_diagnostic": {
+            "LOSS": 211,
+            "WIN": 205
+          },
+          "first_half_margin_mae": 13.246708842259407,
+          "first_half_total_mae": 9.696289978921111
+        },
+        "weeks_5_plus": {
+          "n": 1145,
+          "market_n": 1145,
+          "margin_mae": 14.192267641921397,
+          "margin_rmse": 18.019298553094103,
+          "total_mae": 13.125551484716157,
+          "total_rmse": 16.642949010934625,
+          "win_brier": 0.2108712521812227,
+          "win_log_loss": 0.6122098318994994,
+          "ats_brier": 0.2990956950130586,
+          "total_brier": 0.2661615657916721,
+          "market_margin_mae": 11.768049490538573,
+          "market_total_mae": 12.471360989810771,
+          "model_beat_market_pct": 0.3956331877729258,
+          "ats_diagnostic": {
+            "LOSS": 573,
+            "WIN": 567
+          },
+          "total_diagnostic": {
+            "LOSS": 556,
+            "WIN": 582
+          },
+          "first_half_margin_mae": 10.302692078665968,
+          "first_half_total_mae": 8.528673846267157
+        }
+      },
+      "by_class": {
+        "FBS_vs_FBS": {
+          "n": 1514,
+          "market_n": 1514,
+          "margin_mae": 14.81649431968296,
+          "margin_rmse": 18.91975528692265,
+          "total_mae": 13.115565455746367,
+          "total_rmse": 16.704565011959296,
+          "win_brier": 0.2122685933834214,
+          "win_log_loss": 0.6155740019655875,
+          "ats_brier": 0.3036968532552081,
+          "total_brier": 0.26409410097401653,
+          "market_margin_mae": 12.028952003522678,
+          "market_total_mae": 12.541033685601057,
+          "model_beat_market_pct": 0.39233817701453105,
+          "ats_diagnostic": {
+            "WIN": 755,
+            "LOSS": 752
+          },
+          "total_diagnostic": {
+            "WIN": 786,
+            "LOSS": 719
+          },
+          "first_half_margin_mae": 10.539213682570429,
+          "first_half_total_mae": 8.649382584833136
+        },
+        "FBS_vs_FCS": {
+          "n": 247,
+          "market_n": 232,
+          "margin_mae": 26.74348866396761,
+          "margin_rmse": 31.1674048491544,
+          "total_mae": 14.75065910931174,
+          "total_rmse": 18.485373245430413,
+          "win_brier": 0.13065228090080971,
+          "win_log_loss": 0.4401832765670861,
+          "ats_brier": 0.4700879407537753,
+          "total_brier": 0.3182894251542128,
+          "market_margin_mae": 11.826867816091953,
+          "market_total_mae": 11.817821067821068,
+          "model_beat_market_pct": 0.1896551724137931,
+          "ats_diagnostic": {
+            "WIN": 105,
+            "LOSS": 126
+          },
+          "total_diagnostic": {
+            "LOSS": 120,
+            "WIN": 109
+          },
+          "first_half_margin_mae": 17.01165602565712,
+          "first_half_total_mae": 10.471785884058274
+        }
+      },
+      "by_blind_implied_margin": {
+        "0_13": {
+          "n": 1735,
+          "market_n": 1721,
+          "margin_mae": 16.346357089337175,
+          "margin_rmse": 20.90657213295701,
+          "total_mae": 13.36584809798271,
+          "total_rmse": 16.9999150776941,
+          "win_brier": 0.2017787582262248,
+          "win_log_loss": 0.5929392562600869,
+          "ats_brier": 0.32438428503005606,
+          "total_brier": 0.2713052802079235,
+          "market_margin_mae": 12.039172961456517,
+          "market_total_mae": 12.469210271317829,
+          "model_beat_market_pct": 0.3678094131319001,
+          "ats_diagnostic": {
+            "WIN": 848,
+            "LOSS": 866
+          },
+          "total_diagnostic": {
+            "WIN": 881,
+            "LOSS": 828
+          },
+          "first_half_margin_mae": 11.15032141536655,
+          "first_half_total_mae": 8.876894677843751
+        },
+        "13_21": {
+          "n": 24,
+          "market_n": 23,
+          "margin_mae": 27.754495833333333,
+          "margin_rmse": 31.274598293440025,
+          "total_mae": 12.722304166666667,
+          "total_rmse": 15.067121513283208,
+          "win_brier": 0.14804451322916665,
+          "win_log_loss": 0.4935029090001388,
+          "ats_brier": 0.45950690475339956,
+          "total_brier": 0.2773307260459143,
+          "market_margin_mae": 9.851449275362318,
+          "market_total_mae": 11.152173913043478,
+          "model_beat_market_pct": 0.17391304347826086,
+          "ats_diagnostic": {
+            "LOSS": 12,
+            "WIN": 10
+          },
+          "total_diagnostic": {
+            "LOSS": 11,
+            "WIN": 12
+          },
+          "first_half_margin_mae": 30.6357929298206,
+          "first_half_total_mae": 11.428821730095947
+        },
+        "21_28": {
+          "n": 2,
+          "market_n": 2,
+          "margin_mae": 5.388325,
+          "margin_rmse": 5.8396198383328,
+          "total_mae": 2.6485749999999975,
+          "total_rmse": 2.649162203650427,
+          "win_brier": 0.0032749624999999986,
+          "win_log_loss": 0.055314430357745616,
+          "ats_brier": 0.0788278618149341,
+          "total_brier": 0.15528487590617485,
+          "market_margin_mae": 4.833333333333334,
+          "market_total_mae": 6.75,
+          "model_beat_market_pct": 0.5,
+          "ats_diagnostic": {
+            "WIN": 2
+          },
+          "total_diagnostic": {
+            "WIN": 2
+          },
+          "first_half_margin_mae": 38.590933886139034,
+          "first_half_total_mae": 2.996179609275673
+        }
+      },
+      "by_quality": {
+        "B": {
+          "n": 564,
+          "market_n": 564,
+          "margin_mae": 14.425099024822694,
+          "margin_rmse": 18.6859102527025,
+          "total_mae": 13.6449265070922,
+          "total_rmse": 17.10634376588535,
+          "win_brier": 0.2114898539849291,
+          "win_log_loss": 0.6138044552106516,
+          "ats_brier": 0.3118737907322469,
+          "total_brier": 0.26972246405698336,
+          "market_margin_mae": 11.670951536643026,
+          "market_total_mae": 12.929225768321514,
+          "model_beat_market_pct": 0.41134751773049644,
+          "ats_diagnostic": {
+            "LOSS": 281,
+            "WIN": 282
+          },
+          "total_diagnostic": {
+            "WIN": 288,
+            "LOSS": 275
+          },
+          "first_half_margin_mae": 10.106500902579281,
+          "first_half_total_mae": 9.177013777337875
+        },
+        "C": {
+          "n": 918,
+          "market_n": 918,
+          "margin_mae": 14.987518572984749,
+          "margin_rmse": 18.978014013917335,
+          "total_mae": 12.832135675381263,
+          "total_rmse": 16.486218470002314,
+          "win_brier": 0.20998868116285402,
+          "win_log_loss": 0.6105521331868425,
+          "ats_brier": 0.29741165976908934,
+          "total_brier": 0.26454579620836344,
+          "market_margin_mae": 12.172657952069716,
+          "market_total_mae": 12.279638707334787,
+          "model_beat_market_pct": 0.3790849673202614,
+          "ats_diagnostic": {
+            "WIN": 457,
+            "LOSS": 455
+          },
+          "total_diagnostic": {
+            "WIN": 472,
+            "LOSS": 439
+          },
+          "first_half_margin_mae": 10.899210055653791,
+          "first_half_total_mae": 8.398146510938966
+        },
+        "D": {
+          "n": 279,
+          "market_n": 264,
+          "margin_mae": 25.604000716845878,
+          "margin_rmse": 30.19204462974949,
+          "total_mae": 14.425590681003584,
+          "total_rmse": 18.19081054861715,
+          "win_brier": 0.1490891641935484,
+          "win_log_loss": 0.48040049205606,
+          "ats_brier": 0.4541334383196057,
+          "total_brier": 0.298057433524265,
+          "market_margin_mae": 12.116477272727273,
+          "market_total_mae": 11.98574144486692,
+          "model_beat_market_pct": 0.2196969696969697,
+          "ats_diagnostic": {
+            "WIN": 121,
+            "LOSS": 142
+          },
+          "total_diagnostic": {
+            "LOSS": 125,
+            "WIN": 135
+          },
+          "first_half_margin_mae": 15.959524063096927,
+          "first_half_total_mae": 10.022803151753504
+        }
+      },
+      "by_structural_break": {
+        "CONFIRMED": {
+          "n": 1147,
+          "market_n": 1144,
+          "margin_mae": 15.826116652136006,
+          "margin_rmse": 20.18411182290155,
+          "total_mae": 13.149425632083696,
+          "total_rmse": 16.736808372056817,
+          "win_brier": 0.20215426921534438,
+          "win_log_loss": 0.5936102758815881,
+          "ats_brier": 0.32108291819476104,
+          "total_brier": 0.26757999445295266,
+          "market_margin_mae": 11.872741841491841,
+          "market_total_mae": 12.30595654709828,
+          "model_beat_market_pct": 0.3618881118881119,
+          "ats_diagnostic": {
+            "WIN": 556,
+            "LOSS": 581
+          },
+          "total_diagnostic": {
+            "WIN": 589,
+            "LOSS": 546
+          },
+          "first_half_margin_mae": 10.960524276362552,
+          "first_half_total_mae": 8.922292447991682
+        },
+        "POSSIBLE": {
+          "n": 322,
+          "market_n": 316,
+          "margin_mae": 16.466732763975156,
+          "margin_rmse": 21.592114238772314,
+          "total_mae": 13.399960714285713,
+          "total_rmse": 16.871847511441196,
+          "win_brier": 0.2106263387810559,
+          "win_log_loss": 0.613700920165237,
+          "ats_brier": 0.31361436458526865,
+          "total_brier": 0.2681591706321407,
+          "market_margin_mae": 12.474947257383967,
+          "market_total_mae": 12.870780590717299,
+          "model_beat_market_pct": 0.40189873417721517,
+          "ats_diagnostic": {
+            "WIN": 166,
+            "LOSS": 149
+          },
+          "total_diagnostic": {
+            "WIN": 159,
+            "LOSS": 154
+          },
+          "first_half_margin_mae": 12.068097502802706,
+          "first_half_total_mae": 8.851235025629931
+        },
+        "STABLE": {
+          "n": 292,
+          "market_n": 286,
+          "margin_mae": 19.11976147260274,
+          "margin_rmse": 23.73340037117706,
+          "total_mae": 14.052055993150685,
+          "total_rmse": 17.933828332684296,
+          "win_brier": 0.18477101331335616,
+          "win_log_loss": 0.555553512186924,
+          "ats_brier": 0.3580477948878247,
+          "total_brier": 0.28920554620366556,
+          "market_margin_mae": 11.997086247086248,
+          "market_total_mae": 12.532051282051283,
+          "model_beat_market_pct": 0.33916083916083917,
+          "ats_diagnostic": {
+            "WIN": 138,
+            "LOSS": 148
+          },
+          "total_diagnostic": {
+            "WIN": 147,
+            "LOSS": 139
+          },
+          "first_half_margin_mae": 12.673287030337736,
+          "first_half_total_mae": 8.896332981850902
+        }
+      },
+      "by_dispersion": {
+        "p50_p75": {
+          "n": 446,
+          "market_n": 440,
+          "margin_mae": 16.6294932735426,
+          "margin_rmse": 20.810723307043162,
+          "total_mae": 13.121815246636771,
+          "total_rmse": 16.624951265412232,
+          "win_brier": 0.19216435420403588,
+          "win_log_loss": 0.5740501810663783,
+          "ats_brier": 0.33877583128799116,
+          "total_brier": 0.2809713264212679,
+          "market_margin_mae": 11.862405303030304,
+          "market_total_mae": 11.807007575757575,
+          "model_beat_market_pct": 0.35,
+          "ats_diagnostic": {
+            "WIN": 220,
+            "LOSS": 218
+          },
+          "total_diagnostic": {
+            "WIN": 216,
+            "LOSS": 222
+          },
+          "first_half_margin_mae": 11.264216037647646,
+          "first_half_total_mae": 8.941309019663434
+        },
+        "le_p50": {
+          "n": 907,
+          "market_n": 900,
+          "margin_mae": 13.643023098125688,
+          "margin_rmse": 17.49588505758284,
+          "total_mae": 13.587019680264609,
+          "total_rmse": 17.34535267138433,
+          "win_brier": 0.2296482225551268,
+          "win_log_loss": 0.6518701455963628,
+          "ats_brier": 0.2895237635331253,
+          "total_brier": 0.26701857781310034,
+          "market_margin_mae": 11.911712962962962,
+          "market_total_mae": 13.024212962962963,
+          "model_beat_market_pct": 0.41555555555555557,
+          "ats_diagnostic": {
+            "WIN": 433,
+            "LOSS": 463
+          },
+          "total_diagnostic": {
+            "LOSS": 431,
+            "WIN": 465
+          },
+          "first_half_margin_mae": 9.929744270210563,
+          "first_half_total_mae": 8.871131430943558
+        },
+        "p75_p90": {
+          "n": 239,
+          "market_n": 238,
+          "margin_mae": 20.623009623430963,
+          "margin_rmse": 26.06864752115454,
+          "total_mae": 13.121666108786611,
+          "total_rmse": 16.761903465773823,
+          "win_brier": 0.150548112416318,
+          "win_log_loss": 0.48425215129602917,
+          "ats_brier": 0.3810934333200071,
+          "total_brier": 0.2663463813659305,
+          "market_margin_mae": 12.311274509803921,
+          "market_total_mae": 11.94620253164557,
+          "model_beat_market_pct": 0.29411764705882354,
+          "ats_diagnostic": {
+            "WIN": 121,
+            "LOSS": 117
+          },
+          "total_diagnostic": {
+            "WIN": 133,
+            "LOSS": 101
+          },
+          "first_half_margin_mae": 12.941417010807108,
+          "first_half_total_mae": 8.749186035595384
+        },
+        "gt_p90": {
+          "n": 169,
+          "market_n": 168,
+          "margin_mae": 25.54993402366864,
+          "margin_rmse": 29.659987251766573,
+          "total_mae": 12.949965976331361,
+          "total_rmse": 16.0568567259608,
+          "win_brier": 0.14005044417159762,
+          "win_log_loss": 0.45973633915214773,
+          "ats_brier": 0.4082176434321606,
+          "total_brier": 0.2753660264670401,
+          "market_margin_mae": 12.414186507936508,
+          "market_total_mae": 11.719742063492063,
+          "model_beat_market_pct": 0.23809523809523808,
+          "ats_diagnostic": {
+            "LOSS": 80,
+            "WIN": 86
+          },
+          "total_diagnostic": {
+            "WIN": 81,
+            "LOSS": 85
+          },
+          "first_half_margin_mae": 17.959357883397683,
+          "first_half_total_mae": 9.211247654773755
+        }
+      },
+      "dispersion_cutoffs": [
+        4.670993950298223,
+        7.178814909136686,
+        9.690576139272324
+      ],
+      "by_market_disagreement": {
+        "7_plus": {
+          "n": 900,
+          "market_n": 900,
+          "margin_mae": 20.438189555555557,
+          "margin_rmse": 25.03486913888174,
+          "total_mae": 13.330106444444445,
+          "total_rmse": 17.03048843909782,
+          "win_brier": 0.16913242338333334,
+          "win_log_loss": 0.5245148577791412,
+          "ats_brier": 0.38592992169877804,
+          "total_brier": 0.27991362339080894,
+          "market_margin_mae": 12.242314814814815,
+          "market_total_mae": 12.012731481481481,
+          "model_beat_market_pct": 0.29444444444444445,
+          "ats_diagnostic": {
+            "WIN": 444,
+            "LOSS": 450
+          },
+          "total_diagnostic": {
+            "WIN": 448,
+            "LOSS": 445
+          },
+          "first_half_margin_mae": 13.48543456496663,
+          "first_half_total_mae": 9.157645700838957
+        },
+        "unavailable": {
+          "n": 15,
+          "market_n": 0,
+          "margin_mae": 19.930206666666667,
+          "margin_rmse": 24.018373519141548,
+          "total_mae": 9.380366666666667,
+          "total_rmse": 10.878531745552797,
+          "win_brier": 0.149710108,
+          "win_log_loss": 0.4858085828027978,
+          "ats_brier": null,
+          "total_brier": null,
+          "market_margin_mae": null,
+          "market_total_mae": null,
+          "model_beat_market_pct": null,
+          "ats_diagnostic": {},
+          "total_diagnostic": {},
+          "first_half_margin_mae": 12.600364046418402,
+          "first_half_total_mae": 8.02608903590297
+        },
+        "3_5": {
+          "n": 255,
+          "market_n": 255,
+          "margin_mae": 12.548674509803922,
+          "margin_rmse": 16.18626651248569,
+          "total_mae": 13.437424705882353,
+          "total_rmse": 17.144606950487546,
+          "win_brier": 0.22794416411764706,
+          "win_log_loss": 0.6477437574067891,
+          "ats_brier": 0.26473874586426194,
+          "total_brier": 0.2657397685288832,
+          "market_margin_mae": 11.826960784313725,
+          "market_total_mae": 12.800980392156863,
+          "model_beat_market_pct": 0.4117647058823529,
+          "ats_diagnostic": {
+            "LOSS": 129,
+            "WIN": 125
+          },
+          "total_diagnostic": {
+            "WIN": 137,
+            "LOSS": 116
+          },
+          "first_half_margin_mae": 10.356691970113946,
+          "first_half_total_mae": 8.893660401236756
+        },
+        "le_1": {
+          "n": 151,
+          "market_n": 151,
+          "margin_mae": 12.117711589403973,
+          "margin_rmse": 15.531303962742344,
+          "total_mae": 13.566840728476821,
+          "total_rmse": 17.223921164751832,
+          "win_brier": 0.24219446951986756,
+          "win_log_loss": 0.6773841789209508,
+          "ats_brier": 0.24984893430848734,
+          "total_brier": 0.2644787054506808,
+          "market_margin_mae": 12.121136865342164,
+          "market_total_mae": 13.095474613686534,
+          "model_beat_market_pct": 0.5298013245033113,
+          "ats_diagnostic": {
+            "LOSS": 70,
+            "WIN": 81
+          },
+          "total_diagnostic": {
+            "WIN": 83,
+            "LOSS": 68
+          },
+          "first_half_margin_mae": 9.343941526586075,
+          "first_half_total_mae": 9.074652890011865
+        },
+        "1_3": {
+          "n": 251,
+          "market_n": 251,
+          "margin_mae": 12.671510756972111,
+          "margin_rmse": 16.31433514987632,
+          "total_mae": 13.074007171314742,
+          "total_rmse": 16.680111977602508,
+          "win_brier": 0.23910497503984063,
+          "win_log_loss": 0.6716359944382565,
+          "ats_brier": 0.2573141602547351,
+          "total_brier": 0.25796964745994644,
+          "market_margin_mae": 12.38230411686587,
+          "market_total_mae": 12.569721115537849,
+          "model_beat_market_pct": 0.42231075697211157,
+          "ats_diagnostic": {
+            "LOSS": 136,
+            "WIN": 115
+          },
+          "total_diagnostic": {
+            "WIN": 133,
+            "LOSS": 117
+          },
+          "first_half_margin_mae": 9.002612492097644,
+          "first_half_total_mae": 8.332859970661236
+        },
+        "5_7": {
+          "n": 189,
+          "market_n": 189,
+          "margin_mae": 11.292353174603175,
+          "margin_rmse": 14.38739827104686,
+          "total_mae": 13.787648412698413,
+          "total_rmse": 16.97781394143818,
+          "win_brier": 0.23528283395502644,
+          "win_log_loss": 0.6630344115603363,
+          "ats_brier": 0.27491190115409875,
+          "total_brier": 0.26056779044048334,
+          "market_margin_mae": 10.494488536155202,
+          "market_total_mae": 13.345301418439716,
+          "model_beat_market_pct": 0.43386243386243384,
+          "ats_diagnostic": {
+            "WIN": 95,
+            "LOSS": 93
+          },
+          "total_diagnostic": {
+            "WIN": 94,
+            "LOSS": 93
+          },
+          "first_half_margin_mae": 8.046585323664727,
+          "first_half_total_mae": 8.411217138428679
+        }
+      }
+    },
+    "v02_diagnostics": {
+      "by_week": {
+        "week_0_1": {
+          "n": 196,
+          "market_n": 181,
+          "margin_mae": 15.810763331518313,
+          "margin_rmse": 19.628935846443216,
+          "total_mae": 12.512336777589345,
+          "total_rmse": 16.305030081263403,
+          "win_brier": 0.10921602815022301,
+          "win_log_loss": 0.34818671611105545,
+          "ats_brier": 0.31270047092987596,
+          "total_brier": 0.2700303583622706,
+          "market_margin_mae": 12.236187845303867,
+          "market_total_mae": 12.335635359116022,
+          "model_beat_market_pct": 0.3701657458563536,
+          "ats_diagnostic": {
+            "WIN": 87,
+            "LOSS": 93
+          },
+          "total_diagnostic": {
+            "LOSS": 102,
+            "WIN": 78
+          },
+          "first_half_margin_mae": 10.833450108197889,
+          "first_half_total_mae": 9.23225959223056
+        },
+        "weeks_2_4": {
+          "n": 420,
+          "market_n": 420,
+          "margin_mae": 14.730112972971279,
+          "margin_rmse": 18.81922192835886,
+          "total_mae": 12.618170413088539,
+          "total_rmse": 16.011394780476,
+          "win_brier": 0.14831492320826464,
+          "win_log_loss": 0.4507645453905342,
+          "ats_brier": 0.29235063731990535,
+          "total_brier": 0.25250728047949506,
+          "market_margin_mae": 12.539285714285715,
+          "market_total_mae": 12.421439936356403,
+          "model_beat_market_pct": 0.37142857142857144,
+          "ats_diagnostic": {
+            "LOSS": 227,
+            "WIN": 191
+          },
+          "total_diagnostic": {
+            "WIN": 232,
+            "LOSS": 184
+          },
+          "first_half_margin_mae": 10.869076292399244,
+          "first_half_total_mae": 9.344793753332405
+        },
+        "weeks_5_plus": {
+          "n": 1145,
+          "market_n": 1145,
+          "margin_mae": 12.761331267553016,
+          "margin_rmse": 16.202839349036932,
+          "total_mae": 13.189001747609867,
+          "total_rmse": 16.404845845418414,
+          "win_brier": 0.19534792043036273,
+          "win_log_loss": 0.5723046126591416,
+          "ats_brier": 0.27372937687154913,
+          "total_brier": 0.2621170309205671,
+          "market_margin_mae": 11.768049490538573,
+          "market_total_mae": 12.471360989810771,
+          "model_beat_market_pct": 0.43842794759825326,
+          "ats_diagnostic": {
+            "LOSS": 578,
+            "WIN": 562
+          },
+          "total_diagnostic": {
+            "LOSS": 541,
+            "WIN": 597
+          },
+          "first_half_margin_mae": 9.425834420047737,
+          "first_half_total_mae": 8.448382949314608
+        }
+      },
+      "by_class": {
+        "FBS_vs_FBS": {
+          "n": 1514,
+          "market_n": 1514,
+          "margin_mae": 13.012664248960599,
+          "margin_rmse": 16.592189851681695,
+          "total_mae": 13.203522251846794,
+          "total_rmse": 16.478175989962427,
+          "win_brier": 0.19427778122661435,
+          "win_log_loss": 0.5695037260150958,
+          "ats_brier": 0.27335648824868064,
+          "total_brier": 0.2613270038800622,
+          "market_margin_mae": 12.028952003522678,
+          "market_total_mae": 12.541033685601057,
+          "model_beat_market_pct": 0.43262879788639363,
+          "ats_diagnostic": {
+            "WIN": 734,
+            "LOSS": 773
+          },
+          "total_diagnostic": {
+            "LOSS": 722,
+            "WIN": 783
+          },
+          "first_half_margin_mae": 9.569889437797343,
+          "first_half_total_mae": 8.610650480042628
+        },
+        "FBS_vs_FCS": {
+          "n": 247,
+          "market_n": 232,
+          "margin_mae": 16.988290243106817,
+          "margin_rmse": 20.916272114189923,
+          "total_mae": 11.592404427619222,
+          "total_rmse": 15.16774666373289,
+          "win_brier": 0.05358468575136059,
+          "win_log_loss": 0.20496293817673408,
+          "ats_brier": 0.3402247316445992,
+          "total_brier": 0.25607219883314597,
+          "market_margin_mae": 11.826867816091953,
+          "market_total_mae": 11.817821067821068,
+          "model_beat_market_pct": 0.3017241379310345,
+          "ats_diagnostic": {
+            "WIN": 106,
+            "LOSS": 125
+          },
+          "total_diagnostic": {
+            "WIN": 124,
+            "LOSS": 105
+          },
+          "first_half_margin_mae": 12.113911198963358,
+          "first_half_total_mae": 9.60004010792505
+        }
+      },
+      "by_blind_implied_margin": {
+        "0_13": {
+          "n": 1131,
+          "market_n": 1125,
+          "margin_mae": 13.40595942894531,
+          "margin_rmse": 17.094468734339348,
+          "total_mae": 13.477866811538512,
+          "total_rmse": 16.822219757801257,
+          "win_brier": 0.22375766123832844,
+          "win_log_loss": 0.6391324299707983,
+          "ats_brier": 0.27477014490614454,
+          "total_brier": 0.2614902762351154,
+          "market_margin_mae": 12.186962962962964,
+          "market_total_mae": 12.926962962962962,
+          "model_beat_market_pct": 0.424,
+          "ats_diagnostic": {
+            "WIN": 548,
+            "LOSS": 574
+          },
+          "total_diagnostic": {
+            "LOSS": 530,
+            "WIN": 591
+          },
+          "first_half_margin_mae": 9.753251501256797,
+          "first_half_total_mae": 8.794243018472681
+        },
+        "13_21": {
+          "n": 343,
+          "market_n": 337,
+          "margin_mae": 13.22378480558599,
+          "margin_rmse": 16.886922470582313,
+          "total_mae": 11.971163529527894,
+          "total_rmse": 15.278854837638075,
+          "win_brier": 0.12250160883272065,
+          "win_log_loss": 0.406773284012183,
+          "ats_brier": 0.28734241468788857,
+          "total_brier": 0.2580700534682616,
+          "market_margin_mae": 11.579871414441147,
+          "market_total_mae": 11.431795634920634,
+          "model_beat_market_pct": 0.4332344213649852,
+          "ats_diagnostic": {
+            "WIN": 163,
+            "LOSS": 171
+          },
+          "total_diagnostic": {
+            "WIN": 165,
+            "LOSS": 167
+          },
+          "first_half_margin_mae": 9.880618844148287,
+          "first_half_total_mae": 8.655556288954115
+        },
+        "21_28": {
+          "n": 163,
+          "market_n": 162,
+          "margin_mae": 15.524305421414473,
+          "margin_rmse": 19.316021576817317,
+          "total_mae": 13.435579327704076,
+          "total_rmse": 16.90702912900809,
+          "win_brier": 0.05790799638019729,
+          "win_log_loss": 0.23334828660815093,
+          "ats_brier": 0.32146811320746843,
+          "total_brier": 0.2676142593598565,
+          "market_margin_mae": 12.054012345679013,
+          "market_total_mae": 12.57175925925926,
+          "model_beat_market_pct": 0.35185185185185186,
+          "ats_diagnostic": {
+            "WIN": 71,
+            "LOSS": 91
+          },
+          "total_diagnostic": {
+            "WIN": 84,
+            "LOSS": 75
+          },
+          "first_half_margin_mae": 10.606131152184355,
+          "first_half_total_mae": 8.88634381304893
+        },
+        "28_35": {
+          "n": 80,
+          "market_n": 80,
+          "margin_mae": 14.698975504529692,
+          "margin_rmse": 18.084245117798506,
+          "total_mae": 10.472230594585007,
+          "total_rmse": 12.942700499900578,
+          "win_brier": 0.03549273782994188,
+          "win_log_loss": 0.14981005706667697,
+          "ats_brier": 0.291060439611565,
+          "total_brier": 0.2522196772705531,
+          "market_margin_mae": 12.289583333333333,
+          "market_total_mae": 10.5625,
+          "model_beat_market_pct": 0.375,
+          "ats_diagnostic": {
+            "LOSS": 40,
+            "WIN": 40
+          },
+          "total_diagnostic": {
+            "LOSS": 36,
+            "WIN": 44
+          },
+          "first_half_margin_mae": 11.132071134749028,
+          "first_half_total_mae": 7.881182587389494
+        },
+        "35_PLUS": {
+          "n": 44,
+          "market_n": 42,
+          "margin_mae": 11.204619010628534,
+          "margin_rmse": 14.748740617904874,
+          "total_mae": 10.820505692211501,
+          "total_rmse": 13.31274702073299,
+          "win_brier": 0.0001270234350000953,
+          "win_log_loss": 0.010270384565770296,
+          "ats_brier": 0.2728250550420018,
+          "total_brier": 0.24760894146179355,
+          "market_margin_mae": 9.69047619047619,
+          "market_total_mae": 10.75,
+          "model_beat_market_pct": 0.35714285714285715,
+          "ats_diagnostic": {
+            "LOSS": 22,
+            "WIN": 18
+          },
+          "total_diagnostic": {
+            "WIN": 23,
+            "LOSS": 19
+          },
+          "first_half_margin_mae": 10.036452157246723,
+          "first_half_total_mae": 9.400486907273358
+        }
+      },
+      "by_quality": {
+        "A": {
+          "n": 213,
+          "market_n": 213,
+          "margin_mae": 13.815815279628454,
+          "margin_rmse": 17.15792701096277,
+          "total_mae": 13.568590010570729,
+          "total_rmse": 17.174903687455675,
+          "win_brier": 0.21503573996770392,
+          "win_log_loss": 0.6158585619012525,
+          "ats_brier": 0.28003666150300943,
+          "total_brier": 0.2614735957811562,
+          "market_margin_mae": 12.7981220657277,
+          "market_total_mae": 12.953442879499217,
+          "model_beat_market_pct": 0.41784037558685444,
+          "ats_diagnostic": {
+            "WIN": 98,
+            "LOSS": 114
+          },
+          "total_diagnostic": {
+            "WIN": 110,
+            "LOSS": 102
+          },
+          "first_half_margin_mae": 9.618280668633162,
+          "first_half_total_mae": 8.610838635479528
+        },
+        "B": {
+          "n": 903,
+          "market_n": 903,
+          "margin_mae": 12.640360084093803,
+          "margin_rmse": 16.159329016922772,
+          "total_mae": 13.25518461106495,
+          "total_rmse": 16.484707975539695,
+          "win_brier": 0.21227911222623178,
+          "win_log_loss": 0.6162872195096789,
+          "ats_brier": 0.2725740021070428,
+          "total_brier": 0.2605443418655072,
+          "market_margin_mae": 11.718715393133998,
+          "market_total_mae": 12.640411590992986,
+          "model_beat_market_pct": 0.44518272425249167,
+          "ats_diagnostic": {
+            "LOSS": 455,
+            "WIN": 444
+          },
+          "total_diagnostic": {
+            "LOSS": 417,
+            "WIN": 482
+          },
+          "first_half_margin_mae": 9.551094271541519,
+          "first_half_total_mae": 8.63854570859215
+        },
+        "C": {
+          "n": 485,
+          "market_n": 478,
+          "margin_mae": 14.328952093823181,
+          "margin_rmse": 18.293051165982867,
+          "total_mae": 12.813320615265255,
+          "total_rmse": 16.113723855349136,
+          "win_brier": 0.12889646394745927,
+          "win_log_loss": 0.4061440447414766,
+          "ats_brier": 0.28471898086850195,
+          "total_brier": 0.2634937055540976,
+          "market_margin_mae": 12.448047419804743,
+          "market_total_mae": 12.20449790794979,
+          "model_beat_market_pct": 0.39539748953974896,
+          "ats_diagnostic": {
+            "WIN": 230,
+            "LOSS": 246
+          },
+          "total_diagnostic": {
+            "LOSS": 242,
+            "WIN": 232
+          },
+          "first_half_margin_mae": 10.210576111207589,
+          "first_half_total_mae": 8.649538808246911
+        },
+        "D": {
+          "n": 160,
+          "market_n": 152,
+          "margin_mae": 16.192036168574514,
+          "margin_rmse": 20.01034985129337,
+          "total_mae": 11.121591927944566,
+          "total_rmse": 14.528870747898845,
+          "win_brier": 0.046040888685963684,
+          "win_log_loss": 0.17618370196678365,
+          "ats_brier": 0.3351132832740908,
+          "total_brier": 0.25087176038218545,
+          "market_margin_mae": 11.167763157894736,
+          "market_total_mae": 11.323951434878587,
+          "model_beat_market_pct": 0.29605263157894735,
+          "ats_diagnostic": {
+            "WIN": 68,
+            "LOSS": 83
+          },
+          "total_diagnostic": {
+            "WIN": 83,
+            "LOSS": 66
+          },
+          "first_half_margin_mae": 11.596795946328692,
+          "first_half_total_mae": 9.862456295165142
+        }
+      },
+      "by_structural_break": {
+        "CONFIRMED": {
+          "n": 1147,
+          "market_n": 1144,
+          "margin_mae": 13.199219016844172,
+          "margin_rmse": 16.82238330995478,
+          "total_mae": 13.006880755345984,
+          "total_rmse": 16.327790027902772,
+          "win_brier": 0.17999266683925777,
+          "win_log_loss": 0.5338929702903336,
+          "ats_brier": 0.27698581671528694,
+          "total_brier": 0.2622775288698346,
+          "market_margin_mae": 11.872741841491841,
+          "market_total_mae": 12.30595654709828,
+          "model_beat_market_pct": 0.4256993006993007,
+          "ats_diagnostic": {
+            "WIN": 566,
+            "LOSS": 571
+          },
+          "total_diagnostic": {
+            "LOSS": 552,
+            "WIN": 583
+          },
+          "first_half_margin_mae": 9.703492128841209,
+          "first_half_total_mae": 8.866933506337995
+        },
+        "POSSIBLE": {
+          "n": 322,
+          "market_n": 316,
+          "margin_mae": 14.399689850456605,
+          "margin_rmse": 18.590031907203247,
+          "total_mae": 12.902756539831515,
+          "total_rmse": 16.079701668780935,
+          "win_brier": 0.1875495489278982,
+          "win_log_loss": 0.5492400065357949,
+          "ats_brier": 0.2908534210485633,
+          "total_brier": 0.25026719061973707,
+          "market_margin_mae": 12.474947257383967,
+          "market_total_mae": 12.870780590717299,
+          "model_beat_market_pct": 0.3987341772151899,
+          "ats_diagnostic": {
+            "WIN": 142,
+            "LOSS": 173
+          },
+          "total_diagnostic": {
+            "WIN": 179,
+            "LOSS": 134
+          },
+          "first_half_margin_mae": 10.386193930240866,
+          "first_half_total_mae": 8.604393026425898
+        },
+        "STABLE": {
+          "n": 292,
+          "market_n": 286,
+          "margin_mae": 14.113277461665882,
+          "margin_rmse": 17.457703834558735,
+          "total_mae": 12.944783392843844,
+          "total_rmse": 16.435851376789735,
+          "win_brier": 0.13879943335023381,
+          "win_log_loss": 0.42336975304441704,
+          "ats_brier": 0.293665872605194,
+          "total_brier": 0.26545121832532875,
+          "market_margin_mae": 11.997086247086248,
+          "market_total_mae": 12.532051282051283,
+          "model_beat_market_pct": 0.3916083916083916,
+          "ats_diagnostic": {
+            "WIN": 132,
+            "LOSS": 154
+          },
+          "total_diagnostic": {
+            "WIN": 145,
+            "LOSS": 141
+          },
+          "first_half_margin_mae": 10.296879307022955,
+          "first_half_total_mae": 8.447765230010981
+        }
+      },
+      "by_evidence_state": {
+        "CURRENT_SEASON_STABLE": {
+          "n": 804,
+          "market_n": 804,
+          "margin_mae": 12.692510159313054,
+          "margin_rmse": 16.039350423206074,
+          "total_mae": 13.361327207161917,
+          "total_rmse": 16.49647890617454,
+          "win_brier": 0.1959953599155704,
+          "win_log_loss": 0.5716030338138703,
+          "ats_brier": 0.26916026806545656,
+          "total_brier": 0.26238709694975954,
+          "market_margin_mae": 12.015547263681592,
+          "market_total_mae": 12.63417288557214,
+          "model_beat_market_pct": 0.458955223880597,
+          "ats_diagnostic": {
+            "LOSS": 396,
+            "WIN": 406
+          },
+          "total_diagnostic": {
+            "LOSS": 376,
+            "WIN": 425
+          },
+          "first_half_margin_mae": 9.302144774355838,
+          "first_half_total_mae": 8.459208401785565
+        },
+        "PRESEASON_HEAVY": {
+          "n": 438,
+          "market_n": 423,
+          "margin_mae": 15.626360410618133,
+          "margin_rmse": 19.758621466097736,
+          "total_mae": 12.393285937868146,
+          "total_rmse": 15.861585318253127,
+          "win_brier": 0.1139702658839916,
+          "win_log_loss": 0.36321829375396786,
+          "ats_brier": 0.3088564885646831,
+          "total_brier": 0.2594968406302313,
+          "market_margin_mae": 12.22872340425532,
+          "market_total_mae": 12.239928909952607,
+          "model_beat_market_pct": 0.35224586288416077,
+          "ats_diagnostic": {
+            "WIN": 198,
+            "LOSS": 223
+          },
+          "total_diagnostic": {
+            "LOSS": 209,
+            "WIN": 210
+          },
+          "first_half_margin_mae": 11.162785042583492,
+          "first_half_total_mae": 9.055319844207053
+        },
+        "TRANSITION": {
+          "n": 519,
+          "market_n": 519,
+          "margin_mae": 13.194908159990929,
+          "margin_rmse": 16.831436495787596,
+          "total_mae": 12.876089147540588,
+          "total_rmse": 16.36116009156351,
+          "win_brier": 0.19243301026661508,
+          "win_log_loss": 0.5668517053293229,
+          "ats_brier": 0.2808641245173522,
+          "total_brier": 0.25882574609233394,
+          "market_margin_mae": 11.796563904945408,
+          "market_total_mae": 12.319685292228645,
+          "model_beat_market_pct": 0.3988439306358382,
+          "ats_diagnostic": {
+            "WIN": 236,
+            "LOSS": 279
+          },
+          "total_diagnostic": {
+            "WIN": 272,
+            "LOSS": 242
+          },
+          "first_half_margin_mae": 9.851106797178158,
+          "first_half_total_mae": 8.940849877926286
+        }
+      },
+      "by_dispersion": {
+        "p50_p75": {
+          "n": 432,
+          "market_n": 426,
+          "margin_mae": 13.711110427858252,
+          "margin_rmse": 17.707737174283352,
+          "total_mae": 12.297362523346214,
+          "total_rmse": 15.677600146282362,
+          "win_brier": 0.14336338493082654,
+          "win_log_loss": 0.45178010344046426,
+          "ats_brier": 0.2808824557292345,
+          "total_brier": 0.26165286888535927,
+          "market_margin_mae": 12.058489827856025,
+          "market_total_mae": 11.790588235294118,
+          "model_beat_market_pct": 0.44835680751173707,
+          "ats_diagnostic": {
+            "WIN": 219,
+            "LOSS": 204
+          },
+          "total_diagnostic": {
+            "LOSS": 204,
+            "WIN": 219
+          },
+          "first_half_margin_mae": 10.007783446254386,
+          "first_half_total_mae": 8.773646408916393
+        },
+        "le_p50": {
+          "n": 956,
+          "market_n": 951,
+          "margin_mae": 13.645576065630383,
+          "margin_rmse": 17.238939661076774,
+          "total_mae": 13.453082476852082,
+          "total_rmse": 16.885676521620912,
+          "win_brier": 0.23321756019317774,
+          "win_log_loss": 0.6644343558553844,
+          "ats_brier": 0.28381574812623145,
+          "total_brier": 0.2599254630650982,
+          "market_margin_mae": 12.169470732562216,
+          "market_total_mae": 12.968936207500876,
+          "model_beat_market_pct": 0.4058885383806519,
+          "ats_diagnostic": {
+            "WIN": 443,
+            "LOSS": 505
+          },
+          "total_diagnostic": {
+            "WIN": 501,
+            "LOSS": 446
+          },
+          "first_half_margin_mae": 9.881622328040834,
+          "first_half_total_mae": 8.748033968607368
+        },
+        "p75_p90": {
+          "n": 236,
+          "market_n": 234,
+          "margin_mae": 13.344129828171866,
+          "margin_rmse": 16.86125709401113,
+          "total_mae": 12.991539680730341,
+          "total_rmse": 16.109890346238956,
+          "win_brier": 0.07591932971102329,
+          "win_log_loss": 0.27044694057713414,
+          "ats_brier": 0.2818185767369375,
+          "total_brier": 0.25780216667404166,
+          "market_margin_mae": 11.481125356125355,
+          "market_total_mae": 12.313390313390313,
+          "model_beat_market_pct": 0.41452991452991456,
+          "ats_diagnostic": {
+            "WIN": 117,
+            "LOSS": 117
+          },
+          "total_diagnostic": {
+            "WIN": 120,
+            "LOSS": 110
+          },
+          "first_half_margin_mae": 9.843385092370173,
+          "first_half_total_mae": 9.255703743591665
+        },
+        "gt_p90": {
+          "n": 137,
+          "market_n": 135,
+          "margin_mae": 12.990483941224515,
+          "margin_rmse": 16.699473675631136,
+          "total_mae": 11.779896060653137,
+          "total_rmse": 14.273780142172809,
+          "win_brier": 0.033328806650245874,
+          "win_log_loss": 0.13620992741807808,
+          "ats_brier": 0.2761201943390012,
+          "total_brier": 0.26727312668730946,
+          "market_margin_mae": 11.548148148148147,
+          "market_total_mae": 11.046296296296296,
+          "model_beat_market_pct": 0.37777777777777777,
+          "ats_diagnostic": {
+            "LOSS": 72,
+            "WIN": 61
+          },
+          "total_diagnostic": {
+            "WIN": 67,
+            "LOSS": 67
+          },
+          "first_half_margin_mae": 10.129316779422155,
+          "first_half_total_mae": 7.810605308860348
+        }
+      },
+      "by_market_disagreement": {
+        "5_7": {
+          "n": 242,
+          "market_n": 242,
+          "margin_mae": 12.026619953253059,
+          "margin_rmse": 15.36653528434635,
+          "total_mae": 13.620955342057732,
+          "total_rmse": 16.767997641567675,
+          "win_brier": 0.15654735233258985,
+          "win_log_loss": 0.4780432327777044,
+          "ats_brier": 0.27575829152011383,
+          "total_brier": 0.2635452593159391,
+          "market_margin_mae": 11.035984848484848,
+          "market_total_mae": 13.054752066115702,
+          "model_beat_market_pct": 0.4297520661157025,
+          "ats_diagnostic": {
+            "WIN": 115,
+            "LOSS": 126
+          },
+          "total_diagnostic": {
+            "LOSS": 122,
+            "WIN": 120
+          },
+          "first_half_margin_mae": 9.127811985276368,
+          "first_half_total_mae": 8.645194760612371
+        },
+        "7_plus": {
+          "n": 487,
+          "market_n": 487,
+          "margin_mae": 16.93810309582716,
+          "margin_rmse": 20.881001093262945,
+          "total_mae": 12.309485001280084,
+          "total_rmse": 16.03310848838235,
+          "win_brier": 0.17392447887251583,
+          "win_log_loss": 0.5190732689884244,
+          "ats_brier": 0.34434394911499766,
+          "total_brier": 0.2494144967866692,
+          "market_margin_mae": 12.26445927446954,
+          "market_total_mae": 12.264288158795345,
+          "model_beat_market_pct": 0.3080082135523614,
+          "ats_diagnostic": {
+            "WIN": 216,
+            "LOSS": 270
+          },
+          "total_diagnostic": {
+            "WIN": 265,
+            "LOSS": 219
+          },
+          "first_half_margin_mae": 11.875565167487927,
+          "first_half_total_mae": 8.428626899993601
+        },
+        "3_5": {
+          "n": 357,
+          "market_n": 357,
+          "margin_mae": 12.728393340039084,
+          "margin_rmse": 15.81970503458512,
+          "total_mae": 12.740092283553537,
+          "total_rmse": 15.869744164841109,
+          "win_brier": 0.1956909663514493,
+          "win_log_loss": 0.5660676212783224,
+          "ats_brier": 0.25784280626838385,
+          "total_brier": 0.2703484099403945,
+          "market_margin_mae": 12.305322128851541,
+          "market_total_mae": 11.803804855275443,
+          "model_beat_market_pct": 0.43977591036414565,
+          "ats_diagnostic": {
+            "WIN": 179,
+            "LOSS": 175
+          },
+          "total_diagnostic": {
+            "WIN": 182,
+            "LOSS": 171
+          },
+          "first_half_margin_mae": 8.96453228759985,
+          "first_half_total_mae": 8.90082632054973
+        },
+        "unavailable": {
+          "n": 15,
+          "market_n": 0,
+          "margin_mae": 14.689046433825666,
+          "margin_rmse": 17.154807976927682,
+          "total_mae": 7.012857841685166,
+          "total_rmse": 9.144647482716053,
+          "win_brier": 0.043046142143324966,
+          "win_log_loss": 0.19894076086894638,
+          "ats_brier": null,
+          "total_brier": null,
+          "market_margin_mae": null,
+          "market_total_mae": null,
+          "model_beat_market_pct": null,
+          "ats_diagnostic": {},
+          "total_diagnostic": {},
+          "first_half_margin_mae": 9.896846227149576,
+          "first_half_total_mae": 9.22933078266542
+        },
+        "1_3": {
+          "n": 430,
+          "market_n": 430,
+          "margin_mae": 12.14441975401242,
+          "margin_rmse": 15.844400398107043,
+          "total_mae": 13.908461568594142,
+          "total_rmse": 16.985939587399884,
+          "win_brier": 0.17146955535009742,
+          "win_log_loss": 0.5124809642555412,
+          "ats_brier": 0.25282359508787194,
+          "total_brier": 0.26758043471652104,
+          "market_margin_mae": 12.022093023255813,
+          "market_total_mae": 13.111985236985237,
+          "model_beat_market_pct": 0.4720930232558139,
+          "ats_diagnostic": {
+            "LOSS": 213,
+            "WIN": 215
+          },
+          "total_diagnostic": {
+            "LOSS": 217,
+            "WIN": 209
+          },
+          "first_half_margin_mae": 9.559890645495702,
+          "first_half_total_mae": 8.981356252327188
+        },
+        "le_1": {
+          "n": 230,
+          "market_n": 230,
+          "margin_mae": 11.963089189095585,
+          "margin_rmse": 15.276361010197542,
+          "total_mae": 12.732269161596744,
+          "total_rmse": 16.078921033846775,
+          "win_brier": 0.176291398965735,
+          "win_log_loss": 0.5171403293376656,
+          "ats_brier": 0.2499841971956802,
+          "total_brier": 0.2533661627724089,
+          "market_margin_mae": 11.955072463768117,
+          "market_total_mae": 11.939492753623188,
+          "model_beat_market_pct": 0.4826086956521739,
+          "ats_diagnostic": {
+            "LOSS": 114,
+            "WIN": 115
+          },
+          "total_diagnostic": {
+            "WIN": 131,
+            "LOSS": 98
+          },
+          "first_half_margin_mae": 8.82206191444384,
+          "first_half_total_mae": 8.838426758260972
+        }
+      },
+      "firewall": {
+        "NORMAL": {
+          "n": 356,
+          "market_n": 356,
+          "margin_mae": 13.622230486626046,
+          "margin_rmse": 17.262392510957092,
+          "total_mae": 12.9959393058157,
+          "total_rmse": 16.16298294087128,
+          "win_brier": 0.22976025402035094,
+          "win_log_loss": 0.6513624598380121,
+          "ats_brier": 0.2785956413992027,
+          "total_brier": 0.2553488455564442,
+          "market_margin_mae": 12.721441947565543,
+          "market_total_mae": 12.75819288389513,
+          "model_beat_market_pct": 0.42134831460674155,
+          "ats_diagnostic": {
+            "WIN": 161,
+            "LOSS": 194
+          },
+          "total_diagnostic": {
+            "WIN": 195,
+            "LOSS": 158
+          },
+          "first_half_margin_mae": 9.695184917145436,
+          "first_half_total_mae": 8.235636296485222
+        },
+        "CORE_BLOCK": {
+          "n": 23,
+          "market_n": 23,
+          "margin_mae": 14.199509093631974,
+          "margin_rmse": 18.394360386643076,
+          "total_mae": 15.547859108539267,
+          "total_rmse": 18.617418630513782,
+          "win_brier": 0.24537421843891163,
+          "win_log_loss": 0.7262355735430251,
+          "ats_brier": 0.28679889862470176,
+          "total_brier": 0.2566834939983072,
+          "market_margin_mae": 12.369565217391305,
+          "market_total_mae": 15.51449275362319,
+          "model_beat_market_pct": 0.43478260869565216,
+          "ats_diagnostic": {
+            "LOSS": 11,
+            "WIN": 12
+          },
+          "total_diagnostic": {
+            "LOSS": 12,
+            "WIN": 11
+          },
+          "first_half_margin_mae": 10.481645181801824,
+          "first_half_total_mae": 8.87188739477794
+        },
+        "SECONDARY_MAX": {
+          "n": 52,
+          "market_n": 52,
+          "margin_mae": 12.024933084777587,
+          "margin_rmse": 15.241365404440844,
+          "total_mae": 13.634763534201115,
+          "total_rmse": 17.22505009869675,
+          "win_brier": 0.05437675134424195,
+          "win_log_loss": 0.2305054273225504,
+          "ats_brier": 0.2896793126210443,
+          "total_brier": 0.2534775690244003,
+          "market_margin_mae": 10.658653846153847,
+          "market_total_mae": 12.514423076923077,
+          "model_beat_market_pct": 0.40384615384615385,
+          "ats_diagnostic": {
+            "WIN": 22,
+            "LOSS": 30
+          },
+          "total_diagnostic": {
+            "WIN": 29,
+            "LOSS": 23
+          },
+          "first_half_margin_mae": 11.16433054312627,
+          "first_half_total_mae": 9.09931474757036
+        },
+        "PASS": {
+          "n": 1330,
+          "market_n": 1315,
+          "margin_mae": 13.60592637606984,
+          "margin_rmse": 17.318756814690126,
+          "total_mae": 12.902476486295297,
+          "total_rmse": 16.257309105886655,
+          "win_brier": 0.16323769145296219,
+          "win_log_loss": 0.4904359028585818,
+          "ats_brier": 0.2828585544184134,
+          "total_brier": 0.262415756462197,
+          "market_margin_mae": 11.85405576679341,
+          "market_total_mae": 12.304065195332319,
+          "model_beat_market_pct": 0.41368821292775665,
+          "ats_diagnostic": {
+            "WIN": 645,
+            "LOSS": 663
+          },
+          "total_diagnostic": {
+            "LOSS": 634,
+            "WIN": 672
+          },
+          "first_half_margin_mae": 9.930706629354393,
+          "first_half_total_mae": 8.871150702962208
+        }
+      },
+      "firewall_counts": {
+        "PASS": 1330,
+        "CORE_BLOCK": 23,
+        "SECONDARY_MAX": 52,
+        "NORMAL": 356
+      },
+      "dispersion_cutoffs": [
+        4.161007183853446,
+        6.563676793345086,
+        8.968181062189222
+      ]
+    },
+    "early_comparison": {
+      "v01": {
+        "n": 616,
+        "market_n": 601,
+        "margin_mae": 20.75920073051948,
+        "margin_rmse": 25.802344264036513,
+        "total_mae": 13.752633847402597,
+        "total_rmse": 17.549627516415814,
+        "win_brier": 0.1821399026258117,
+        "win_log_loss": 0.5515000824075371,
+        "ats_brier": 0.37674311012514033,
+        "total_brier": 0.2809698631800113,
+        "market_margin_mae": 12.448003327787022,
+        "market_total_mae": 12.395555555555555,
+        "model_beat_market_pct": 0.30782029950083195,
+        "ats_diagnostic": {
+          "WIN": 293,
+          "LOSS": 305
+        },
+        "total_diagnostic": {
+          "WIN": 313,
+          "LOSS": 283
+        },
+        "first_half_margin_mae": 13.5741333176565,
+        "first_half_total_mae": 9.604488300038742
+      },
+      "v02": {
+        "n": 616,
+        "market_n": 601,
+        "margin_mae": 15.073956268872609,
+        "margin_rmse": 19.080585762733747,
+        "total_mae": 12.584496074520613,
+        "total_rmse": 16.105404914189723,
+        "win_brier": 0.13587436568979686,
+        "win_log_loss": 0.4181261451652455,
+        "ats_brier": 0.2984760052961507,
+        "total_brier": 0.2577994852091923,
+        "market_margin_mae": 12.448003327787022,
+        "market_total_mae": 12.395555555555555,
+        "model_beat_market_pct": 0.37104825291181365,
+        "ats_diagnostic": {
+          "WIN": 278,
+          "LOSS": 320
+        },
+        "total_diagnostic": {
+          "LOSS": 286,
+          "WIN": 310
+        },
+        "first_half_margin_mae": 10.857740688335177,
+        "first_half_total_mae": 9.308987429345455
+      }
+    },
+    "cross_class_comparison": {
+      "v01": {
+        "n": 247,
+        "market_n": 232,
+        "margin_mae": 26.74348866396761,
+        "margin_rmse": 31.1674048491544,
+        "total_mae": 14.75065910931174,
+        "total_rmse": 18.485373245430413,
+        "win_brier": 0.13065228090080971,
+        "win_log_loss": 0.4401832765670861,
+        "ats_brier": 0.4700879407537753,
+        "total_brier": 0.3182894251542128,
+        "market_margin_mae": 11.826867816091953,
+        "market_total_mae": 11.817821067821068,
+        "model_beat_market_pct": 0.1896551724137931,
+        "ats_diagnostic": {
+          "WIN": 105,
+          "LOSS": 126
+        },
+        "total_diagnostic": {
+          "LOSS": 120,
+          "WIN": 109
+        },
+        "first_half_margin_mae": 17.01165602565712,
+        "first_half_total_mae": 10.471785884058274
+      },
+      "v02": {
+        "n": 247,
+        "market_n": 232,
+        "margin_mae": 16.988290243106817,
+        "margin_rmse": 20.916272114189923,
+        "total_mae": 11.592404427619222,
+        "total_rmse": 15.16774666373289,
+        "win_brier": 0.05358468575136059,
+        "win_log_loss": 0.20496293817673408,
+        "ats_brier": 0.3402247316445992,
+        "total_brier": 0.25607219883314597,
+        "market_margin_mae": 11.826867816091953,
+        "market_total_mae": 11.817821067821068,
+        "model_beat_market_pct": 0.3017241379310345,
+        "ats_diagnostic": {
+          "WIN": 106,
+          "LOSS": 125
+        },
+        "total_diagnostic": {
+          "WIN": 124,
+          "LOSS": 105
+        },
+        "first_half_margin_mae": 12.113911198963358,
+        "first_half_total_mae": 9.60004010792505
+      },
+      "pass_rate": 1.0
+    },
+    "blind_large_favorite_comparison": {
+      "v01": {
+        "n": 2,
+        "market_n": 2,
+        "margin_mae": 5.388325,
+        "margin_rmse": 5.8396198383328,
+        "total_mae": 2.6485749999999975,
+        "total_rmse": 2.649162203650427,
+        "win_brier": 0.0032749624999999986,
+        "win_log_loss": 0.055314430357745616,
+        "ats_brier": 0.0788278618149341,
+        "total_brier": 0.15528487590617485,
+        "market_margin_mae": 4.833333333333334,
+        "market_total_mae": 6.75,
+        "model_beat_market_pct": 0.5,
+        "ats_diagnostic": {
+          "WIN": 2
+        },
+        "total_diagnostic": {
+          "WIN": 2
+        },
+        "first_half_margin_mae": 38.590933886139034,
+        "first_half_total_mae": 2.996179609275673
+      },
+      "v02": {
+        "n": 287,
+        "market_n": 284,
+        "margin_mae": 14.631996726552579,
+        "margin_rmse": 18.34161178915573,
+        "total_mae": 12.208641562508262,
+        "total_rmse": 15.369131728794693,
+        "win_brier": 0.04280143368469517,
+        "win_log_loss": 0.17586227248556327,
+        "ats_brier": 0.3059420982631743,
+        "total_brier": 0.26024134149913436,
+        "market_margin_mae": 11.770833333333334,
+        "market_total_mae": 11.736355633802816,
+        "model_beat_market_pct": 0.3591549295774648,
+        "ats_diagnostic": {
+          "WIN": 129,
+          "LOSS": 153
+        },
+        "total_diagnostic": {
+          "WIN": 151,
+          "LOSS": 130
+        },
+        "first_half_margin_mae": 10.665397085382676,
+        "first_half_total_mae": 8.684982830794993
+      },
+      "pass_rate": 0.9094076655052264
+    },
+    "stable_fbs_comparison": {
+      "v01": {
+        "n": 153,
+        "market_n": 153,
+        "margin_mae": 14.607935294117647,
+        "margin_rmse": 17.818943200956713,
+        "total_mae": 13.612656209150327,
+        "total_rmse": 17.29630960665827,
+        "win_brier": 0.21267618416666667,
+        "win_log_loss": 0.61686419468331,
+        "ats_brier": 0.30660000196758647,
+        "total_brier": 0.27621206348025656,
+        "market_margin_mae": 12.233115468409586,
+        "market_total_mae": 12.363834422657952,
+        "model_beat_market_pct": 0.39215686274509803,
+        "ats_diagnostic": {
+          "LOSS": 81,
+          "WIN": 72
+        },
+        "total_diagnostic": {
+          "LOSS": 74,
+          "WIN": 79
+        },
+        "first_half_margin_mae": 9.772348284387702,
+        "first_half_total_mae": 8.207909625223044
+      },
+      "v02": {
+        "n": 153,
+        "market_n": 153,
+        "margin_mae": 13.230222284144263,
+        "margin_rmse": 16.26602964079678,
+        "total_mae": 13.590087119417186,
+        "total_rmse": 16.92321124796461,
+        "win_brier": 0.18371341370357483,
+        "win_log_loss": 0.5398226859742731,
+        "ats_brier": 0.27864022774085173,
+        "total_brier": 0.27471323510916573,
+        "market_margin_mae": 12.233115468409586,
+        "market_total_mae": 12.363834422657952,
+        "model_beat_market_pct": 0.41830065359477125,
+        "ats_diagnostic": {
+          "LOSS": 82,
+          "WIN": 71
+        },
+        "total_diagnostic": {
+          "LOSS": 79,
+          "WIN": 74
+        },
+        "first_half_margin_mae": 9.431664081501362,
+        "first_half_total_mae": 8.29961970716783
+      }
+    }
+  },
+  "promotion_criteria": {
+    "meaningful_margin_improvement": true,
+    "no_material_total_regression": true,
+    "early_improvement": true,
+    "cross_class_improvement_or_pass": true,
+    "large_favorite_improvement_or_pass": true,
+    "stable_fbs_no_material_regression": true,
+    "uncertainty_and_disagreement_sensible": true
+  },
+  "artifact": {
+    "engine_version": "NCAAF_v0.2_RESEARCH_CANDIDATE",
+    "statistical_version": "NCAAF_v0.2_STATISTICAL_BASELINE",
+    "simulator_version": "NCAAF_v0.2_POSSESSION_SIMULATOR",
+    "calibration_version": "NCAAF_v0.2_BLIND_MONOTONIC_CALIBRATION",
+    "fit_years": [
+      2019,
+      2020,
+      2021,
+      2022,
+      2023
+    ],
+    "prior_equivalent_games": 3.0,
+    "ridge_alpha": 200.0,
+    "calibration_alpha": 200.0,
+    "blend_weights": {
+      "margin": 1.0,
+      "total": 1.0
+    },
+    "models": {
+      "margin": {
+        "names": [
+          "class_direction",
+          "class_talent_gap",
+          "component_drive_efficiency",
+          "component_efficiency_epa",
+          "component_explosiveness_havoc",
+          "component_matchup_trenches",
+          "component_personnel_situational",
+          "component_power",
+          "component_special_teams_context",
+          "drive_diff",
+          "explosiveness_diff",
+          "havoc_diff",
+          "home_field",
+          "minimum_effective_sample_size",
+          "net_epa_diff",
+          "prior_schedule_diff",
+          "qb_continuity_diff",
+          "returning_diff",
+          "structural_confirmed",
+          "structural_possible",
+          "talent_diff",
+          "trench_diff",
+          "v01_margin"
+        ],
+        "center": [
+          0.12648321131027518,
+          0.1934386333964937,
+          3.7593797727724905,
+          2.7512656303255736,
+          2.5694648160299582,
+          2.641080746653995,
+          2.992047462761931,
+          5.778215866242789,
+          2.4344014617255763,
+          0.13743905118529645,
+          0.0039778634034813845,
+          0.0046865730217161726,
+          2.441302701338046,
+          4.7930942069795925,
+          0.02517353034900257,
+          3.597485318851958,
+          0.013055793991416343,
+          0.012292602878061084,
+          0.36606917445089626,
+          0.32239333501641,
+          0.2696283828363003,
+          0.025652022814356492,
+          3.0062712067659745
+        ],
+        "scale": [
+          0.3331518145923188,
+          0.567914693989,
+          8.70792344823076,
+          5.385674742288362,
+          0.8576055377429582,
+          1.4202487576643497,
+          6.0173022439584125,
+          15.240501752849488,
+          0.3830752794592189,
+          0.9206089577621355,
+          0.02700198225986953,
+          0.029775825471389246,
+          0.378547056235646,
+          3.632168360692351,
+          0.2203067819265228,
+          16.94305905791426,
+          0.5529960920076145,
+          0.29547328213863816,
+          0.48172869331993873,
+          0.4673926321128867,
+          0.8086112229961941,
+          0.1311210559823284,
+          4.017853798804081
+        ],
+        "coefficients": [
+          1.3891087195129286,
+          -0.3844351145951719,
+          -0.6055214977549795,
+          1.5586767557771624,
+          1.0945934112726077,
+          -0.2225291396753742,
+          0.268891620742207,
+          7.305114426704239,
+          0.07326535661960136,
+          1.0449479405410622,
+          -0.6223690834643831,
+          0.06950081871698931,
+          -0.6441980728273028,
+          -0.7350344969124963,
+          0.8163297320495123,
+          1.3381024787158735,
+          -0.33610246202708194,
+          1.7839897664805866,
+          0.09351919297343263,
+          -0.015520490140270328,
+          3.4528587799078725,
+          1.349334621455566,
+          0.2560613016747803
+        ],
+        "intercept": 6.93082554910377,
+        "alpha": 200.0
+      },
+      "total": {
+        "names": [
+          "component_drive_efficiency",
+          "component_efficiency_epa",
+          "component_explosiveness_havoc",
+          "component_matchup_trenches",
+          "component_personnel_situational",
+          "component_power",
+          "component_special_teams_context",
+          "cross_class",
+          "explosiveness_sum",
+          "minimum_effective_sample_size",
+          "offense_epa_sum",
+          "pace_sum",
+          "points_per_drive_sum",
+          "structural_confirmed",
+          "v01_total"
+        ],
+        "center": [
+          53.204017920291264,
+          51.0798577664397,
+          48.260168240200805,
+          50.31007436130875,
+          48.648204049085635,
+          48.648204049085635,
+          48.648204049085635,
+          0.1269881343095178,
+          0.17234027835877072,
+          4.7930942069795925,
+          0.35546178199556816,
+          139.7813001927848,
+          4.3442231703894505,
+          0.36606917445089626,
+          49.24208100227227
+        ],
+        "scale": [
+          13.336018554624557,
+          3.9721600592805646,
+          1.8358766573009127,
+          2.242183035791411,
+          1.849562503561798,
+          1.849562503561798,
+          1.849562503561798,
+          0.332959679321851,
+          0.02373557333899214,
+          3.632168360692351,
+          0.16920846360694863,
+          37.10875530283262,
+          0.927810386595138,
+          0.48172869331993873,
+          3.5310233736797696
+        ],
+        "coefficients": [
+          -0.7454251587749229,
+          0.6664743140782354,
+          1.9002350662758094,
+          -0.7764607917649745,
+          -0.037375033026830796,
+          -0.037375033026830665,
+          -0.037375033026830755,
+          1.5660567368004226,
+          1.0367697159070017,
+          -0.37030874211761666,
+          0.9085003934919901,
+          -0.15726116659464545,
+          0.7410974732505201,
+          -0.1637906260122671,
+          1.0685650829559845
+        ],
+        "intercept": 55.27821257258282,
+        "alpha": 200.0
+      },
+      "first_margin": {
+        "names": [
+          "class_direction",
+          "class_talent_gap",
+          "component_drive_efficiency",
+          "component_efficiency_epa",
+          "component_explosiveness_havoc",
+          "component_matchup_trenches",
+          "component_personnel_situational",
+          "component_power",
+          "component_special_teams_context",
+          "drive_diff",
+          "early_down_epa_diff",
+          "explosiveness_diff",
+          "first_half_pace_sum",
+          "havoc_diff",
+          "home_field",
+          "minimum_effective_sample_size",
+          "net_epa_diff",
+          "prior_schedule_diff",
+          "qb_continuity_diff",
+          "qb_continuity_diff_1h",
+          "returning_diff",
+          "structural_confirmed",
+          "structural_possible",
+          "talent_diff",
+          "trench_diff",
+          "v01_margin"
+        ],
+        "center": [
+          0.12648321131027518,
+          0.1934386333964937,
+          3.7593797727724905,
+          2.7512656303255736,
+          2.5694648160299582,
+          2.641080746653995,
+          2.992047462761931,
+          5.778215866242789,
+          2.4344014617255763,
+          0.13743905118529645,
+          0.015493925403226028,
+          0.0039778634034813845,
+          143.84593033668776,
+          0.0046865730217161726,
+          2.441302701338046,
+          4.7930942069795925,
+          0.02517353034900257,
+          3.597485318851958,
+          0.013055793991416343,
+          0.01987225448119167,
+          0.012292602878061084,
+          0.36606917445089626,
+          0.32239333501641,
+          0.2696283828363003,
+          0.025652022814356492,
+          3.0062712067659745
+        ],
+        "scale": [
+          0.3331518145923188,
+          0.567914693989,
+          8.70792344823076,
+          5.385674742288362,
+          0.8576055377429582,
+          1.4202487576643497,
+          6.0173022439584125,
+          15.240501752849488,
+          0.3830752794592189,
+          0.9206089577621355,
+          0.1499655450803547,
+          0.02700198225986953,
+          28.34653828256817,
+          0.029775825471389246,
+          0.378547056235646,
+          3.632168360692351,
+          0.2203067819265228,
+          16.94305905791426,
+          0.5529960920076145,
+          0.4815844398169041,
+          0.29547328213863816,
+          0.48172869331993873,
+          0.4673926321128867,
+          0.8086112229961941,
+          0.1311210559823284,
+          4.017853798804081
+        ],
+        "coefficients": [
+          0.8251130214263314,
+          0.24490914507641692,
+          -0.22153726583614147,
+          0.7465159748037669,
+          0.5140354178614884,
+          -0.11892513673311071,
+          -0.18238300193618043,
+          4.594393720199061,
+          -0.05957771797159473,
+          0.8280005558441975,
+          0.13499307651984632,
+          -0.5169540166075701,
+          -0.1610401170897365,
+          -0.09422067745604096,
+          -0.18339209231295459,
+          -0.3025415346507939,
+          0.3127474530627992,
+          0.5864662014009159,
+          0.1232268669020452,
+          0.01669069152296837,
+          0.9124416624571722,
+          0.004757365677250156,
+          -0.045505254446411375,
+          2.007529957626859,
+          0.8280073285618917,
+          0.11024286084553712
+        ],
+        "intercept": 4.203988891694019,
+        "alpha": 200.0
+      },
+      "first_total": {
+        "names": [
+          "component_drive_efficiency",
+          "component_efficiency_epa",
+          "component_explosiveness_havoc",
+          "component_matchup_trenches",
+          "component_personnel_situational",
+          "component_power",
+          "component_special_teams_context",
+          "cross_class",
+          "early_down_epa_sum",
+          "explosiveness_sum",
+          "minimum_effective_sample_size",
+          "offense_epa_sum",
+          "pace_sum",
+          "points_per_drive_sum",
+          "qb_continuity_sum_1h",
+          "structural_confirmed",
+          "v01_total"
+        ],
+        "center": [
+          53.204017920291264,
+          51.0798577664397,
+          48.260168240200805,
+          50.31007436130875,
+          48.648204049085635,
+          48.648204049085635,
+          48.648204049085635,
+          0.1269881343095178,
+          0.1916522114439877,
+          0.17234027835877072,
+          4.7930942069795925,
+          0.35546178199556816,
+          139.7813001927848,
+          4.3442231703894505,
+          1.2585034082302422,
+          0.36606917445089626,
+          49.24208100227227
+        ],
+        "scale": [
+          13.336018554624557,
+          3.9721600592805646,
+          1.8358766573009127,
+          2.242183035791411,
+          1.849562503561798,
+          1.849562503561798,
+          1.849562503561798,
+          0.332959679321851,
+          0.16092874848422092,
+          0.02373557333899214,
+          3.632168360692351,
+          0.16920846360694863,
+          37.10875530283262,
+          0.927810386595138,
+          0.48808766978030027,
+          0.48172869331993873,
+          3.5310233736797696
+        ],
+        "coefficients": [
+          -0.383902529464776,
+          0.4140521234000408,
+          0.9823855015465288,
+          -0.10574795846927654,
+          0.03138030468472251,
+          0.031380304684721805,
+          0.03138030468472177,
+          1.4906806670006163,
+          0.5038600216241663,
+          0.559950762449838,
+          -0.20904975812126877,
+          0.038065803569233926,
+          -0.16862323941152754,
+          0.35764514309501316,
+          0.14041626908546617,
+          0.09075438836409207,
+          0.3221854573699856
+        ],
+        "intercept": 28.724059580913977,
+        "alpha": 200.0
+      }
+    },
+    "margin_calibrator": {
+      "names": [
+        "cross_class",
+        "data_quality_score",
+        "dispersion",
+        "minimum_effective_sample_size",
+        "preseason_heavy",
+        "raw_margin",
+        "raw_total",
+        "structural_confirmed",
+        "structural_possible",
+        "transition"
+      ],
+      "center": [
+        0.1269881343095178,
+        0.7712334983692427,
+        4.8584570974083565,
+        4.7930942069795925,
+        0.2557434991163848,
+        6.930825549103766,
+        55.27821257258266,
+        0.36606917445089626,
+        0.32239333501641,
+        0.371623327442565
+      ],
+      "scale": [
+        0.332959679321851,
+        0.11322979569722166,
+        2.9633895176121348,
+        3.632168360692351,
+        0.4362783077074629,
+        15.034188371028476,
+        3.6197642740001332,
+        0.48172869331993873,
+        0.4673926321128867,
+        0.48323848143859527
+      ],
+      "coefficients": [
+        -0.06303292806672713,
+        -0.28139012122089985,
+        0.041776137627607214,
+        -0.1916181388495455,
+        0.14149552957833886,
+        14.265238966235733,
+        0.7046655934829115,
+        -0.020988520815841676,
+        -0.046325427082203566,
+        -0.5817829090964032
+      ],
+      "intercept": 6.930825549103761,
+      "alpha": 200.0
+    },
+    "total_calibrator": {
+      "names": [
+        "cross_class",
+        "data_quality_score",
+        "dispersion",
+        "minimum_effective_sample_size",
+        "preseason_heavy",
+        "raw_margin",
+        "raw_total",
+        "structural_confirmed",
+        "structural_possible",
+        "transition"
+      ],
+      "center": [
+        0.1269881343095178,
+        0.7712334983692427,
+        4.8584570974083565,
+        4.7930942069795925,
+        0.2557434991163848,
+        6.930825549103766,
+        55.27821257258266,
+        0.36606917445089626,
+        0.32239333501641,
+        0.371623327442565
+      ],
+      "scale": [
+        0.332959679321851,
+        0.11322979569722166,
+        2.9633895176121348,
+        3.632168360692351,
+        0.4362783077074629,
+        15.034188371028476,
+        3.6197642740001332,
+        0.48172869331993873,
+        0.4673926321128867,
+        0.48323848143859527
+      ],
+      "coefficients": [
+        -0.8882073850000689,
+        -1.2817456263845608,
+        0.7208611373168571,
+        0.38088647819553517,
+        -0.04930588540647673,
+        -0.136720111730272,
+        3.6266268399441435,
+        -0.5893081852870603,
+        -0.1600462602241802,
+        -0.09032764416251426
+      ],
+      "intercept": 55.27821257258266,
+      "alpha": 200.0
+    },
+    "logistic": {
+      "intercept": 0.8281963359140627,
+      "slope": 1.6648502048665543,
+      "center": 6.930825549103762,
+      "scale": 14.618638176152674
+    },
+    "margin_sd": 16.265459736905104,
+    "total_sd": 17.012203089245236,
+    "dispersion_p75": 6.563676793345086,
+    "dispersion_p90": 8.968181062189222,
+    "market_features_used": false,
+    "production_promotion_allowed": false
+  },
+  "leakage": {
+    "market_features_used": false,
+    "calibration_features_validated": true,
+    "observed_audit_used_for_tuning": false
+  },
+  "automatic_promotion_allowed": false,
+  "deployment_performed": false,
+  "final_status": "NCAAF_V02_LIVE_SHADOW_READY"
+}
