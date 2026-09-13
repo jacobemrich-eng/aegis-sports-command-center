@@ -2,3 +2,6 @@ __pycache__/
 *.py[cod]
 data/nflverse/
 data/nfl_shadow_live/
+data/ncaaf_history/raw/
+data/ncaaf_history/derived/
+data/ncaaf_history/reports/
