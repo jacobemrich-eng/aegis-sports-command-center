@@ -17,10 +17,15 @@ const ROOT = __dirname;
 const PUBLIC = path.join(ROOT, 'public');
 const PUBLIC_ROOT = path.resolve(PUBLIC);
 const ACCESS_PIN = String(process.env.AEGIS_ACCESS_PIN || '').trim();
-const SESSION_SECRET = String(process.env.AEGIS_SESSION_SECRET || ACCESS_PIN || 'aegis-local-development');
+const SESSION_SECRET = String(process.env.AEGIS_SESSION_SECRET || '').trim();
 const AUTOPILOT_SECRET = String(process.env.AEGIS_AUTOPILOT_SECRET || '').trim();
-const SESSION_DAYS = 30;
+const SESSION_TTL_MS = 8*60*60*1000;
+const MAX_SESSIONS = 512;
+const MAX_RATE_ENTRIES = 512;
+const LOGIN_ATTEMPTS = 8;
+const LOGIN_WINDOW_MS = 15*60*1000;
 const RATE = new Map();
+const SESSIONS = new Map();
 const SECURITY_HEADERS = {
   'X-Content-Type-Options':'nosniff',
   'Referrer-Policy':'same-origin',
@@ -37,14 +42,100 @@ function readBody(req){return new Promise((resolve,reject)=>{let s='';req.on('da
 function cookies(req){const out={};String(req.headers.cookie||'').split(';').forEach(x=>{const i=x.indexOf('=');if(i>0)out[x.slice(0,i).trim()]=decodeURIComponent(x.slice(i+1).trim())});return out;}
 function sign(text){return crypto.createHmac('sha256',SESSION_SECRET).update(text).digest('hex');}
 function secureEqual(a,b){a=Buffer.from(String(a));b=Buffer.from(String(b));return a.length===b.length&&crypto.timingSafeEqual(a,b);}
-function makeSession(){const exp=Date.now()+SESSION_DAYS*864e5,payload=String(exp);return `${payload}.${sign(payload)}`;}
-function validSession(req){if(!ACCESS_PIN)return true;const token=cookies(req).aegis_session||'',parts=token.split('.');if(parts.length!==2)return false;const [exp,sig]=parts;if(!secureEqual(sig,sign(exp)))return false;return Number(exp)>Date.now();}
+function adminAuthConfigured(){return !!ACCESS_PIN&&!!SESSION_SECRET;}
+function pruneSessions(now=Date.now()){
+  for(const [id,row] of SESSIONS)if(row.expiresAt<=now)SESSIONS.delete(id);
+  while(SESSIONS.size>=MAX_SESSIONS){
+    const oldest=SESSIONS.keys().next().value;
+    if(oldest===undefined)break;
+    SESSIONS.delete(oldest);
+  }
+}
+function makeSession(){
+  pruneSessions();
+  const expiresAt=Date.now()+SESSION_TTL_MS,
+        id=crypto.randomBytes(24).toString('base64url'),
+        csrfToken=crypto.randomBytes(24).toString('base64url'),
+        payload=`${expiresAt}.${id}`;
+  SESSIONS.set(id,{expiresAt,csrfToken});
+  return {token:`${payload}.${sign(payload)}`,csrfToken,expiresAt};
+}
+function session(req){
+  if(!adminAuthConfigured())return null;
+  const token=cookies(req).aegis_session||'',parts=token.split('.');
+  if(parts.length!==3)return null;
+  const [expiresAt,id,sig]=parts,payload=`${expiresAt}.${id}`;
+  if(!secureEqual(sig,sign(payload)))return null;
+  const row=SESSIONS.get(id);
+  if(!row||row.expiresAt!==Number(expiresAt)||row.expiresAt<=Date.now()){
+    if(row)SESSIONS.delete(id);
+    return null;
+  }
+  return {id,...row};
+}
+function validSession(req){return !!session(req);}
+function revokeSession(req){const current=session(req);if(current)SESSIONS.delete(current.id);}
 function bearer(req){const h=String(req.headers.authorization||'');return h.startsWith('Bearer ')?h.slice(7).trim():'';}
 function validAutopilot(req){return !!AUTOPILOT_SECRET&&secureEqual(bearer(req),AUTOPILOT_SECRET);}
 function ip(req){return String(req.headers['x-forwarded-for']||req.socket.remoteAddress||'unknown').split(',')[0].trim();}
-function rateLimit(req,res,bucket,limit,windowMs=3600e3){const key=`${bucket}|${ip(req)}`,t=Date.now(),row=RATE.get(key)||{start:t,count:0};if(t-row.start>windowMs){row.start=t;row.count=0;}row.count++;RATE.set(key,row);if(row.count>limit){const retry=Math.ceil((row.start+windowMs-t)/1000);send(res,429,{error:`AEGIS rate limit reached for ${bucket}. Try again in ${Math.ceil(retry/60)} minute(s).`},'application/json',{'Retry-After':String(retry)});return false;}return true;}
-function requireAuth(req,res){if(validSession(req))return true;send(res,401,{error:'AEGIS access is locked. Enter the configured access PIN.',auth_required:true});return false;}
-function requireAdminAuth(req,res){if(ACCESS_PIN&&validSession(req))return true;send(res,401,{error:'AEGIS administrator authentication is required.',auth_required:true});return false;}
+function pruneRateLimits(now=Date.now()){
+  for(const [key,row] of RATE)if(row.start+row.windowMs<=now)RATE.delete(key);
+  while(RATE.size>=MAX_RATE_ENTRIES){
+    const oldest=RATE.keys().next().value;
+    if(oldest===undefined)break;
+    RATE.delete(oldest);
+  }
+}
+function rateLimit(req,res,bucket,limit,windowMs=3600e3){
+  const key=`${bucket}|${ip(req)}`,t=Date.now();
+  let row=RATE.get(key);
+  if(row&&row.start+row.windowMs<=t){RATE.delete(key);row=null;}
+  if(!row){pruneRateLimits(t);row={start:t,count:0,windowMs};}
+  row.count++;
+  RATE.delete(key);
+  RATE.set(key,row);
+  if(row.count>limit){const retry=Math.ceil((row.start+row.windowMs-t)/1000);send(res,429,{error:`AEGIS rate limit reached for ${bucket}. Try again in ${Math.ceil(retry/60)} minute(s).`},'application/json',{'Retry-After':String(retry)});return false;}
+  return true;
+}
+function requireAdminAuth(req,res){
+  if(!adminAuthConfigured()){
+    send(res,503,{error:'AEGIS administrator access is unavailable.',code:'admin_auth_unavailable'});
+    return false;
+  }
+  if(validSession(req))return true;
+  send(res,401,{error:'AEGIS administrator authentication is required.',auth_required:true});
+  return false;
+}
+function requestOrigin(req){
+  const proto=String(req.headers['x-forwarded-proto']||'http').split(',')[0].trim(),
+        host=String(req.headers.host||'').trim();
+  return `${proto}://${host}`;
+}
+function trustedBrowserOrigin(req,{allowMissing=false}={}){
+  const fetchSite=String(req.headers['sec-fetch-site']||'').toLowerCase();
+  if(fetchSite==='cross-site')return false;
+  const source=String(req.headers.origin||req.headers.referer||'').trim();
+  if(!source)return allowMissing&&!fetchSite;
+  try{return new URL(source).origin===new URL(requestOrigin(req)).origin;}catch{return false;}
+}
+function requireLoginOrigin(req,res){
+  if(trustedBrowserOrigin(req))return true;
+  send(res,403,{error:'Request origin is not allowed.',code:'invalid_origin'});
+  return false;
+}
+function requireAdminMutation(req,res){
+  if(!requireAdminAuth(req,res))return false;
+  const current=session(req);
+  if(!trustedBrowserOrigin(req)){
+    send(res,403,{error:'Request origin is not allowed.',code:'invalid_origin'});
+    return false;
+  }
+  if(!current||!secureEqual(String(req.headers['x-aegis-csrf']||''),current.csrfToken)){
+    send(res,403,{error:'CSRF validation failed.',code:'invalid_csrf'});
+    return false;
+  }
+  return true;
+}
 function mime(file){const ext=path.extname(file).toLowerCase();return ({'.html':'text/html; charset=utf-8','.js':'application/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.ico':'image/x-icon'}[ext]||'application/octet-stream');}
 function serveFile(res,file){try{const buf=fs.readFileSync(file);res.writeHead(200,{'Content-Type':mime(file),'Cache-Control':file.endsWith('.html')?'no-store':'public, max-age=180',...SECURITY_HEADERS});res.end(buf);}catch{send(res,404,{error:'Not found'});}}
 function publicFile(urlPath){
@@ -84,6 +175,11 @@ const server=http.createServer(async(req,res)=>{
     }
 
     if(req.method==='GET'&&u.pathname==='/api/health'){
+      return send(res,200,{ok:true,status:'UP',service:'aegis-sports-command-center'});
+    }
+
+    if(req.method==='GET'&&u.pathname==='/api/admin/status'){
+    if(!requireAdminAuth(req,res))return;
     const c=engine.config(),
 storage=await store.health(),
 auto=await safeStatus();
@@ -154,7 +250,7 @@ auto=await safeStatus();
       odds_provider:c.oddsProvider,
       provider_router:c.providerRouter,
 
-      auth_required:!!ACCESS_PIN,
+      auth_required:true,
       authenticated:validSession(req),
 
       autopilot_enabled:auto.enabled,
@@ -189,6 +285,7 @@ auto=await safeStatus();
     });
   }
                 if(req.method==='GET'&&u.pathname==='/api/operations/status'){
+              if(!requireAdminAuth(req,res))return;
               const c=engine.config(),
                     storage=await store.health(),
                     auto=await safeStatus();
@@ -362,30 +459,57 @@ if(req.method==='POST'&&u.pathname==='/api/autopilot/heartbeat'){
     last_success_age_minutes:gate.last_success_age_minutes
   });
 }
+  // Unauthenticated authentication-entry route. Origin and rate checks run before credentials are evaluated.
   if(req.method==='POST'&&u.pathname==='/api/login'){
-      if(!ACCESS_PIN)return send(res,200,{ok:true,auth_required:false});
-      if(!rateLimit(req,res,'login',12,15*60e3))return;
-      const body=JSON.parse(await readBody(req)||'{}');
-      if(!secureEqual(String(body.pin||''),ACCESS_PIN))return send(res,401,{error:'Incorrect AEGIS PIN.'});
-      const token=makeSession(),secure=String(req.headers['x-forwarded-proto']||'').includes('https')||process.env.NODE_ENV==='production';
-      return send(res,200,{ok:true},'application/json',{'Set-Cookie':`aegis_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DAYS*86400}${secure?'; Secure':''}`});
+      if(!requireLoginOrigin(req,res))return;
+      if(!rateLimit(req,res,'login',LOGIN_ATTEMPTS,LOGIN_WINDOW_MS))return;
+      if(!adminAuthConfigured())return send(res,503,{error:'AEGIS administrator login is unavailable.',code:'admin_auth_unavailable'});
+      let body;
+      try{body=JSON.parse(await readBody(req)||'{}');}
+      catch{return send(res,400,{error:'Invalid request.',code:'invalid_request'});}
+      if(!secureEqual(String(body.pin||''),ACCESS_PIN))return send(res,401,{error:'Authentication failed.',code:'authentication_failed'});
+      revokeSession(req);
+      const created=makeSession(),secure=String(req.headers['x-forwarded-proto']||'').includes('https')||process.env.NODE_ENV==='production';
+      return send(res,200,{ok:true,csrf_token:created.csrfToken,expires_at:new Date(created.expiresAt).toISOString()},'application/json',{'Set-Cookie':`aegis_session=${encodeURIComponent(created.token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${Math.floor(SESSION_TTL_MS/1000)}${secure?'; Secure':''}`});
     }
-    if(req.method==='POST'&&u.pathname==='/api/logout')return send(res,200,{ok:true},'application/json',{'Set-Cookie':'aegis_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0'});
+    if(req.method==='GET'&&u.pathname==='/api/session'){
+      const current=session(req);
+      return send(res,200,{
+        authenticated:!!current,
+        ...(current?{csrf_token:current.csrfToken,expires_at:new Date(current.expiresAt).toISOString()}:{}),
+      });
+    }
+    if(req.method==='POST'&&u.pathname==='/api/logout'){
+      if(!requireAdminMutation(req,res))return;
+      revokeSession(req);
+      const secure=String(req.headers['x-forwarded-proto']||'').includes('https')||process.env.NODE_ENV==='production';
+      return send(res,200,{ok:true},'application/json',{'Set-Cookie':`aegis_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${secure?'; Secure':''}`});
+    }
     if(req.method==='GET'&&u.pathname==='/api/models')return send(res,200,{models:engine.MODELS});
     if(req.method==='GET'&&u.pathname==='/api/sports')return send(res,200,{sports:engine.SPORTS});
+    if(req.method==='GET'&&u.pathname==='/api/cards/latest'){
+      const sport=u.searchParams.get('sport');return send(res,200,{card:await autopilot.latestCard(sport),sport:sport||null});
+    }
+    if(req.method==='GET'&&u.pathname==='/api/results/ledger')return send(res,200,await autopilot.results());
 
     // Scheduled GitHub Actions calls authenticate with their own bearer secret and do not need a browser session.
     if(req.method==='POST'&&u.pathname==='/api/autopilot/tick'){
-      if(!validAutopilot(req)&&!(ACCESS_PIN&&validSession(req)))return send(res,401,{error:'Autopilot authorization failed. Configure AEGIS_AUTOPILOT_SECRET for scheduled runs.'});
+      const machineAuthorized=validAutopilot(req);
+      if(!machineAuthorized&&!requireAdminMutation(req,res))return;
       const body=JSON.parse(await readBody(req)||'{}'),sport=u.searchParams.get('sport')||body.sport||null,force=u.searchParams.get('force')==='1'||!!body.force;
       const result=await autopilot.tick({force,sports:sport?[sport]:body.sports,reason:body.reason||'scheduled autopilot'});
       return send(res,200,result);
     }
+    if(req.method==='GET'&&u.pathname==='/api/autopilot/status'){
+      const machineAuthorized=validAutopilot(req);
+      if(!machineAuthorized&&!requireAdminAuth(req,res))return;
+      return send(res,200,await autopilot.status());
+    }
 
-    if(u.pathname.startsWith('/api/')&&!requireAuth(req,res))return;
+    if(u.pathname.startsWith('/api/')&&req.method!=='GET'&&req.method!=='HEAD'&&!requireAdminMutation(req,res))return;
+    if(u.pathname.startsWith('/api/')&&!requireAdminAuth(req,res))return;
 
     if(req.method==='POST'&&u.pathname==='/api/admin/diagnostics/provider-failover'){
-      if(!requireAdminAuth(req,res))return;
       if(!rateLimit(req,res,'provider-failover-diagnostic',2,60*60*1000))return;
 
       let body;
@@ -405,11 +529,6 @@ if(req.method==='POST'&&u.pathname==='/api/autopilot/heartbeat'){
       }
     }
 
-    if(req.method==='GET'&&u.pathname==='/api/autopilot/status')return send(res,200,await autopilot.status());
-    if(req.method==='GET'&&u.pathname==='/api/cards/latest'){
-      const sport=u.searchParams.get('sport');return send(res,200,{card:await autopilot.latestCard(sport),sport:sport||null});
-    }
-    if(req.method==='GET'&&u.pathname==='/api/results/ledger')return send(res,200,await autopilot.results());
     if(req.method==='POST'&&u.pathname==='/api/results/grade'){
       if(!rateLimit(req,res,'grade',20))return;return send(res,200,{ok:true,...await autopilot.gradeNow()});
     }
@@ -499,7 +618,7 @@ if(req.method==='POST'&&u.pathname==='/api/autopilot/heartbeat'){
       return send(res,200,out);
     }
     return send(res,404,{error:'Not found'});
-  }catch(e){console.error(e);return send(res,500,{error:e.message||'Server error'});}
+  }catch(e){console.error(e);return send(res,500,{error:'Internal server error',code:'internal_server_error'});}
 });
 
 server.listen(PORT,'0.0.0.0',()=>console.log(`AEGIS release ${release.APP_VERSION} • engine ${engine.VERSION} running on ${PORT} • ${engine.MODELS.length} registered systems • autopilot ${autopilot.config.ENABLED?'enabled':'disabled'} • persistence ${store.persistent?'cloud':'ephemeral fallback'}`));

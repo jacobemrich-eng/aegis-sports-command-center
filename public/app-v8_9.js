@@ -98,9 +98,10 @@
   }
 
   async function refresh(){
+    if(!window.ADMIN_SESSION||!window.ADMIN_SESSION.authenticated)return;
     try{
-      const res=await fetch('/api/health',{cache:'no-store'});
-      if(!res.ok)throw new Error('health '+res.status);
+      const res=await fetch('/api/operations/status',{cache:'no-store',credentials:'same-origin'});
+      if(!res.ok)throw new Error('operations status '+res.status);
       const data=await res.json();
       render(data.operations||null);
     }catch(err){
@@ -126,5 +127,8 @@
 
   document.addEventListener('visibilitychange',()=>{
     if(document.visibilityState==='visible')refresh();
+  });
+  document.addEventListener('aegis:session-change',event=>{
+    if(event.detail&&event.detail.authenticated)refresh();
   });
 })();

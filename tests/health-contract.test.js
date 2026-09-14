@@ -165,7 +165,7 @@ test(
 );
 
 test(
-  'health route exposes release, engine and Render identity',
+  'detailed release and engine identity remains in protected admin status',
   () => {
     const server =
       fs.readFileSync(
@@ -175,8 +175,10 @@ test(
 
     assert.match(
       server,
-      /release\.buildHealth/
+      /u\.pathname==='\/api\/admin\/status'/
     );
+
+    assert.match(server, /release\.buildHealth/);
 
     assert.match(
       server,

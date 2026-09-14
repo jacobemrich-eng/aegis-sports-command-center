@@ -68,11 +68,12 @@ test('sleep window does not mark old scheduler activity as a failure',()=>{
   assert.equal(x.mode,'SLEEP_WINDOW');
 });
 
-test('server health contract exposes Operations Guardian and direct status route',()=>{
+test('protected admin status exposes Operations Guardian detail',()=>{
   const server=fs.readFileSync(path.join(ROOT,'server.js'),'utf8');
   assert.match(server,/require\('\.\/src\/operations'\)/);
   assert.match(server,/operations:ops/);
   assert.match(server,/\/api\/operations\/status/);
+  assert.match(server,/if\(!requireAdminAuth\(req,res\)\)return/);
   assert.match(server,/operations\.evaluate/);
 });
 

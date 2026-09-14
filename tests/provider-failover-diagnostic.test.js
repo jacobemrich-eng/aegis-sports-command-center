@@ -248,10 +248,11 @@ test('diagnostic endpoint requires authentication and is aggressively rate limit
 
   const login=await fetch(`${url}/api/login`,{
     method:'POST',
-    headers:{'Content-Type':'application/json'},
+    headers:{Origin:url,'Content-Type':'application/json'},
     body:JSON.stringify({pin:'diagnostic-test-pin'})
   });
   assert.equal(login.status,200);
+  const loginBody=await login.json();
   const cookie=String(login.headers.get('set-cookie')||'').split(';')[0];
   assert.match(cookie,/^aegis_session=/);
 
@@ -259,7 +260,7 @@ test('diagnostic endpoint requires authentication and is aggressively rate limit
   for(let attempt=0;attempt<3;attempt++){
     const response=await fetch(`${url}/api/admin/diagnostics/provider-failover`,{
       method:'POST',
-      headers:{'Content-Type':'application/json',Cookie:cookie},
+      headers:{Origin:url,'Content-Type':'application/json',Cookie:cookie,'X-AEGIS-CSRF':loginBody.csrf_token},
       body
     });
     statuses.push(response.status);

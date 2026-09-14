@@ -71,21 +71,23 @@ jobs:
           }
 
           success_after_start() {
-            curl -fsS --max-time 30 "$BASE_URL/api/health" >/tmp/aegis-health-recovery.json || return 1
+            curl -fsS --max-time 30 \
+              -H "Authorization: Bearer ${AUTOPILOT_SECRET}" \
+              "$BASE_URL/api/autopilot/status" >/tmp/aegis-status-recovery.json || return 1
             node -e "
               const fs=require('fs');
               const start=Number(process.argv[2]);
               try{
                 const j=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));
-                const ts=Date.parse(j.last_autopilot_success||'');
+                const ts=Date.parse(j.last_success_at||'');
                 const sec=Number.isFinite(ts)?Math.floor(ts/1000):0;
-                if(sec >= start-60 && j.persistent_storage===true && j.autopilot_enabled===true){
+                if(sec >= start-60 && j.persistent===true && j.enabled===true){
                   console.log('Prior tick completed despite transport failure; recovery POST suppressed.');
                   process.exit(0);
                 }
               }catch(e){}
               process.exit(1);
-            " /tmp/aegis-health-recovery.json "$START_EPOCH"
+            " /tmp/aegis-status-recovery.json "$START_EPOCH"
           }
 
           echo "Primary Autopilot attempt..."
@@ -110,18 +112,19 @@ jobs:
             fi
           fi
 
-          curl -fsS --max-time 30 "$BASE_URL/api/health" >/tmp/aegis-health-post.json
+          curl -fsS --max-time 30 \
+            -H "Authorization: Bearer ${AUTOPILOT_SECRET}" \
+            "$BASE_URL/api/autopilot/status" >/tmp/aegis-status-post.json
 
           node -e "
             const fs=require('fs');
-            const j=JSON.parse(fs.readFileSync('/tmp/aegis-health-post.json','utf8'));
+            const j=JSON.parse(fs.readFileSync('/tmp/aegis-status-post.json','utf8'));
             const fatal=[];
-            if(j.status==='RED') fatal.push('health_red');
-            if(j.persistent_storage!==true) fatal.push('persistence_not_confirmed');
-            if(j.autopilot_enabled!==true) fatal.push('autopilot_disabled');
-            if(j.autopilot_secret_ready!==true) fatal.push('autopilot_secret_not_ready');
+            if(j.last_error) fatal.push('autopilot_error');
+            if(j.persistent!==true) fatal.push('persistence_not_confirmed');
+            if(j.enabled!==true) fatal.push('autopilot_disabled');
             if(fatal.length){
-              console.error('AEGIS post-tick health failed:', fatal.join(', '));
+              console.error('AEGIS post-tick status failed:', fatal.join(', '));
               process.exit(1);
             }
             console.log('AEGIS Autopilot tick completed with healthy persistence and scheduler state.');
