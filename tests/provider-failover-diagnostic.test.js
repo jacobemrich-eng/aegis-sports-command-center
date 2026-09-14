@@ -69,11 +69,12 @@ test('simulated primary failure reaches the real secondary normalization path wi
     assert.equal(result.provider_used,'sportsgameodds');
     assert.equal(result.route,'diagnostic_secondary_failover');
     assert.equal(result.normalized_event_count,1);
-    assert.equal(result.bookmaker_count,2);
-    assert.equal(result.hard_rock_bet_present,true);
+    assert.equal(result.bookmaker_count,1);
+    assert.equal(result.hard_rock_bet_present,false);
     assert.equal(result.production_route_untouched,true);
     assert.equal(calls.length,1);
     assert.match(calls[0].url,/secondary\.test\/v2\/events/);
+    assert.equal(new URL(calls[0].url).searchParams.get('bookmakerID'),'fanduel');
     assert.equal(calls[0].headers['x-api-key'],env.SPORTSGAMEODDS_API_KEY);
     assert.deepEqual(router.status(env),before);
   }finally{

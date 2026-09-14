@@ -24,7 +24,7 @@ function config(env=process.env){
 
 function secondaryReady(endpoint,env=process.env){
   const c=secondary.config(env);
-  return c.configured&&secondary.canHandle(endpoint);
+  return c.configured&&secondary.canHandle(endpoint,{env});
 }
 
 function primaryCircuitOpen(now=Date.now()){

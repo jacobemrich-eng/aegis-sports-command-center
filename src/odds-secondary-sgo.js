@@ -1,6 +1,9 @@
 'use strict';
 
 const DEFAULT_BASE_URL='https://api.sportsgameodds.com/v2';
+const DEFAULT_BOOKMAKER_ALLOWLIST=Object.freeze([
+  'fanduel','draftkings','betmgm','caesars','espnbet','bovada','unibet','pointsbet','williamhill'
+]);
 
 const SPORTS={
   baseball_mlb:{leagueID:'MLB',title:'MLB'},
@@ -14,6 +17,10 @@ const TO_SGO_BOOK={
   bovada:'bovada',
   betmgm:'betmgm',
   espnbet:'espnbet',
+  caesars:'caesars',
+  unibet:'unibet',
+  pointsbet:'pointsbet',
+  williamhill:'williamhill',
   fanatics:'fanatics'
 };
 
@@ -28,12 +35,18 @@ const TITLES={
   bovada:'Bovada',
   betmgm:'BetMGM',
   espnbet:'ESPN BET',
+  caesars:'Caesars',
+  unibet:'Unibet',
+  pointsbet:'PointsBet',
+  williamhill:'William Hill',
   fanatics:'Fanatics'
 };
 
 function config(env=process.env){
   const enabled=String(env.AEGIS_ODDS_SECONDARY_ENABLED||'true').toLowerCase()!=='false';
   const apiKey=String(env.SPORTSGAMEODDS_API_KEY||'').trim();
+  const configuredBooks=String(env.AEGIS_ODDS_SECONDARY_BOOKMAKER_ALLOWLIST||'')
+    .split(',').map(value=>value.trim().toLowerCase()).filter(Boolean);
   return {
     name:'sportsgameodds',
     enabled,
@@ -41,11 +54,12 @@ function config(env=process.env){
     apiKey,
     baseUrl:String(env.AEGIS_ODDS_SECONDARY_BASE_URL||DEFAULT_BASE_URL).replace(/\/+$/,''),
     timeoutMs:Math.max(3000,Math.min(30000,Number(env.AEGIS_ODDS_SECONDARY_TIMEOUT_MS||10000))),
-    maxPages:Math.max(1,Math.min(4,Number(env.AEGIS_ODDS_SECONDARY_MAX_PAGES||3)))
+    maxPages:Math.max(1,Math.min(4,Number(env.AEGIS_ODDS_SECONDARY_MAX_PAGES||3))),
+    bookmakerAllowlist:[...new Set(configuredBooks.length?configuredBooks:DEFAULT_BOOKMAKER_ALLOWLIST)]
   };
 }
 
-function parseEndpoint(endpoint){
+function parseEndpoint(endpoint,{env=process.env}={}){
   const text=String(endpoint||'');
   const m=text.match(/^sports\/([^/]+)\/odds(?:\?|$)/);
   if(!m)return null;
@@ -63,7 +77,12 @@ function parseEndpoint(endpoint){
 
   const primaryBooks=String(params.get('bookmakers')||'')
     .split(',').map(x=>x.trim()).filter(Boolean);
-  const sgoBooks=[...new Set(primaryBooks.map(x=>TO_SGO_BOOK[x]).filter(Boolean))];
+  const bookmakerAllowlist=config(env).bookmakerAllowlist;
+  const allowedSecondaryBooks=new Set(bookmakerAllowlist);
+  const requestedSecondaryBooks=[...new Set(primaryBooks.map(x=>TO_SGO_BOOK[x]).filter(Boolean))];
+  const filteredSecondaryBooks=requestedSecondaryBooks.filter(book=>allowedSecondaryBooks.has(book));
+  const sgoBooks=filteredSecondaryBooks.length?filteredSecondaryBooks:bookmakerAllowlist;
+  const secondaryPrimaryBooks=sgoBooks.map(book=>FROM_SGO_BOOK[book]||book);
 
   const oddIDs=[];
   if(markets.includes('h2h')){
@@ -83,12 +102,13 @@ function parseEndpoint(endpoint){
     markets,
     primaryBooks,
     sgoBooks,
+    secondaryPrimaryBooks,
     oddIDs
   };
 }
 
-function canHandle(endpoint){
-  return !!parseEndpoint(endpoint);
+function canHandle(endpoint,options){
+  return !!parseEndpoint(endpoint,options);
 }
 
 function num(value){
@@ -135,7 +155,7 @@ function outcomeFor(odd,event,book){
 
 function normalizeEvent(event,parsed){
   const byBook=new Map();
-  const allowed=new Set(parsed.primaryBooks||[]);
+  const allowed=new Set(parsed.secondaryPrimaryBooks||parsed.primaryBooks||[]);
 
   for(const odd of Object.values(event?.odds||{})){
     const key=marketKey(odd);
@@ -231,7 +251,7 @@ async function fetchOdds(endpoint,{env=process.env}={}){
   const cfg=config(env);
   if(!cfg.configured)throw Object.assign(new Error('SportsGameOdds secondary is not configured.'),{status:503,provider:'sportsgameodds'});
 
-  const parsed=parseEndpoint(endpoint);
+  const parsed=parseEndpoint(endpoint,{env});
   if(!parsed)throw Object.assign(new Error('SportsGameOdds adapter does not support this endpoint.'),{status:422,provider:'sportsgameodds'});
 
   const params=new URLSearchParams({
@@ -244,7 +264,7 @@ async function fetchOdds(endpoint,{env=process.env}={}){
   });
 
   if(parsed.oddIDs.length)params.set('oddID',parsed.oddIDs.join(','));
-  if(parsed.sgoBooks.length)params.set('bookmakerID',parsed.sgoBooks.join(','));
+  params.set('bookmakerID',parsed.sgoBooks.join(','));
 
   const all=[];
   let cursor=null;
@@ -291,6 +311,7 @@ function publicStatus(env=process.env){
 
 module.exports={
   DEFAULT_BASE_URL,
+  DEFAULT_BOOKMAKER_ALLOWLIST,
   SPORTS,
   TO_SGO_BOOK,
   config,
