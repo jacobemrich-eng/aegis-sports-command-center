@@ -84,6 +84,24 @@
   font-weight:900;
 }
 
+.v82-topactions{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+
+.v82-admin-session{
+  border:1px solid rgba(103,245,191,.28);
+  border-radius:999px;
+  background:rgba(5,35,29,.72);
+  color:#caffea;
+  padding:7px 9px;
+  font:inherit;
+  font-size:10px;
+  font-weight:900;
+  line-height:1;
+}
+
 .v82-online-dot{
   width:7px;
   height:7px;

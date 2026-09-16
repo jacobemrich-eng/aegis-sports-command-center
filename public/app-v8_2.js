@@ -80,6 +80,12 @@
     var found=tabs.find(function(t){return t[0]===active});
     if(label)label.textContent=found?found[2]:"Command";
   }
+  function syncAdminSession(authenticated){
+    var button=q(".v82-admin-session");
+    if(!button)return;
+    button.innerHTML=authenticated?'&#128275; <span>Logout</span>':'&#128274; <span>Admin</span>';
+    button.setAttribute("aria-label",authenticated?"Log out of AEGIS admin session":"Log in to AEGIS admin session");
+  }
   function go(tab){
     var original=q('.navbtn[data-tab="'+tab+'"]');
     if(original)original.click();
@@ -99,8 +105,16 @@
           '<div class="v82-shield"><span>A</span></div>'+
           '<div><div class="v82-brandmicro">SB101</div><div class="v82-brandname">AEGIS</div></div>'+
         '</div>'+
-        '<div class="v82-topmeta"><span class="v82-online-dot"></span><span id="v82TopSection">Command</span></div>';
+        '<div class="v82-topactions">'+
+          '<div class="v82-topmeta"><span class="v82-online-dot"></span><span id="v82TopSection">Command</span></div>'+
+          '<button class="v82-admin-session" type="button" aria-label="Log in to AEGIS admin session">&#128274; <span>Admin</span></button>'+
+        '</div>';
       wrap.insertBefore(top,wrap.firstChild);
+      q(".v82-admin-session",top).addEventListener("click",function(){
+        var existing=q("#adminSessionButton");
+        if(existing)existing.click();
+      });
+      syncAdminSession(!!(window.ADMIN_SESSION&&window.ADMIN_SESSION.authenticated));
     }
 
     if(!q("#v82BottomNav")){
@@ -264,6 +278,9 @@
     if(sportSelect)sportSelect.addEventListener("change",function(){refresh(true);});
     qa(".navbtn").forEach(function(b){
       b.addEventListener("click",function(){queueMicrotask(syncNav);});
+    });
+    document.addEventListener("aegis:session-change",function(event){
+      syncAdminSession(!!(event.detail&&event.detail.authenticated));
     });
 
     window.setInterval(function(){refresh(false);},30000);

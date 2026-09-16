@@ -148,7 +148,7 @@ test(
 );
 
 test(
-  'index declares UTF-8, v9.1.2 canonical-status operations shell, and v8.8 core bundle cache keys',
+  'index declares UTF-8, v9.1.2 canonical-status operations shell, and current bundle cache keys',
   () => {
     const html = fs.readFileSync(
       path.join(
@@ -168,10 +168,19 @@ test(
       /v9\.1\.2 • PROVIDER ROUTER/
     );
 
+    assert.match(
+      html,
+      /\/visual-v8_2\.css\?v=9\.2\.1/
+    );
+
+    assert.match(
+      html,
+      /\/app-v8_2\.js\?v=9\.2\.1/
+    );
+
     for (
       const name of [
         'app.js',
-        'app-v8_2.js',
         'app-v8_3.js',
         'app-v8_3_1.js',
         'app-v8_3_2.js',
@@ -190,5 +199,38 @@ name.replace(
         )
       );
     }
+  }
+);
+
+test(
+  'mobile top bar exposes the existing admin session flow while the hero is hidden',
+  () => {
+    const html = fs.readFileSync(
+      path.join(ROOT, 'public/index.html'),
+      'utf8'
+    );
+    const app = fs.readFileSync(
+      path.join(ROOT, 'public/app-v8_2.js'),
+      'utf8'
+    );
+    const css = fs.readFileSync(
+      path.join(ROOT, 'public/visual-v8_2.css'),
+      'utf8'
+    );
+
+    assert.equal(
+      (html.match(/id="adminSessionButton"/g) || []).length,
+      1
+    );
+    assert.match(app, /class="v82-admin-session"/);
+    assert.doesNotMatch(app, /id="v82AdminSessionButton"/);
+    assert.match(app, /existing=q\("#adminSessionButton"\)/);
+    assert.match(app, /"aegis:session-change"/);
+    assert.match(app, /Logout/);
+    assert.match(app, /Admin/);
+    assert.match(
+      css,
+      /@media\(max-width:760px\)[\s\S]*?\.hero,[\s\S]*?display:none!important;[\s\S]*?\.v82-topbar[\s\S]*?display:flex!important;/
+    );
   }
 );
