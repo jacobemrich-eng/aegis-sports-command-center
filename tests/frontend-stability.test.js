@@ -178,9 +178,18 @@ test(
       /\/app-v8_2\.js\?v=9\.2\.1/
     );
 
+    assert.match(
+      html,
+      /\/app\.js\?v=9\.2\.2/
+    );
+
+    assert.match(
+      html,
+      /\/app-v8_9\.js\?v=9\.2\.2/
+    );
+
     for (
       const name of [
-        'app.js',
         'app-v8_3.js',
         'app-v8_3_1.js',
         'app-v8_3_2.js',
@@ -232,5 +241,53 @@ test(
       css,
       /@media\(max-width:760px\)[\s\S]*?\.hero,[\s\S]*?display:none!important;[\s\S]*?\.v82-topbar[\s\S]*?display:flex!important;/
     );
+  }
+);
+
+test(
+  'VERIFY NOW reads protected health contracts without running an Autopilot tick',
+  () => {
+    const app = fs.readFileSync(
+      path.join(ROOT, 'public/app.js'),
+      'utf8'
+    );
+    const operationsUi = fs.readFileSync(
+      path.join(ROOT, 'public/app-v8_9.js'),
+      'utf8'
+    );
+
+    assert.match(app, /api\('\/api\/admin\/status'\)/);
+    assert.match(app, /api\('\/api\/autopilot\/status'\)/);
+    assert.match(app, /api\('\/api\/operations\/status'\)/);
+    assert.doesNotMatch(app, /\/api\/autopilot\/tick/);
+    for (const key of [
+      'scheduler_freshness',
+      'persistent_storage',
+      'last_run_error',
+      'daily_budget',
+      'monthly_budget'
+    ]) {
+      assert.match(app, new RegExp(key));
+    }
+    assert.match(app, /VERIFIED ✓/);
+    assert.match(app, /aegis:operations-verified/);
+    assert.match(operationsUi, /aegis:operations-verified/);
+    assert.match(operationsUi, /if\(ops\)render\(ops\)/);
+  }
+);
+
+test(
+  'VERIFY NOW copy promises a credit-free health check while full slate scan remains available',
+  () => {
+    const html = fs.readFileSync(
+      path.join(ROOT, 'public/index.html'),
+      'utf8'
+    );
+
+    assert.match(
+      html,
+      /VERIFY NOW checks authenticated system health without running a scan or consuming odds credits\./
+    );
+    assert.match(html, /RUN FULL AUTOMATIC SLATE SCAN/);
   }
 );

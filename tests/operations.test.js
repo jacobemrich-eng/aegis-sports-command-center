@@ -84,7 +84,7 @@ test('existing scheduled Autopilot workflow remains intact during v8.9 app upgra
   assert.match(wf,/contents: read/);
 });
 
-test('v8.9.1 UI is additive, redundant, cache-busted, and free of common mojibake',()=>{
+test('Operations Guardian UI is additive, redundant, cache-busted, and free of common mojibake',()=>{
   const js=fs.readFileSync(path.join(ROOT,'public/app-v8_9.js'),'utf8');
   const html=fs.readFileSync(path.join(ROOT,'public/index.html'),'utf8');
   assert.match(js,/REFRESH_MS=60000/);
@@ -92,7 +92,7 @@ test('v8.9.1 UI is additive, redundant, cache-busted, and free of common mojibak
   assert.doesNotMatch(js,/[ÃÂ�â]|[\u0080-\u009f]/u);
   assert.match(js,/AEGIS IS OPERATING HANDS-OFF/);
   assert.match(html,/v9\.1\.2 • PROVIDER ROUTER/);
-  assert.match(html,/\/app-v8_9\.js\?v=9\.1\.2/);
+  assert.match(html,/\/app-v8_9\.js\?v=9\.2\.2/);
   assert.match(html,/\/visual-v8_9\.css\?v=9\.1\.2/);
 });
 

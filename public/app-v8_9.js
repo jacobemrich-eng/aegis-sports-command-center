@@ -131,4 +131,8 @@
   document.addEventListener('aegis:session-change',event=>{
     if(event.detail&&event.detail.authenticated)refresh();
   });
+  document.addEventListener('aegis:operations-verified',event=>{
+    const ops=event.detail&&event.detail.operations;
+    if(ops)render(ops);
+  });
 })();
