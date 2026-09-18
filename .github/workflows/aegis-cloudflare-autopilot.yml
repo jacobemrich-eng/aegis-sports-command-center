@@ -1,0 +1,92 @@
+name: AEGIS Cloudflare Direct Autopilot Preview
+
+on:
+  workflow_dispatch:
+    inputs:
+      sport:
+        description: Optional single sport; blank runs the configured Autopilot sports
+        required: false
+        default: ""
+        type: string
+      force:
+        description: Force the canonical Autopilot tick
+        required: false
+        default: false
+        type: boolean
+      reason:
+        description: Safe audit reason
+        required: false
+        default: cloudflare direct validation
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aegis-cloudflare-direct-autopilot-preview
+  cancel-in-progress: false
+
+jobs:
+  direct-tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      NODE_ENV: production
+      ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+      CFBD_API_KEY: ${{ secrets.CFBD_API_KEY }}
+      SPORTSGAMEODDS_API_KEY: ${{ secrets.SPORTSGAMEODDS_API_KEY }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      AEGIS_STATE_ID: main
+      AEGIS_TIMEZONE: America/New_York
+      AEGIS_AUTOPILOT_ENABLED: "true"
+      AEGIS_AUTOPILOT_SPORTS: baseball_mlb,americanfootball_ncaaf
+      AEGIS_RELEASE_SPORTS: baseball_mlb,americanfootball_ncaaf
+      AEGIS_DAILY_ODDS_CREDIT_BUDGET: "18"
+      AEGIS_MONTHLY_ODDS_CREDIT_BUDGET: "450"
+      AEGIS_MAX_SPORTS_PER_TICK: "2"
+      AEGIS_MAX_FULL_ODDS_REFRESHES_PER_SPORT_DAY: "2"
+      AEGIS_MAX_TARGETED_REFRESHES_PER_SPORT_DAY: "3"
+      AEGIS_AUTOPILOT_DEEP_CREDIT_CAP: "3"
+      AEGIS_AUTOPILOT_DEEP_WINDOW_HOURS: "4"
+      AEGIS_AUTO_LOCK_MINUTES: "30"
+      AEGIS_GRADE_DELAY_HOURS: "2"
+      ODDS_BOOKMAKERS: hardrockbet_fl,fanduel,draftkings,bovada,betmgm,espnbet,fanatics
+      MAX_SCAN_GAMES: "15"
+      MAX_DEEP_MARKET_GAMES: "4"
+      MAX_DEEP_MARKET_CREDITS: "10"
+      AEGIS_PUBLIC_ODDS_MODE: shared_first
+      AEGIS_SHARED_BOARD_MAX_AGE_MS: "900000"
+      AEGIS_SHARED_BOARD_MAX_STALE_MS: "21600000"
+      AEGIS_PROVIDER_CACHE_MAX_STALE_MS: "21600000"
+      AEGIS_PROVIDER_CACHE_MAX_BYTES: "1800000"
+      AEGIS_ODDS_PROVIDER_TIMEOUT_MS: "10000"
+      AEGIS_ODDS_SECONDARY_ENABLED: "true"
+      AEGIS_ODDS_SECONDARY_BASE_URL: https://api.sportsgameodds.com/v2
+      AEGIS_ODDS_SECONDARY_TIMEOUT_MS: "10000"
+      AEGIS_ODDS_SECONDARY_MAX_PAGES: "3"
+      AEGIS_PRIMARY_PROVIDER_FAILURE_THRESHOLD: "2"
+      AEGIS_PRIMARY_PROVIDER_COOLDOWN_MS: "180000"
+      ODDS_CACHE_TTL_MS: "120000"
+      MIN_ODDS_REFRESH_MS: "60000"
+      ODDS_QUOTA_RESERVE: "35"
+      AEGIS_DIRECT_SPORT: ${{ inputs.sport }}
+      AEGIS_DIRECT_FORCE: ${{ inputs.force }}
+      AEGIS_DIRECT_REASON: ${{ inputs.reason }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run canonical Autopilot directly
+        run: node scripts/autopilot-direct.js
