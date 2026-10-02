@@ -3,4 +3,6 @@
 .dev.vars.*
 !.dev.vars.example
 .wrangler-dry-run/
+.wrangler-public-beta-dry-run/
+.ui-review/
 cloudflare-dist/

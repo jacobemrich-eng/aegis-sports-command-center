@@ -3,6 +3,7 @@
   "name": "aegis-sports-command-center",
   "main": "cloudflare/worker.mjs",
   "compatibility_date": "2026-09-17",
+  "preview_urls": true,
   "assets": {
     "directory": "./public",
     "binding": "ASSETS"
@@ -18,5 +19,19 @@
     "AEGIS_MONTHLY_ODDS_CREDIT_BUDGET": "450",
     "AEGIS_AUTO_LOCK_MINUTES": "30",
     "AEGIS_GRADE_DELAY_HOURS": "2"
+  },
+  "previews": {
+    "vars": {
+      "AEGIS_STATE_ID": "main",
+      "AEGIS_EDGE_PLATFORM_MODE": "cloudflare-edge-preview",
+      "AEGIS_COMPUTE_MODE": "github-actions-direct",
+      "AEGIS_TIMEZONE": "America/New_York",
+      "AEGIS_AUTOPILOT_ENABLED": "true",
+      "AEGIS_RELEASE_SPORTS": "baseball_mlb,americanfootball_ncaaf",
+      "AEGIS_DAILY_ODDS_CREDIT_BUDGET": "18",
+      "AEGIS_MONTHLY_ODDS_CREDIT_BUDGET": "450",
+      "AEGIS_AUTO_LOCK_MINUTES": "30",
+      "AEGIS_GRADE_DELAY_HOURS": "2"
+    }
   }
 }
