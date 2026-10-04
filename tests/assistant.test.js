@@ -136,6 +136,7 @@ test('successful answer uses Responses API with store false and configured cost 
   assert.equal(requestBody.max_output_tokens, 500);
   assert.equal(requestBody.parallel_tool_calls, true);
   assert.match(requestBody.instructions, /Request independent read-only lookups together/);
+  assert.match(requestBody.instructions, /call exactly get_sports, get_models with sport null, and get_results/);
   assert.equal(requestBody.tools.some(tool => tool.type !== 'function'), false);
   assert.deepEqual(requestBody.tools.map(tool => tool.name), module.contracts.ASSISTANT_TOOL_NAMES);
 });

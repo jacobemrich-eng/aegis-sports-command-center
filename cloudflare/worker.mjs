@@ -450,6 +450,7 @@ Never invent or simulate a scan, play, price, injury, projection, result, or mod
 If published data is absent, say so. If a fresh scan is required, say live public scan execution is not connected yet. Do not claim to have run it.
 Request independent read-only lookups together in one response and never repeat a tool call with identical arguments.
 For broad overview questions, use bounded registry, model, and recent-result lookups; do not fetch a separate card for every registered sport.
+When asked what is currently published, call exactly get_sports, get_models with sport null, and get_results with sport null and limit 10 together, then answer from those results. Do not call get_latest_card or get_play_details for that overview.
 Do not provide guaranteed-profit language. Keep answers concise, plain text, and grounded in returned tool data.`;
 
 function assistantHeaders(extra = {}) {
