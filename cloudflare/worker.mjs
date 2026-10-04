@@ -658,7 +658,7 @@ function enforceAssistantGovernance(text, toolResults) {
     .filter(play => play && ['WATCH', 'PASS'].includes(String(play.tier || 'PASS').toUpperCase()));
   const noPublished = toolResults.some(result => result && ('card' in result) && !result.card);
   if ((noPublished && actionLanguage(text)) ||
-      ([...tiers].every(tier => ['WATCH', 'PASS'].includes(tier)) && actionLanguage(text)) ||
+      (tiers.size > 0 && [...tiers].every(tier => ['WATCH', 'PASS'].includes(tier)) && actionLanguage(text)) ||
       (specificNonActionable.length && /\b(?:CORE|SECONDARY)\b/i.test(text)) ||
       (!tiers.has('CORE') && /\bcore\b/i.test(text) && actionLanguage(text))) {
     return governanceFallback(toolResults);

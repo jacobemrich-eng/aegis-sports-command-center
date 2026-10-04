@@ -170,7 +170,7 @@ test('published overview deterministically seeds three bounded read-only lookups
     if (String(url).startsWith('https://supabase.example/')) return jsonResponse([{ audit: [] }]);
     assert.equal(url, 'https://api.openai.com/v1/responses');
     requestBody = JSON.parse(options.body);
-    return jsonResponse(responsePayload('Published registry, models, and recent results are available.'));
+    return jsonResponse(responsePayload('Published sports, models, recent results, and recommendation records are available.'));
   }, () => module.default.fetch(assistantRequest({
     prompt: 'What is currently published?',
     history: [
@@ -189,7 +189,9 @@ test('published overview deterministically seeds three bounded read-only lookups
   assert.match(canonicalContext.content[0].text, /"get_sports"/);
   assert.match(canonicalContext.content[0].text, /"get_models"/);
   assert.match(canonicalContext.content[0].text, /"get_results"/);
-  assert.deepEqual((await response.json()).tools_used, ['get_sports', 'get_models', 'get_results']);
+  const responseBody = await response.json();
+  assert.equal(responseBody.response, 'Published sports, models, recent results, and recommendation records are available.');
+  assert.deepEqual(responseBody.tools_used, ['get_sports', 'get_models', 'get_results']);
 });
 
 test('bounded multi-tool orchestration succeeds and rejects an excessive loop', { concurrency: false }, async () => {
