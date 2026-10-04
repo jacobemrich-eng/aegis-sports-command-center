@@ -700,6 +700,10 @@ function looksLikeFreshScanRequest(prompt) {
   return /\b(?:run|perform|start)\s+(?:a\s+)?(?:fresh\s+)?(?:aegis\s+)?scan\b|\b(?:run|perform)\s+aegis\s+(?:on|for)\b/i.test(prompt);
 }
 
+function isPublishedOverviewRequest(prompt) {
+  return String(prompt || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() === 'what is currently published';
+}
+
 function promptMatchesPublishedAnalysis(prompt, card) {
   const normalized = prompt.toLowerCase();
   const pool = [...(card?.plays || []), ...(card?.passes || [])];
@@ -754,6 +758,28 @@ async function assistant(request, env) {
   const toolsUsed = [];
   const toolResults = [];
   let toolCalls = 0;
+  const publishedOverview = isPublishedOverviewRequest(input.prompt);
+
+  if (publishedOverview) {
+    const plan = [
+      ['get_sports', {}],
+      ['get_models', { sport: null }],
+      ['get_results', { sport: null, limit: 10 }]
+    ];
+    const seededCalls = [];
+    for (const [name, args] of plan) {
+      const callId = `published_overview_${seededCalls.length + 1}`;
+      const result = await executeAssistantTool(name, args, env);
+      seededCalls.push({ name, args, callId, result });
+      toolCalls++;
+      toolsUsed.push(name);
+      toolResults.push(result);
+    }
+    items.push(
+      ...seededCalls.map(call => ({ type: 'function_call', name: call.name, arguments: JSON.stringify(call.args), call_id: call.callId })),
+      ...seededCalls.map(call => ({ type: 'function_call_output', call_id: call.callId, output: JSON.stringify(call.result) }))
+    );
+  }
 
   for (let round = 0; round <= ASSISTANT_TOOL_ROUNDS; round++) {
     let upstream;
@@ -764,7 +790,7 @@ async function assistant(request, env) {
         instructions: ASSISTANT_INSTRUCTIONS,
         input: items,
         tools: ASSISTANT_TOOLS,
-        tool_choice: 'auto',
+        tool_choice: publishedOverview ? 'none' : 'auto',
         parallel_tool_calls: true,
         max_output_tokens: maxOutputTokens
       });
