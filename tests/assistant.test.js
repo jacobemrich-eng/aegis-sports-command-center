@@ -281,6 +281,10 @@ test('only approved read-only tools are exposed and client output remains XSS-sa
   assert.doesNotMatch(publicSource + html, /OPENAI_API_KEY|api\.openai\.com/);
   assert.doesNotMatch(JSON.stringify(wrangler), /OPENAI_API_KEY/);
   assert.equal(wrangler.vars.AEGIS_ASSISTANT_ENABLED, 'false');
-  assert.deepEqual(wrangler.previews.vars, wrangler.vars);
+  assert.equal(wrangler.previews.vars.AEGIS_ASSISTANT_ENABLED, 'true');
+  assert.deepEqual(
+    { ...wrangler.previews.vars, AEGIS_ASSISTANT_ENABLED: 'false' },
+    wrangler.vars
+  );
   assert.equal(require('../src/engine').VERSION, '8.8.0-decision-intelligence');
 });
