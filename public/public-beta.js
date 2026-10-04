@@ -5,7 +5,8 @@
     sports: '/api/sports',
     models: '/api/models',
     cards: '/api/cards/latest',
-    results: '/api/results/ledger'
+    results: '/api/results/ledger',
+    assistant: '/api/assistant'
   };
   var RECENT_KEY = 'aegis_public_recent_prompts_v1';
   var LAST_VIEW_KEY = 'aegis_public_last_view_v1';
@@ -19,7 +20,7 @@
     { title: 'MLB', key: 'baseball_mlb', monogram: 'MLB' },
     { title: 'NBA', key: 'basketball_nba', monogram: 'NBA' }
   ];
-  var state = { sports: [], models: [], cards: new Map(), ledger: [], selectedCardSport: null };
+  var state = { sports: [], models: [], cards: new Map(), ledger: [], selectedCardSport: null, assistantHistory: [], assistantBusy: false };
 
   function one(selector, root) { return (root || document).querySelector(selector); }
   function all(selector, root) { return Array.from((root || document).querySelectorAll(selector)); }
@@ -294,12 +295,20 @@
     safeStorageSet(RECENT_KEY, next);
     renderRecentPrompts();
   }
-  function renderAssistantMessage(role, message) {
+  function renderAssistantMessage(role, message, options) {
+    options = options || {};
     var messages = one('#pbAskMessages');
     if (!messages) return null;
-    var bubble = element('div', 'pb-message pb-message-' + role);
+    var bubble = element('div', 'pb-message pb-message-' + role + (options.state ? ' is-' + options.state : ''));
     bubble.appendChild(element('small', '', role === 'user' ? 'YOU' : 'AEGIS'));
     bubble.appendChild(element('span', '', message));
+    if (options.grounded) bubble.appendChild(element('small', 'pb-grounded-badge', 'Grounded in AEGIS'));
+    if (options.retry) {
+      var retry = element('button', 'pb-retry', 'Try again');
+      retry.type = 'button';
+      retry.addEventListener('click', options.retry);
+      bubble.appendChild(retry);
+    }
     messages.appendChild(bubble);
     messages.scrollTop = messages.scrollHeight;
     return bubble;
@@ -318,37 +327,86 @@
   function routeAssistantIntent(rawPrompt) {
     var prompt = String(rawPrompt || '').trim();
     var normalized = prompt.toLowerCase();
-    var sport = PRIORITY_SPORTS.find(function (item) { return new RegExp('\\b' + item.title.toLowerCase() + '\\b').test(normalized); });
+    var sport = PRIORITY_SPORTS.find(function (item) { return new RegExp('^(?:open|show|view|explore)\\s+(?:the\\s+)?' + item.title.toLowerCase() + '$').test(normalized); });
     if (sport) {
-      if (!sportByKey(sport.key)) return { view: 'sports', message: sport.title + ' is marked Coming soon because it is not currently represented in the canonical AEGIS sport registry.' };
-      return { view: 'sports', sport: sport.key, message: 'Opening ' + sport.title + '. You can continue to its latest published card or Board from the Sports hub.' };
+      if (!sportByKey(sport.key)) return { local: true, view: 'sports', message: sport.title + ' is marked Coming soon because it is not currently represented in the canonical AEGIS sport registry.' };
+      return { local: true, view: 'sports', sport: sport.key, message: 'Opening ' + sport.title + '. You can continue to its latest published card or Board from the Sports hub.' };
     }
-    if (/\b(results?|record|ledger)\b/.test(normalized)) return { view: 'results', message: 'Opening the public Results ledger.' };
-    if (/\b(models?|registry)\b/.test(normalized)) return { view: 'models', message: 'Opening the canonical AEGIS model registry.' };
-    if (/\b(final card|today.?s card|best aegis plays?|plays?)\b/.test(normalized)) return { view: 'card', message: 'Opening the latest published AEGIS card. Pass decisions remain visible for transparency.' };
-    if (/\b(board|slate|games?)\b/.test(normalized)) return { view: 'board', message: 'Opening the AEGIS Board.' };
-    if (/\bsports?\b/.test(normalized)) return { view: 'sports', message: 'Opening the Sports hub.' };
-    if (/\b(core|secondary|watch|pass|tiers?)\b/.test(normalized)) return { view: null, message: 'CORE and SECONDARY are governed release tiers. WATCH means a confirmation gate remains open. PASS means the opportunity did not clear release requirements and is not a recommendation.' };
-    return { view: null, message: 'Deep Ask AEGIS analysis is being connected in the next integration phase. I can open the relevant sport, today’s card, results, or model information now.' };
+    if (/^(?:open|show|view)\s+(?:the\s+)?(?:results?|record|ledger)$/.test(normalized)) return { local: true, view: 'results', message: 'Opening the public Results ledger.' };
+    if (/^(?:open|show|view)\s+(?:the\s+)?(?:models?|registry)$/.test(normalized)) return { local: true, view: 'models', message: 'Opening the canonical AEGIS model registry.' };
+    if (/^(?:open|show|view)\s+(?:the\s+)?(?:final card|today.?s card)$/.test(normalized)) return { local: true, view: 'card', message: 'Opening the latest published AEGIS card. Pass decisions remain visible for transparency.' };
+    if (/^(?:open|show|view)\s+(?:the\s+)?(?:board|slate)$/.test(normalized)) return { local: true, view: 'board', message: 'Opening the AEGIS Board.' };
+    if (/^(?:open|show|view|explore)\s+(?:the\s+)?sports?$/.test(normalized)) return { local: true, view: 'sports', message: 'Opening the Sports hub.' };
+    if (/^(?:explain|show|what are)\s+(?:the\s+)?(?:aegis\s+)?tiers\??$/.test(normalized)) return { local: true, view: null, message: 'CORE and SECONDARY are governed release tiers. WATCH means a confirmation gate remains open. PASS means the opportunity did not clear release requirements and is not a recommendation.' };
+    return { local: false };
   }
-  function submitAssistantRequest(rawPrompt, source) {
-    var prompt = String(rawPrompt || '').trim().slice(0, 240);
+  function assistantErrorMessage(code) {
+    if (code === 'assistant_disabled' || code === 'assistant_unavailable') return 'Ask AEGIS is not enabled yet. The public data pages and deterministic navigation remain available.';
+    if (code === 'rate_limited' || code === 'assistant_upstream_rate_limited') return 'Ask AEGIS is at its short-term request limit. Please wait a moment and try again.';
+    if (code === 'assistant_credits_exhausted') return 'Ask AEGIS has reached its current usage budget. Please try again later.';
+    if (code === 'assistant_timeout') return 'Ask AEGIS took too long to answer. No scan or recommendation was created.';
+    return 'Ask AEGIS could not complete that request safely. Please try again.';
+  }
+  function setAssistantBusy(busy) {
+    state.assistantBusy = busy;
+    all('#pbHomeAskForm button, #pbAskForm button').forEach(function (button) { button.disabled = busy; });
+  }
+  function renderHomeAssistant(message, options) {
+    options = options || {};
+    var response = clear(one('#pbHomeAskResponse'));
+    if (!response) return;
+    response.hidden = false;
+    response.className = 'pb-inline-response' + (options.state ? ' is-' + options.state : '');
+    response.appendChild(element('span', '', message));
+    if (options.grounded) response.appendChild(element('small', 'pb-grounded-badge', 'Grounded in AEGIS'));
+    if (options.retry) {
+      var retry = element('button', 'pb-retry', 'Try again'); retry.type = 'button'; retry.addEventListener('click', options.retry); response.appendChild(retry);
+    }
+  }
+  async function requestAssistant(prompt) {
+    var response = await fetch(API.assistant, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: prompt, history: state.assistantHistory.slice(-6) })
+    });
+    var body = await response.json().catch(function () { return {}; });
+    if (!response.ok) { var error = new Error(body.error || 'Ask AEGIS is unavailable.'); error.code = body.code; throw error; }
+    return body;
+  }
+  async function submitAssistantRequest(rawPrompt, source) {
+    var prompt = String(rawPrompt || '').trim().slice(0, 1000);
     if (!prompt) return;
+    if (state.assistantBusy) return;
     savePrompt(prompt);
     var result = routeAssistantIntent(prompt);
-    if (source === 'home') {
-      var response = one('#pbHomeAskResponse');
-      if (response) { response.textContent = result.message; response.hidden = false; }
-    } else {
-      renderAssistantMessage('user', prompt);
-      var loading = renderAssistantMessage('assistant', 'Checking the available AEGIS routes…');
-      window.setTimeout(function () {
-        if (loading) loading.remove();
-        renderAssistantMessage('assistant', result.message);
-      }, 180);
+    if (result.local) {
+      if (source === 'home') renderHomeAssistant(result.message);
+      else { renderAssistantMessage('user', prompt); renderAssistantMessage('assistant', result.message); }
+      if (result.sport) selectLegacySport(result.sport);
+      if (result.view) window.setTimeout(function () { openView(result.view); }, source === 'home' ? 350 : 500);
+      return;
     }
-    if (result.sport) selectLegacySport(result.sport);
-    if (result.view) window.setTimeout(function () { openView(result.view); }, source === 'home' ? 500 : 650);
+    if (source !== 'home') {
+      renderAssistantMessage('user', prompt);
+      var loading = renderAssistantMessage('assistant', 'Checking published AEGIS intelligence…', { state: 'working' });
+    } else renderHomeAssistant('Checking published AEGIS intelligence…', { state: 'working' });
+    setAssistantBusy(true);
+    try {
+      var answer = await requestAssistant(prompt);
+      if (loading) loading.remove();
+      if (source === 'home') renderHomeAssistant(answer.response, { grounded: answer.grounded === true });
+      else renderAssistantMessage('assistant', answer.response, { grounded: answer.grounded === true });
+      state.assistantHistory = state.assistantHistory.concat([{ role: 'user', content: prompt }, { role: 'assistant', content: String(answer.response || '') }]).slice(-6);
+    } catch (error) {
+      if (loading) loading.remove();
+      var retry = function () { submitAssistantRequest(prompt, source); };
+      var message = assistantErrorMessage(error.code);
+      if (source === 'home') renderHomeAssistant(message, { state: 'error', retry: retry });
+      else renderAssistantMessage('assistant', message, { state: 'error', retry: retry });
+    } finally {
+      setAssistantBusy(false);
+    }
   }
 
   async function loadPublicData() {
@@ -381,7 +439,7 @@
   function start() {
     document.documentElement.classList.add('aegis-public-beta');
     bindNavigation(); bindForms(); renderRecentPrompts();
-    renderAssistantMessage('assistant', 'Ready when you are. I can open a sport, today’s card, results, or the AEGIS model registry.');
+    renderAssistantMessage('assistant', 'Ready when you are. Ask about published AEGIS cards, plays, results, or model decisions.');
     syncSession(!!(window.ADMIN_SESSION && window.ADMIN_SESSION.authenticated));
     setViewState('home');
     loadPublicData().catch(function () {

@@ -47,18 +47,22 @@ test('legacy operational IDs and administrator login contract remain available e
   assert.match(html, /RUN FULL AUTOMATIC SLATE SCAN/);
 });
 
-test('public beta reads only the approved public registry, card, and ledger APIs', () => {
-  for (const endpoint of ['/api/sports', '/api/models', '/api/cards/latest', '/api/results/ledger']) {
+test('public beta reads approved public data APIs and posts questions only to Ask AEGIS', () => {
+  for (const endpoint of ['/api/sports', '/api/models', '/api/cards/latest', '/api/results/ledger', '/api/assistant']) {
     assert.match(app, new RegExp(endpoint.replaceAll('/', '\\/')));
   }
   assert.doesNotMatch(app, /\/api\/(?:scan|odds|autopilot\/tick|results\/grade|card\/lock)/);
 });
 
-test('Ask AEGIS Sprint 1 is deterministic, inline, and does not call an external AI service', () => {
+test('Ask AEGIS keeps deterministic navigation local and uses the same-origin assistant API for real questions', () => {
   assert.match(app, /function submitAssistantRequest/);
   assert.match(app, /function routeAssistantIntent/);
   assert.match(app, /function renderAssistantMessage/);
-  assert.match(app, /Deep Ask AEGIS analysis is being connected in the next integration phase/);
+  assert.match(app, /function requestAssistant/);
+  assert.match(app, /method: 'POST'/);
+  assert.match(app, /Grounded in AEGIS/);
+  assert.match(app, /assistant_disabled/);
+  assert.match(app, /rate_limited/);
   assert.doesNotMatch(app, /openai|anthropic|gemini|api\.openai\.com|chat\/completions|responses\/v1/i);
   assert.doesNotMatch(app, /alert\s*\(/);
 });

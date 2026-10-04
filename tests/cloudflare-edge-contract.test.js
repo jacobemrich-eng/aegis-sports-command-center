@@ -60,6 +60,7 @@ test('Worker exposes required public, session, and administrator read routes', (
     '/api/sports',
     '/api/cards/latest',
     '/api/results/ledger',
+    '/api/assistant',
     '/api/login',
     '/api/logout',
     '/api/admin/status',

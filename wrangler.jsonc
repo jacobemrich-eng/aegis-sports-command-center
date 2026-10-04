@@ -8,6 +8,16 @@
     "directory": "./public",
     "binding": "ASSETS"
   },
+  "ratelimits": [
+    {
+      "name": "AEGIS_ASSISTANT_RATE_LIMITER",
+      "namespace_id": "9502",
+      "simple": {
+        "limit": 6,
+        "period": 60
+      }
+    }
+  ],
   "vars": {
     "AEGIS_STATE_ID": "main",
     "AEGIS_EDGE_PLATFORM_MODE": "cloudflare-edge-preview",
@@ -18,7 +28,11 @@
     "AEGIS_DAILY_ODDS_CREDIT_BUDGET": "18",
     "AEGIS_MONTHLY_ODDS_CREDIT_BUDGET": "450",
     "AEGIS_AUTO_LOCK_MINUTES": "30",
-    "AEGIS_GRADE_DELAY_HOURS": "2"
+    "AEGIS_GRADE_DELAY_HOURS": "2",
+    "AEGIS_ASSISTANT_ENABLED": "false",
+    "AEGIS_ASSISTANT_MODEL": "gpt-5-mini",
+    "AEGIS_ASSISTANT_MAX_OUTPUT_TOKENS": "500",
+    "AEGIS_ASSISTANT_TIMEOUT_MS": "12000"
   },
   "previews": {
     "vars": {
@@ -31,7 +45,11 @@
       "AEGIS_DAILY_ODDS_CREDIT_BUDGET": "18",
       "AEGIS_MONTHLY_ODDS_CREDIT_BUDGET": "450",
       "AEGIS_AUTO_LOCK_MINUTES": "30",
-      "AEGIS_GRADE_DELAY_HOURS": "2"
+      "AEGIS_GRADE_DELAY_HOURS": "2",
+      "AEGIS_ASSISTANT_ENABLED": "false",
+      "AEGIS_ASSISTANT_MODEL": "gpt-5-mini",
+      "AEGIS_ASSISTANT_MAX_OUTPUT_TOKENS": "500",
+      "AEGIS_ASSISTANT_TIMEOUT_MS": "12000"
     }
   }
 }

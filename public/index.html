@@ -60,7 +60,7 @@
     <div class="pb-section-intro"><span>ASK AEGIS</span><h2 id="pbCommandTitle">Where should we start?</h2></div>
     <form id="pbHomeAskForm" class="pb-command-form">
       <label class="pb-sr-only" for="pbHomeAskInput">Ask AEGIS</label>
-      <input id="pbHomeAskInput" autocomplete="off" maxlength="240" placeholder="Ask AEGIS anything — games, slates, props, markets, or strategy…">
+      <input id="pbHomeAskInput" autocomplete="off" maxlength="1000" placeholder="Ask AEGIS anything — games, slates, props, markets, or strategy…">
       <button type="submit" aria-label="Submit question">Ask</button>
     </form>
     <div class="pb-quick-actions" aria-label="Suggested AEGIS actions">
@@ -115,7 +115,7 @@
 </section>
 
 <section id="ask" class="page hidden pb-ask-page" aria-labelledby="pbAskTitle">
-  <div class="pb-page-heading"><div class="pb-eyebrow">ASK AEGIS</div><h1 id="pbAskTitle">A focused way into the Command Center.</h1><p>Ask about a sport, the latest card, results, or how AEGIS makes decisions. Deep natural-language analysis arrives in the next integration phase.</p></div>
+  <div class="pb-page-heading"><div class="pb-eyebrow">ASK AEGIS</div><h1 id="pbAskTitle">A focused way into the Command Center.</h1><p>Ask about a sport, a published play, the latest card, results, or how AEGIS makes decisions. Answers stay inside canonical AEGIS data and governance.</p></div>
   <div class="pb-chat-shell">
     <div id="pbAskMessages" class="pb-chat-messages" aria-live="polite" aria-label="Ask AEGIS conversation"></div>
     <div id="pbRecentPrompts" class="pb-recent-prompts" hidden></div>
@@ -127,10 +127,10 @@
     </div>
     <form id="pbAskForm" class="pb-command-form">
       <label class="pb-sr-only" for="pbAskInput">Message AEGIS</label>
-      <input id="pbAskInput" autocomplete="off" maxlength="240" placeholder="Ask about a sport, card, market, or AEGIS process…">
+      <input id="pbAskInput" autocomplete="off" maxlength="1000" placeholder="Ask about a sport, card, market, or AEGIS process…">
       <button type="submit">Send</button>
     </form>
-    <p class="pb-chat-disclosure">Sprint 1 assistant preview · deterministic navigation only · no external AI service</p>
+    <p class="pb-chat-disclosure">Ask AEGIS retrieves published read-only data. It cannot run a fresh canonical scan or change a model decision.</p>
   </div>
 </section>
 
@@ -168,6 +168,6 @@
 <script src="/app-v8_3_2.js?v=8.8.0" defer></script>
 <script src="/app-v8_6.js?v=8.8.0" defer></script>
 <script src="/app-v8_9.js?v=9.2.2" defer></script>
-<script src="/public-beta.js?v=9.4.0" defer></script>
+<script src="/public-beta.js?v=9.5.0" defer></script>
 </body>
 </html>
