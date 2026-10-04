@@ -165,12 +165,11 @@ test('approved read-only tool call grounds the response and replays tool output'
 
 test('published overview deterministically seeds three bounded read-only lookups', { concurrency: false }, async () => {
   const module = await worker();
-  let requestBody;
+  let openaiCalls = 0;
   const response = await withFetch(async (url, options) => {
     if (String(url).startsWith('https://supabase.example/')) return jsonResponse([{ audit: [] }]);
-    assert.equal(url, 'https://api.openai.com/v1/responses');
-    requestBody = JSON.parse(options.body);
-    return jsonResponse(responsePayload('Published sports, models, recent results, and recommendation records are available.'));
+    openaiCalls++;
+    throw new Error(`Unexpected upstream request: ${url}`);
   }, () => module.default.fetch(assistantRequest({
     prompt: 'What is currently published?',
     history: [
@@ -182,16 +181,15 @@ test('published overview deterministically seeds three bounded read-only lookups
     SUPABASE_SECRET_KEY: 'sb_secret_test'
   })));
   assert.equal(response.status, 200);
-  assert.equal(requestBody.tool_choice, 'none');
-  assert.equal(requestBody.input.some(item => item.content === 'View today\u2019s best AEGIS plays'), false);
-  const canonicalContext = requestBody.input.find(item => item.role === 'developer');
-  assert.match(canonicalContext.content[0].text, /Canonical read-only AEGIS lookup results/);
-  assert.match(canonicalContext.content[0].text, /"get_sports"/);
-  assert.match(canonicalContext.content[0].text, /"get_models"/);
-  assert.match(canonicalContext.content[0].text, /"get_results"/);
   const responseBody = await response.json();
-  assert.equal(responseBody.response, 'Published sports, models, recent results, and recommendation records are available.');
+  assert.match(responseBody.response, /sports in its canonical registry/);
+  assert.match(responseBody.response, /governed model and system definitions/);
+  assert.match(responseBody.response, /No recent graded result records/);
+  assert.match(responseBody.response, /does not run a scan or create a recommendation/);
   assert.deepEqual(responseBody.tools_used, ['get_sports', 'get_models', 'get_results']);
+  assert.equal(responseBody.grounded, true);
+  assert.equal(responseBody.requires_scan, false);
+  assert.equal(openaiCalls, 0);
 });
 
 test('bounded multi-tool orchestration succeeds and rejects an excessive loop', { concurrency: false }, async () => {
