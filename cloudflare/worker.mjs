@@ -754,11 +754,11 @@ async function assistant(request, env) {
 
   const model = envText(env, 'AEGIS_ASSISTANT_MODEL', 'gpt-5-mini');
   const maxOutputTokens = Math.max(128, Math.min(1200, envNumber(env, 'AEGIS_ASSISTANT_MAX_OUTPUT_TOKENS', 500)));
-  const items = input.input.slice();
+  const publishedOverview = isPublishedOverviewRequest(input.prompt);
+  const items = publishedOverview ? [{ role: 'user', content: input.prompt }] : input.input.slice();
   const toolsUsed = [];
   const toolResults = [];
   let toolCalls = 0;
-  const publishedOverview = isPublishedOverviewRequest(input.prompt);
 
   if (publishedOverview) {
     const plan = [

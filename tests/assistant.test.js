@@ -171,12 +171,19 @@ test('published overview deterministically seeds three bounded read-only lookups
     assert.equal(url, 'https://api.openai.com/v1/responses');
     requestBody = JSON.parse(options.body);
     return jsonResponse(responsePayload('Published registry, models, and recent results are available.'));
-  }, () => module.default.fetch(assistantRequest({ prompt: 'What is currently published?' }), env({
+  }, () => module.default.fetch(assistantRequest({
+    prompt: 'What is currently published?',
+    history: [
+      { role: 'user', content: 'View today\u2019s best AEGIS plays' },
+      { role: 'assistant', content: 'No published AEGIS recommendation is available.' }
+    ]
+  }), env({
     SUPABASE_URL: 'https://supabase.example',
     SUPABASE_SECRET_KEY: 'sb_secret_test'
   })));
   assert.equal(response.status, 200);
   assert.equal(requestBody.tool_choice, 'none');
+  assert.equal(requestBody.input.some(item => item.content === 'View today\u2019s best AEGIS plays'), false);
   const canonicalContext = requestBody.input.find(item => item.role === 'developer');
   assert.match(canonicalContext.content[0].text, /Canonical read-only AEGIS lookup results/);
   assert.match(canonicalContext.content[0].text, /"get_sports"/);
