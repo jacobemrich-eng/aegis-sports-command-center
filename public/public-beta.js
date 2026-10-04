@@ -345,6 +345,7 @@
     if (code === 'rate_limited' || code === 'assistant_upstream_rate_limited') return 'Ask AEGIS is at its short-term request limit. Please wait a moment and try again.';
     if (code === 'assistant_credits_exhausted') return 'Ask AEGIS has reached its current usage budget. Please try again later.';
     if (code === 'assistant_timeout') return 'Ask AEGIS took too long to answer. No scan or recommendation was created.';
+    if (code === 'assistant_output_limit') return 'Ask AEGIS reached its response limit. Please ask a narrower question.';
     return 'Ask AEGIS could not complete that request safely. Please try again.';
   }
   function setAssistantBusy(busy) {

@@ -795,6 +795,7 @@ async function assistant(request, env) {
         tools: ASSISTANT_TOOLS,
         tool_choice: publishedOverview ? 'none' : 'auto',
         parallel_tool_calls: true,
+        reasoning: { effort: 'minimal' },
         max_output_tokens: maxOutputTokens
       });
     } catch (error) {
@@ -815,6 +816,9 @@ async function assistant(request, env) {
     const calls = payload.output.filter(item => item?.type === 'function_call');
     if (!calls.length) {
       const text = responseText(payload);
+      if (!text && payload.status === 'incomplete' && payload.incomplete_details?.reason === 'max_output_tokens') {
+        return assistantError('Ask AEGIS reached its response limit. Please try a narrower question.', 'assistant_output_limit', 422);
+      }
       if (!text) return assistantError('Ask AEGIS returned an invalid response.', 'assistant_malformed_response', 502);
       return json({
         response: enforceAssistantGovernance(text, toolResults),

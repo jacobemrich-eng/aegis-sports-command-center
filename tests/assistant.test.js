@@ -134,6 +134,7 @@ test('successful answer uses Responses API with store false and configured cost 
   });
   assert.equal(requestBody.store, false);
   assert.equal(requestBody.max_output_tokens, 500);
+  assert.deepEqual(requestBody.reasoning, { effort: 'minimal' });
   assert.equal(requestBody.parallel_tool_calls, true);
   assert.match(requestBody.instructions, /Request independent read-only lookups together/);
   assert.match(requestBody.instructions, /call exactly get_sports, get_models with sport null, and get_results/);
@@ -291,6 +292,14 @@ test('upstream failures map to controlled errors and never expose secrets', { co
 
   response = await run(async () => jsonResponse({ id: 'missing-output' }));
   assert.equal((await response.json()).code, 'assistant_malformed_response');
+
+  response = await run(async () => jsonResponse({
+    status: 'incomplete',
+    incomplete_details: { reason: 'max_output_tokens' },
+    output: [{ type: 'reasoning' }]
+  }));
+  assert.equal(response.status, 422);
+  assert.equal((await response.json()).code, 'assistant_output_limit');
 });
 
 test('only approved read-only tools are exposed and client output remains XSS-safe', async () => {
