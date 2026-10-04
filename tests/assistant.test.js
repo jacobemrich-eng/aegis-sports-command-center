@@ -176,9 +176,11 @@ test('published overview deterministically seeds three bounded read-only lookups
   })));
   assert.equal(response.status, 200);
   assert.equal(requestBody.tool_choice, 'none');
-  const calls = requestBody.input.filter(item => item.type === 'function_call');
-  assert.deepEqual(calls.map(call => call.name), ['get_sports', 'get_models', 'get_results']);
-  assert.equal(requestBody.input.filter(item => item.type === 'function_call_output').length, 3);
+  const canonicalContext = requestBody.input.find(item => item.role === 'developer');
+  assert.match(canonicalContext.content[0].text, /Canonical read-only AEGIS lookup results/);
+  assert.match(canonicalContext.content[0].text, /"get_sports"/);
+  assert.match(canonicalContext.content[0].text, /"get_models"/);
+  assert.match(canonicalContext.content[0].text, /"get_results"/);
   assert.deepEqual((await response.json()).tools_used, ['get_sports', 'get_models', 'get_results']);
 });
 
