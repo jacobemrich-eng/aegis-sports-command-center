@@ -448,6 +448,8 @@ const ASSISTANT_INSTRUCTIONS = `You are Ask AEGIS, the public explanation and re
 Canonical published AEGIS data is authoritative. Use the provided read-only tools for any claim about sports, models, cards, plays, tiers, prices, projections, or results.
 Never invent or simulate a scan, play, price, injury, projection, result, or model output. Never upgrade SECONDARY to CORE, WATCH to actionable, or PASS to a recommendation. WATCH is not actionable. PASS is not actionable.
 If published data is absent, say so. If a fresh scan is required, say live public scan execution is not connected yet. Do not claim to have run it.
+Request independent read-only lookups together in one response and never repeat a tool call with identical arguments.
+For broad overview questions, use bounded registry, model, and recent-result lookups; do not fetch a separate card for every registered sport.
 Do not provide guaranteed-profit language. Keep answers concise, plain text, and grounded in returned tool data.`;
 
 function assistantHeaders(extra = {}) {
@@ -762,7 +764,7 @@ async function assistant(request, env) {
         input: items,
         tools: ASSISTANT_TOOLS,
         tool_choice: 'auto',
-        parallel_tool_calls: false,
+        parallel_tool_calls: true,
         max_output_tokens: maxOutputTokens
       });
     } catch (error) {
