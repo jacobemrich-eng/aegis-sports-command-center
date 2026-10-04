@@ -113,6 +113,8 @@ test('Cloudflare rate limit rejects the seventh-style request before upstream sp
   assert.equal((await response.json()).code, 'rate_limited');
   assert.equal(upstreamCalls, 0);
   assert.deepEqual(wrangler.ratelimits[0].simple, { limit: 6, period: 60 });
+  assert.deepEqual(wrangler.previews.ratelimits[0].simple, { limit: 6, period: 60 });
+  assert.notEqual(wrangler.previews.ratelimits[0].namespace_id, wrangler.ratelimits[0].namespace_id);
 });
 
 test('successful answer uses Responses API with store false and configured cost bounds', { concurrency: false }, async () => {

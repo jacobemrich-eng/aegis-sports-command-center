@@ -35,6 +35,16 @@
     "AEGIS_ASSISTANT_TIMEOUT_MS": "12000"
   },
   "previews": {
+    "ratelimits": [
+      {
+        "name": "AEGIS_ASSISTANT_RATE_LIMITER",
+        "namespace_id": "9503",
+        "simple": {
+          "limit": 6,
+          "period": 60
+        }
+      }
+    ],
     "vars": {
       "AEGIS_STATE_ID": "main",
       "AEGIS_EDGE_PLATFORM_MODE": "cloudflare-edge-preview",

@@ -114,6 +114,9 @@ test('Cloudflare preview is explicit, safe, and remains asset-first', () => {
   assert.equal('run_worker_first' in wrangler.assets, false);
   assert.equal(wrangler.previews.vars.AEGIS_EDGE_PLATFORM_MODE, 'cloudflare-edge-preview');
   assert.deepEqual(wrangler.previews.vars, wrangler.vars);
+  assert.equal(wrangler.previews.ratelimits[0].name, 'AEGIS_ASSISTANT_RATE_LIMITER');
+  assert.deepEqual(wrangler.previews.ratelimits[0].simple, { limit: 6, period: 60 });
+  assert.notEqual(wrangler.previews.ratelimits[0].namespace_id, wrangler.ratelimits[0].namespace_id);
   const serialized = JSON.stringify(wrangler);
   assert.doesNotMatch(serialized, /SUPABASE_(?:SECRET|SERVICE_ROLE)|ODDS_API_KEY|SPORTSGAMEODDS_API_KEY|AEGIS_ACCESS_PIN|SESSION_SECRET/);
 });
