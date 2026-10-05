@@ -130,13 +130,13 @@ test('scan queue rejects injected analysis data, rate limits, and reports safe G
     if (address.includes('/rpc/aegis_create_scan_job')) {
       return new Response(JSON.stringify([{ job_id: JSON.parse(options.body).p_id, expires_at: new Date(Date.now() + 10000).toISOString() }]), { status: 200 });
     }
-    if (address.includes('/actions/workflows/')) return new Response('private token leaked upstream', { status: 403 });
+    if (address.includes('/actions/workflows/')) return new Response(JSON.stringify({ message: 'Resource not accessible by personal access token', debug: 'private token leaked upstream' }), { status: 403 });
     return new Response(null, { status: 204 });
   }, () => module.default.fetch(request('/api/scan', { method: 'POST', body: { sport: 'baseball_mlb', markets: 'h2h' }, csrfHeader: true }), environment()));
   const raw = await dispatchFailure.text();
   assert.equal(dispatchFailure.status, 503);
-  assert.match(raw, /workflow_dispatch_forbidden_403/);
-  assert.match(raw, /Actions: write permission/);
+  assert.match(raw, /workflow_dispatch_forbidden_token_access_403/);
+  assert.match(raw, /same token you updated/);
   assert.doesNotMatch(raw, /private token leaked upstream|never-real-test-token/);
 });
 

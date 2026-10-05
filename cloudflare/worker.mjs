@@ -901,19 +901,40 @@ async function dispatchScanWorkflow(env, jobId) {
     signal: AbortSignal.timeout(8000)
   });
   if (response.status !== 204) {
+    // GitHub's status alone is ambiguous (a 403 can mean token scope, repository
+    // access, organization policy, Actions being disabled, or rate limiting).
+    // Read its response only to classify it; never persist or return raw upstream
+    // text because it is external input and may contain sensitive details.
+    const upstreamBody = await response.text().catch(() => '');
+    const upstreamMessage = (() => {
+      try { return String(JSON.parse(upstreamBody)?.message || '').toLowerCase(); }
+      catch { return ''; }
+    })();
+    let detail = '';
+    if (response.status === 403) {
+      if (/rate limit|secondary rate limit/.test(upstreamMessage)) detail = '_rate_limited';
+      else if (/resource not accessible by personal access token|must have.*actions.*write|fine.grained.*token/.test(upstreamMessage)) detail = '_token_access';
+      else if (/actions.*disabled|disabled.*actions|workflow.*disabled/.test(upstreamMessage)) detail = '_actions_disabled';
+      else if (/organization.*policy|policy.*organization|approved.*organization/.test(upstreamMessage)) detail = '_organization_policy';
+      else detail = '_access_policy';
+    }
     const category = response.status === 401 ? 'unauthorized'
       : response.status === 403 ? 'forbidden'
       : response.status === 404 ? 'not_found'
       : response.status === 422 ? 'invalid_request'
       : response.status >= 500 ? 'github_unavailable'
       : 'rejected';
-    throw new Error(`workflow_dispatch_${category}_${response.status}`);
+    throw new Error(`workflow_dispatch_${category}${detail}_${response.status}`);
   }
 }
 
 function scanDispatchFailureMessage(code) {
   if (code === 'workflow_dispatch_unauthorized_401') return 'GitHub rejected the configured Actions token (401). Replace the Cloudflare Preview secret AEGIS_GITHUB_ACTIONS_TOKEN with a valid token that can access this repository.';
-  if (code === 'workflow_dispatch_forbidden_403') return 'GitHub denied workflow dispatch (403). The token needs Actions: write permission for this repository, and Actions must be enabled in the repository.';
+  if (code === 'workflow_dispatch_forbidden_token_access_403') return 'GitHub says this token cannot access the workflow. Check that the saved Cloudflare Preview token is the same token you updated and that it is authorized for jacobemrich-eng/aegis-sports-command-center.';
+  if (code === 'workflow_dispatch_forbidden_actions_disabled_403') return 'GitHub says Actions or this workflow is disabled. Enable Actions for the repository and enable the aegis-scan-job workflow.';
+  if (code === 'workflow_dispatch_forbidden_organization_policy_403') return 'GitHub organization policy is blocking this token. The organization owner must approve or allow this fine-grained token.';
+  if (code === 'workflow_dispatch_forbidden_rate_limited_403') return 'GitHub rate-limited the workflow request. No scan ran; wait and try later.';
+  if (code === 'workflow_dispatch_forbidden_access_policy_403' || code === 'workflow_dispatch_forbidden_403') return 'GitHub denied workflow dispatch (403). The token must be authorized for this repository with Actions: write, and GitHub organization policy must permit it.';
   if (code === 'workflow_dispatch_not_found_404') return 'GitHub could not find the scan workflow or repository (404). Verify the workflow exists on the default branch and the token can access this repository.';
   if (code === 'workflow_dispatch_invalid_request_422') return 'GitHub rejected the workflow ref or dispatch request (422). Verify AEGIS_SCAN_WORKFLOW_REF names an existing branch and the workflow accepts job_id.';
   if (code === 'workflow_dispatch_github_unavailable_5xx') return 'GitHub Actions is temporarily unavailable. No scan was run; try again later.';
@@ -968,7 +989,7 @@ async function createScanJob(request, env, session) {
     await dispatchScanWorkflow(env, jobId);
   } catch (error) {
     const message = typeof error?.message === 'string' ? error.message : '';
-    dispatchErrorCode = /^workflow_dispatch_(?:unauthorized_401|forbidden_403|not_found_404|invalid_request_422|github_unavailable_5xx)$/.test(message)
+    dispatchErrorCode = /^workflow_dispatch_(?:unauthorized_401|forbidden_(?:token_access|actions_disabled|organization_policy|rate_limited|access_policy)_403|forbidden_403|not_found_404|invalid_request_422|github_unavailable_5xx)$/.test(message)
       ? message
       : 'workflow_dispatch_network_error';
     const query = new URLSearchParams({ id: `eq.${jobId}`, session_id_hash: `eq.${session.sessionIdHash}` });
