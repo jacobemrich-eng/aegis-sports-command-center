@@ -347,8 +347,12 @@ test('only approved read-only tools are exposed and client output remains XSS-sa
   assert.doesNotMatch(JSON.stringify(wrangler), /OPENAI_API_KEY/);
   assert.equal(wrangler.vars.AEGIS_ASSISTANT_ENABLED, 'false');
   assert.equal(wrangler.previews.vars.AEGIS_ASSISTANT_ENABLED, 'true');
+  assert.equal(wrangler.vars.AEGIS_SCAN_ORCHESTRATION_ENABLED, 'false');
+  assert.equal(wrangler.previews.vars.AEGIS_SCAN_ORCHESTRATION_ENABLED, 'false');
+  assert.equal(wrangler.vars.AEGIS_SCAN_WORKFLOW_REF, 'main');
+  assert.equal(wrangler.previews.vars.AEGIS_SCAN_WORKFLOW_REF, 'review/v9-6-scan-desk');
   assert.deepEqual(
-    { ...wrangler.previews.vars, AEGIS_ASSISTANT_ENABLED: 'false' },
+    { ...wrangler.previews.vars, AEGIS_ASSISTANT_ENABLED: 'false', AEGIS_SCAN_WORKFLOW_REF: 'main' },
     wrangler.vars
   );
   assert.equal(require('../src/engine').VERSION, '8.8.0-decision-intelligence');

@@ -44,7 +44,7 @@ test('legacy operational IDs and administrator login contract remain available e
     assert.equal((html.match(new RegExp(`id="${id}"`, 'g')) || []).length, 1, id);
   }
   assert.match(html, /type="password" inputmode="numeric" autocomplete="current-password"/);
-  assert.match(html, /RUN FULL AUTOMATIC SLATE SCAN/);
+  assert.match(html, /REVIEW SCAN/);
 });
 
 test('public beta reads approved public data APIs and posts questions only to Ask AEGIS', () => {
@@ -65,6 +65,15 @@ test('Ask AEGIS keeps deterministic navigation local and uses the same-origin as
   assert.match(app, /rate_limited/);
   assert.doesNotMatch(app, /openai|anthropic|gemini|api\.openai\.com|chat\/completions|responses\/v1/i);
   assert.doesNotMatch(app, /alert\s*\(/);
+});
+
+test('fresh-scan answers route the user to authenticated Scan Desk without starting compute', () => {
+  assert.match(app, /requiresScan: answer\.requires_scan === true/);
+  assert.match(app, /Review one scan in Scan Desk/);
+  assert.match(app, /window\.ADMIN_SESSION && window\.ADMIN_SESSION\.authenticated/);
+  assert.match(app, /openView\('command'\)/);
+  assert.doesNotMatch(app, /['"]\/api\/scan['"]|['"]\/api\/scan-jobs\//);
+  assert.match(read('cloudflare/worker.mjs'), /authenticated operator can review and explicitly confirm/i);
 });
 
 test('user prompts are rendered as text and cannot be injected as raw HTML', () => {
@@ -115,8 +124,12 @@ test('Cloudflare preview is explicit, safe, and remains asset-first', () => {
   assert.equal(wrangler.previews.vars.AEGIS_EDGE_PLATFORM_MODE, 'cloudflare-edge-preview');
   assert.equal(wrangler.vars.AEGIS_ASSISTANT_ENABLED, 'false');
   assert.equal(wrangler.previews.vars.AEGIS_ASSISTANT_ENABLED, 'true');
+  assert.equal(wrangler.vars.AEGIS_SCAN_ORCHESTRATION_ENABLED, 'false');
+  assert.equal(wrangler.previews.vars.AEGIS_SCAN_ORCHESTRATION_ENABLED, 'false');
+  assert.equal(wrangler.vars.AEGIS_SCAN_WORKFLOW_REF, 'main');
+  assert.equal(wrangler.previews.vars.AEGIS_SCAN_WORKFLOW_REF, 'review/v9-6-scan-desk');
   assert.deepEqual(
-    { ...wrangler.previews.vars, AEGIS_ASSISTANT_ENABLED: 'false' },
+    { ...wrangler.previews.vars, AEGIS_ASSISTANT_ENABLED: 'false', AEGIS_SCAN_WORKFLOW_REF: 'main' },
     wrangler.vars
   );
   assert.equal(wrangler.previews.ratelimits[0].name, 'AEGIS_ASSISTANT_RATE_LIMITER');

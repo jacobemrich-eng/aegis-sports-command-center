@@ -81,6 +81,20 @@
     if (label) label.textContent = view === 'command' ? 'Command Center' : view === 'card' ? 'Final Card' : view.charAt(0).toUpperCase() + view.slice(1);
     if (PUBLIC_VIEWS.has(view) && view !== 'home') safeStorageSet(LAST_VIEW_KEY, view);
   }
+  function openScanDesk() {
+    if (!(window.ADMIN_SESSION && window.ADMIN_SESSION.authenticated)) {
+      var login = one('#adminSessionButton');
+      if (login) login.click();
+      return;
+    }
+    openView('command');
+  }
+  function appendScanDeskAction(container) {
+    var action = element('button', 'pb-retry', 'Review one scan in Scan Desk');
+    action.type = 'button';
+    action.addEventListener('click', openScanDesk);
+    container.appendChild(action);
+  }
   function openView(view) {
     var button = one('.navbtn[data-tab="' + view + '"]');
     if (!button) return false;
@@ -303,6 +317,7 @@
     bubble.appendChild(element('small', '', role === 'user' ? 'YOU' : 'AEGIS'));
     bubble.appendChild(element('span', '', message));
     if (options.grounded) bubble.appendChild(element('small', 'pb-grounded-badge', 'Grounded in AEGIS'));
+    if (options.requiresScan) appendScanDeskAction(bubble);
     if (options.retry) {
       var retry = element('button', 'pb-retry', 'Try again');
       retry.type = 'button';
@@ -360,6 +375,7 @@
     response.className = 'pb-inline-response' + (options.state ? ' is-' + options.state : '');
     response.appendChild(element('span', '', message));
     if (options.grounded) response.appendChild(element('small', 'pb-grounded-badge', 'Grounded in AEGIS'));
+    if (options.requiresScan) appendScanDeskAction(response);
     if (options.retry) {
       var retry = element('button', 'pb-retry', 'Try again'); retry.type = 'button'; retry.addEventListener('click', options.retry); response.appendChild(retry);
     }
@@ -396,8 +412,8 @@
     try {
       var answer = await requestAssistant(prompt);
       if (loading) loading.remove();
-      if (source === 'home') renderHomeAssistant(answer.response, { grounded: answer.grounded === true });
-      else renderAssistantMessage('assistant', answer.response, { grounded: answer.grounded === true });
+      if (source === 'home') renderHomeAssistant(answer.response, { grounded: answer.grounded === true, requiresScan: answer.requires_scan === true });
+      else renderAssistantMessage('assistant', answer.response, { grounded: answer.grounded === true, requiresScan: answer.requires_scan === true });
       state.assistantHistory = state.assistantHistory.concat([{ role: 'user', content: prompt }, { role: 'assistant', content: String(answer.response || '') }]).slice(-6);
     } catch (error) {
       if (loading) loading.remove();

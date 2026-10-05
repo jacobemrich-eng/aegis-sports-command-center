@@ -180,7 +180,7 @@ test(
 
     assert.match(
       html,
-      /\/app\.js\?v=9\.2\.2/
+      /\/app\.js\?v=9\.6\.1/
     );
 
     assert.match(
@@ -288,6 +288,6 @@ test(
       html,
       /VERIFY NOW checks authenticated system health without running a scan or consuming odds credits\./
     );
-    assert.match(html, /RUN FULL AUTOMATIC SLATE SCAN/);
+    assert.match(html, /REVIEW SCAN/);
   }
 );
