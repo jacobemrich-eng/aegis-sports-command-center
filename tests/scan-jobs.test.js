@@ -176,8 +176,19 @@ test('scan migration locks jobs to service role and applies per-admin request li
   assert.match(sql, /revoke all on public\.aegis_scan_jobs from anon, authenticated/i);
   assert.match(sql, /grant all on public\.aegis_scan_jobs to service_role/i);
   assert.match(sql, /pg_advisory_xact_lock\(hashtextextended\(p_session_id_hash, 0\)\)/i);
+  assert.match(sql, /delete from public\.aegis_scan_jobs as expired_job\s+where expired_job\.created_at/i);
+  assert.match(sql, /public\.aegis_scan_jobs as recent_job\s+where recent_job\.session_id_hash[\s\S]*recent_job\.created_at/i);
   assert.match(sql, />= 3 then/i);
   assert.match(sql, /interval '15 minutes'/i);
+});
+
+test('standalone scan RPC repair migration qualifies created_at references and preserves service-role-only access', () => {
+  const sql = read('sql/2026-10-05-fix-scan-job-rpc-400.sql');
+  assert.match(sql, /create or replace function public\.aegis_create_scan_job/i);
+  assert.match(sql, /expired_job\.created_at/i);
+  assert.match(sql, /recent_job\.created_at/i);
+  assert.match(sql, /revoke all on function public\.aegis_create_scan_job[\s\S]*from public, anon, authenticated/i);
+  assert.match(sql, /grant execute on function public\.aegis_create_scan_job[\s\S]*to service_role/i);
 });
 
 test('scan workflow is manual, least-privilege Node 22, and accepts only an opaque job ID', () => {
