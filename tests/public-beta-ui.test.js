@@ -44,7 +44,7 @@ test('legacy operational IDs and administrator login contract remain available e
     assert.equal((html.match(new RegExp(`id="${id}"`, 'g')) || []).length, 1, id);
   }
   assert.match(html, /type="password" inputmode="numeric" autocomplete="current-password"/);
-  assert.match(html, /RUN FULL AUTOMATIC SLATE SCAN/);
+  assert.match(html, /REVIEW SCAN/);
 });
 
 test('public beta reads approved public data APIs and posts questions only to Ask AEGIS', () => {

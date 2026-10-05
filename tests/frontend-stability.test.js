@@ -288,6 +288,6 @@ test(
       html,
       /VERIFY NOW checks authenticated system health without running a scan or consuming odds credits\./
     );
-    assert.match(html, /RUN FULL AUTOMATIC SLATE SCAN/);
+    assert.match(html, /REVIEW SCAN/);
   }
 );
