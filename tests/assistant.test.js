@@ -117,6 +117,21 @@ test('Cloudflare rate limit rejects the seventh-style request before upstream sp
   assert.notEqual(wrangler.previews.ratelimits[0].namespace_id, wrangler.ratelimits[0].namespace_id);
 });
 
+test('assistant rate limit identity cannot be changed by rotating the user agent', { concurrency: false }, async () => {
+  const module = await worker();
+  const keys = [];
+  const limiter = { limit: async ({ key }) => { keys.push(key); return { success: false }; } };
+  const first = assistantRequest({ prompt: 'Question' }, { headers: { 'CF-Connecting-IP': '203.0.113.8', 'User-Agent': 'Browser A' } });
+  const second = assistantRequest({ prompt: 'Question' }, { headers: { 'CF-Connecting-IP': '203.0.113.8', 'User-Agent': 'Browser B' } });
+  const third = assistantRequest({ prompt: 'Question' }, { headers: { 'CF-Connecting-IP': '203.0.113.9', 'User-Agent': 'Browser A' } });
+  await module.default.fetch(first, env({ AEGIS_ASSISTANT_RATE_LIMITER: limiter }));
+  await module.default.fetch(second, env({ AEGIS_ASSISTANT_RATE_LIMITER: limiter }));
+  await module.default.fetch(third, env({ AEGIS_ASSISTANT_RATE_LIMITER: limiter }));
+  assert.equal(keys.length, 3);
+  assert.equal(keys[0], keys[1]);
+  assert.notEqual(keys[0], keys[2]);
+});
+
 test('successful answer uses Responses API with store false and configured cost bounds', { concurrency: false }, async () => {
   const module = await worker();
   let requestBody;
@@ -166,8 +181,14 @@ test('approved read-only tool call grounds the response and replays tool output'
 test('published overview deterministically seeds three bounded read-only lookups', { concurrency: false }, async () => {
   const module = await worker();
   let openaiCalls = 0;
+  const audit = [
+    { event_id: 'graded-old', result: 'WIN', graded_at: '2026-10-03T20:00:00Z' },
+    { event_id: 'pending-old', result: null, graded_at: null },
+    { event_id: 'graded-new', result: 'LOSS', graded_at: '2026-10-04T20:00:00Z' },
+    { event_id: 'pending-new', result: null, graded_at: null }
+  ];
   const response = await withFetch(async (url, options) => {
-    if (String(url).startsWith('https://supabase.example/')) return jsonResponse([{ audit: [] }]);
+    if (String(url).startsWith('https://supabase.example/')) return jsonResponse([{ audit }]);
     openaiCalls++;
     throw new Error(`Unexpected upstream request: ${url}`);
   }, () => module.default.fetch(assistantRequest({
@@ -184,7 +205,8 @@ test('published overview deterministically seeds three bounded read-only lookups
   const responseBody = await response.json();
   assert.match(responseBody.response, /sports in its canonical registry/);
   assert.match(responseBody.response, /governed model and system definitions/);
-  assert.match(responseBody.response, /No recent graded result records/);
+  assert.match(responseBody.response, /2 graded records/);
+  assert.doesNotMatch(responseBody.response, /4 graded records/);
   assert.match(responseBody.response, /does not run a scan or create a recommendation/);
   assert.deepEqual(responseBody.tools_used, ['get_sports', 'get_models', 'get_results']);
   assert.equal(responseBody.grounded, true);

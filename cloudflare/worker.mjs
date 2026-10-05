@@ -563,6 +563,7 @@ async function executeAssistantTool(name, args, env) {
     if (!Number.isInteger(requested) || requested < 1 || requested > 50) throw new Error('invalid_tool_arguments');
     const row = await selectState(env, 'audit:value->audit');
     const audit = (Array.isArray(row?.audit) ? row.audit : [])
+      .filter(item => item?.result !== null && item?.result !== undefined)
       .filter(item => !sport || item?.sport_key === sport || item?.sport === sport)
       .slice(-requested).reverse()
       .map(item => ({
@@ -686,7 +687,7 @@ async function openAIResponse(env, input) {
 }
 
 async function anonymousAssistantIdentity(request) {
-  const source = `${request.headers.get('CF-Connecting-IP') || 'unknown'}|${request.headers.get('User-Agent') || 'unknown'}`;
+  const source = request.headers.get('CF-Connecting-IP') || 'unknown';
   return digestHex(source);
 }
 
