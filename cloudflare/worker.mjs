@@ -13,6 +13,9 @@ const ASSISTANT_HISTORY_ITEMS = 6;
 const ASSISTANT_HISTORY_CHARS = 4000;
 const ASSISTANT_TOOL_ROUNDS = 3;
 const ASSISTANT_TOOL_CALLS = 6;
+const SCAN_BODY_BYTES = 2048;
+const SCAN_MARKET_SETS = new Set(['h2h', 'spreads', 'totals', 'h2h,spreads,totals']);
+const SCAN_JOB_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
 const ASSISTANT_KNOWN_SPORTS = new Set([...SPORTS.map(item => item.key), 'icehockey_nhl', 'basketball_nba']);
 const EDGE_UNAVAILABLE = Object.freeze({
@@ -447,7 +450,7 @@ const ASSISTANT_TOOLS = Object.freeze([
 const ASSISTANT_INSTRUCTIONS = `You are Ask AEGIS, the public explanation and retrieval layer for AEGIS Sports Command Center.
 Canonical published AEGIS data is authoritative. Use the provided read-only tools for any claim about sports, models, cards, plays, tiers, prices, projections, or results.
 Never invent or simulate a scan, play, price, injury, projection, result, or model output. Never upgrade SECONDARY to CORE, WATCH to actionable, or PASS to a recommendation. WATCH is not actionable. PASS is not actionable.
-If published data is absent, say so. If a fresh scan is required, say live public scan execution is not connected yet. Do not claim to have run it.
+If published data is absent, say so. If a fresh scan is required, say it has not been started here and direct the authenticated operator to review and explicitly confirm one in Scan Desk. Never start paid compute without that separate human confirmation.
 Request independent read-only lookups together in one response and never repeat a tool call with identical arguments.
 For broad overview questions, use bounded registry, model, and recent-result lookups; do not fetch a separate card for every registered sport.
 When asked what is currently published, call exactly get_sports, get_models with sport null, and get_results with sport null and limit 10 together, then answer from those results. Do not call get_latest_card or get_play_details for that overview.
@@ -741,7 +744,7 @@ async function scanRequirement(prompt, env) {
   const cards = row?.cards && typeof row.cards === 'object' ? Object.values(row.cards) : [];
   if (cards.some(card => promptMatchesPublishedAnalysis(prompt, card))) return null;
   return {
-    response: 'A fresh canonical AEGIS scan is required for that request. Live scan execution is not connected to the public assistant yet.',
+    response: 'A fresh canonical AEGIS scan is required for that request. Ask AEGIS has not started one; an authenticated operator can review and explicitly confirm the scan in Scan Desk.',
     tools_used: ['get_play_details'],
     grounded: true,
     requires_scan: true
@@ -866,6 +869,97 @@ async function assistant(request, env) {
   return assistantError('Ask AEGIS could not complete that request safely.', 'assistant_tool_limit', 422);
 }
 
+function scanOrchestrationReady(env) {
+  return envBoolean(env, 'AEGIS_SCAN_ORCHESTRATION_ENABLED', false)
+    && Boolean(envText(env, 'AEGIS_GITHUB_ACTIONS_TOKEN'))
+    && Boolean(envText(env, 'SUPABASE_URL') && supabaseHeaders(env));
+}
+
+async function dispatchScanWorkflow(env, jobId) {
+  const token = envText(env, 'AEGIS_GITHUB_ACTIONS_TOKEN');
+  const ref = envText(env, 'AEGIS_SCAN_WORKFLOW_REF', 'main');
+  if (!/^[A-Za-z0-9._/-]{1,120}$/.test(ref) || ref.includes('..')) throw new Error('invalid_workflow_ref');
+  const response = await fetch('https://api.github.com/repos/jacobemrich-eng/aegis-sports-command-center/actions/workflows/aegis-scan-job.yml/dispatches', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ ref, inputs: { job_id: jobId } }),
+    signal: AbortSignal.timeout(8000)
+  });
+  if (response.status !== 204) throw new Error('workflow_dispatch_failed');
+}
+
+async function createScanJob(request, env, session) {
+  if (!sameOrigin(request)) return json({ error: 'Request origin rejected.', code: 'invalid_origin' }, 403, { 'Cache-Control': 'no-store' });
+  if (!scanOrchestrationReady(env)) return json({ error: 'Canonical scan orchestration is not configured yet.', code: 'scan_orchestration_unavailable' }, 503, { 'Cache-Control': 'no-store' });
+  if (!String(request.headers.get('Content-Type') || '').toLowerCase().startsWith('application/json')) {
+    return json({ error: 'A JSON request body is required.', code: 'invalid_request' }, 415, { 'Cache-Control': 'no-store' });
+  }
+  const declaredBytes = Number(request.headers.get('Content-Length') || 0);
+  if (declaredBytes > SCAN_BODY_BYTES) return json({ error: 'Request body is too large.', code: 'invalid_request' }, 413, { 'Cache-Control': 'no-store' });
+  const raw = await request.text();
+  if (new TextEncoder().encode(raw).byteLength > SCAN_BODY_BYTES) return json({ error: 'Request body is too large.', code: 'invalid_request' }, 413, { 'Cache-Control': 'no-store' });
+  let body;
+  try { body = JSON.parse(raw); } catch { return json({ error: 'Invalid JSON request.', code: 'invalid_request' }, 400, { 'Cache-Control': 'no-store' }); }
+  const sport = String(body?.sport || '').trim();
+  const markets = String(body?.markets || '').trim();
+  const allowedSports = new Set(csv(env, 'AEGIS_SCAN_ALLOWED_SPORTS', 'baseball_mlb,americanfootball_ncaaf'));
+  if (Object.keys(body || {}).some(key => !['sport', 'markets'].includes(key)) || !allowedSports.has(sport) || !SCAN_MARKET_SETS.has(markets)) {
+    return json({ error: 'This scan request is outside the approved canonical compute scope.', code: 'scan_request_not_allowed' }, 422, { 'Cache-Control': 'no-store' });
+  }
+  if (!safeEqual(request.headers.get('X-AEGIS-CSRF'), session.csrf_token)) {
+    return json({ error: 'Request verification failed.', code: 'invalid_csrf' }, 403, { 'Cache-Control': 'no-store' });
+  }
+  const jobId = crypto.randomUUID();
+  let created;
+  try {
+    created = await supabaseRequest(env, '/rest/v1/rpc/aegis_create_scan_job', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ p_id: jobId, p_session_id_hash: session.sessionIdHash, p_sport: sport, p_markets: markets })
+    });
+  } catch {
+    return json({ error: 'Canonical scan requests are temporarily unavailable.', code: 'scan_job_unavailable' }, 503, { 'Cache-Control': 'no-store' });
+  }
+  if (!Array.isArray(created) || !created.length) {
+    return json({ error: 'Scan request limit reached. Please wait before starting another scan.', code: 'scan_rate_limited' }, 429, { 'Cache-Control': 'no-store', 'Retry-After': '900' });
+  }
+  if (created[0].job_id !== jobId || !created[0].expires_at) {
+    return json({ error: 'Canonical scan requests are temporarily unavailable.', code: 'scan_job_unavailable' }, 503, { 'Cache-Control': 'no-store' });
+  }
+  try {
+    await dispatchScanWorkflow(env, jobId);
+  } catch {
+    const query = new URLSearchParams({ id: `eq.${jobId}`, session_id_hash: `eq.${session.sessionIdHash}` });
+    await supabaseRequest(env, `/rest/v1/aegis_scan_jobs?${query}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+      body: JSON.stringify({ status: 'failed', error_code: 'workflow_dispatch_failed', updated_at: new Date().toISOString() })
+    }).catch(() => {});
+    return json({ error: 'The canonical scan runner could not be started. No scan was run.', code: 'scan_dispatch_failed' }, 503, { 'Cache-Control': 'no-store' });
+  }
+  return json({ job_id: jobId, status: 'queued', expires_at: created[0].expires_at }, 202, { 'Cache-Control': 'no-store' });
+}
+
+async function scanJobStatus(request, env, session, jobId) {
+  if (!SCAN_JOB_ID.test(jobId)) return json({ error: 'Scan request not found.', code: 'scan_job_not_found' }, 404, { 'Cache-Control': 'no-store' });
+  const query = new URLSearchParams({
+    id: `eq.${jobId}`,
+    session_id_hash: `eq.${session.sessionIdHash}`,
+    expires_at: `gt.${new Date().toISOString()}`,
+    select: 'id,status,result,error_code,created_at,updated_at,expires_at'
+  });
+  let rows;
+  try { rows = await supabaseRequest(env, `/rest/v1/aegis_scan_jobs?${query}`, { headers: { Accept: 'application/json' } }); }
+  catch { return json({ error: 'Scan status is temporarily unavailable.', code: 'scan_status_unavailable' }, 503, { 'Cache-Control': 'no-store' }); }
+  const row = Array.isArray(rows) ? rows[0] : null;
+  if (!row) return json({ error: 'Scan request not found.', code: 'scan_job_not_found' }, 404, { 'Cache-Control': 'no-store' });
+  return json({ job_id: row.id, status: row.status, result: row.status === 'completed' ? row.result : undefined, error_code: row.status === 'failed' ? row.error_code : undefined, updated_at: row.updated_at, expires_at: row.expires_at }, 200, { 'Cache-Control': 'no-store' });
+}
+
 async function login(request, env) {
   if (!sameOrigin(request)) return json({ error: 'Invalid request.', code: 'invalid_request' }, 403, { 'Cache-Control': 'no-store' });
   if (!supabaseConfigured(env)) {
@@ -969,6 +1063,9 @@ async function route(request, env) {
       cfbd_ready: Boolean(envText(env, 'CFBD_API_KEY')),
       autopilot_enabled: auto.enabled,
       autopilot_secret_ready: false,
+    scan_orchestration_enabled: envBoolean(env, 'AEGIS_SCAN_ORCHESTRATION_ENABLED', false),
+    scan_dispatch_ready: scanOrchestrationReady(env),
+    scan_allowed_sports: csv(env, 'AEGIS_SCAN_ALLOWED_SPORTS', 'baseball_mlb,americanfootball_ncaaf'),
       last_autopilot_success: auto.last_success_at,
       last_autopilot_error: auto.last_error,
       daily_odds_budget: auto.usage.daily_budget,
@@ -977,6 +1074,17 @@ async function route(request, env) {
       odds_cache_ttl_ms: envNumber(env, 'ODDS_CACHE_TTL_MS', 120000),
       release_sports: auto.release_sports
     }, 200, { 'Cache-Control': 'no-store' });
+  }
+  if (request.method === 'POST' && pathname === '/api/scan') {
+    const session = await requireAdminMutation(request, env);
+    if (session instanceof Response) return session;
+    return createScanJob(request, env, session);
+  }
+  const scanJobPath = pathname.match(/^\/api\/scan-jobs\/([^/]+)$/);
+  if (request.method === 'GET' && scanJobPath) {
+    const session = await requireAdmin(request, env);
+    if (session instanceof Response) return session;
+    return scanJobStatus(request, env, session, scanJobPath[1]);
   }
   if (request.method === 'GET' && pathname === '/api/state/export') {
     const session = await requireAdmin(request, env);
@@ -993,7 +1101,6 @@ async function route(request, env) {
   }
 
   const unsupportedMutations = new Set([
-    '/api/scan',
     '/api/card/lock',
     '/api/results/grade',
     '/api/results/resolve',
@@ -1037,5 +1144,7 @@ export const contracts = Object.freeze({
   ASSISTANT_HISTORY_ITEMS,
   ASSISTANT_TOOL_ROUNDS,
   ASSISTANT_TOOL_CALLS,
+  SCAN_BODY_BYTES,
+  SCAN_MARKET_SETS: [...SCAN_MARKET_SETS],
   ASSISTANT_TOOL_NAMES: ASSISTANT_TOOLS.map(tool => tool.name)
 });

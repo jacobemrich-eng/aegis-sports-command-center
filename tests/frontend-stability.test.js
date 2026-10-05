@@ -180,7 +180,7 @@ test(
 
     assert.match(
       html,
-      /\/app\.js\?v=9\.2\.2/
+      /\/app\.js\?v=9\.6\.1/
     );
 
     assert.match(

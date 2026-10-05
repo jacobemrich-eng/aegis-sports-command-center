@@ -32,7 +32,10 @@
     "AEGIS_ASSISTANT_ENABLED": "false",
     "AEGIS_ASSISTANT_MODEL": "gpt-5-mini",
     "AEGIS_ASSISTANT_MAX_OUTPUT_TOKENS": "500",
-    "AEGIS_ASSISTANT_TIMEOUT_MS": "12000"
+    "AEGIS_ASSISTANT_TIMEOUT_MS": "12000",
+    "AEGIS_SCAN_ORCHESTRATION_ENABLED": "false",
+    "AEGIS_SCAN_ALLOWED_SPORTS": "baseball_mlb,americanfootball_ncaaf",
+    "AEGIS_SCAN_WORKFLOW_REF": "main"
   },
   "previews": {
     "ratelimits": [
@@ -59,7 +62,10 @@
       "AEGIS_ASSISTANT_ENABLED": "true",
       "AEGIS_ASSISTANT_MODEL": "gpt-5-mini",
       "AEGIS_ASSISTANT_MAX_OUTPUT_TOKENS": "500",
-      "AEGIS_ASSISTANT_TIMEOUT_MS": "12000"
+      "AEGIS_ASSISTANT_TIMEOUT_MS": "12000",
+      "AEGIS_SCAN_ORCHESTRATION_ENABLED": "false",
+      "AEGIS_SCAN_ALLOWED_SPORTS": "baseball_mlb,americanfootball_ncaaf",
+      "AEGIS_SCAN_WORKFLOW_REF": "review/v9-6-scan-desk"
     }
   }
 }
