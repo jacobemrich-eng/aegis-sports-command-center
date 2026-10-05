@@ -81,7 +81,17 @@ async function supabaseRequest(env, path, options = {}) {
   const headers = supabaseHeaders(env, options.headers || {});
   if (!base || !headers) throw new Error('supabase_not_configured');
   const response = await fetch(`${base}${path}`, { ...options, headers });
-  if (!response.ok) throw new Error(`supabase_${response.status}`);
+  if (!response.ok) {
+    let code = '';
+    try {
+      const payload = await response.json();
+      if (typeof payload?.code === 'string' && /^[A-Za-z0-9_-]{1,32}$/.test(payload.code)) code = payload.code;
+    } catch {}
+    const error = new Error(`supabase_${response.status}`);
+    error.status = response.status;
+    error.code = code;
+    throw error;
+  }
   if (response.status === 204) return null;
   const text = await response.text();
   return text ? JSON.parse(text) : null;
@@ -922,7 +932,11 @@ async function createScanJob(request, env, session) {
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ p_id: jobId, p_session_id_hash: session.sessionIdHash, p_sport: sport, p_markets: markets })
     });
-  } catch {
+  } catch (error) {
+    console.error('scan_job_rpc_failed', {
+      status: Number.isInteger(error?.status) ? error.status : null,
+      code: typeof error?.code === 'string' ? error.code : ''
+    });
     return json({ error: 'Canonical scan requests are temporarily unavailable.', code: 'scan_job_unavailable' }, 503, { 'Cache-Control': 'no-store' });
   }
   if (!Array.isArray(created) || !created.length) {
