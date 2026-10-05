@@ -109,7 +109,7 @@ test('confirmed scan stores only bounded intent and dispatches a fixed workflow 
   assert.equal(dispatch.options.headers.Authorization, 'Bearer never-real-test-token');
 });
 
-test('scan queue rejects injected analysis data, rate limits, and hides GitHub dispatch errors', { concurrency: false }, async () => {
+test('scan queue rejects injected analysis data, rate limits, and reports safe GitHub dispatch diagnostics', { concurrency: false }, async () => {
   const module = await worker();
   let rpcCalls = 0;
   const rejectedBody = await withFetch(async url => String(url).includes('/aegis_admin_sessions?') ? supabaseSessionResponse() : (() => { rpcCalls++; return new Response('[]'); })(), () =>
@@ -135,7 +135,8 @@ test('scan queue rejects injected analysis data, rate limits, and hides GitHub d
   }, () => module.default.fetch(request('/api/scan', { method: 'POST', body: { sport: 'baseball_mlb', markets: 'h2h' }, csrfHeader: true }), environment()));
   const raw = await dispatchFailure.text();
   assert.equal(dispatchFailure.status, 503);
-  assert.match(raw, /scan_dispatch_failed/);
+  assert.match(raw, /workflow_dispatch_forbidden_403/);
+  assert.match(raw, /Actions: write permission/);
   assert.doesNotMatch(raw, /private token leaked upstream|never-real-test-token/);
 });
 

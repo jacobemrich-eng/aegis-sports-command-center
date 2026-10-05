@@ -900,7 +900,25 @@ async function dispatchScanWorkflow(env, jobId) {
     body: JSON.stringify({ ref, inputs: { job_id: jobId } }),
     signal: AbortSignal.timeout(8000)
   });
-  if (response.status !== 204) throw new Error('workflow_dispatch_failed');
+  if (response.status !== 204) {
+    const category = response.status === 401 ? 'unauthorized'
+      : response.status === 403 ? 'forbidden'
+      : response.status === 404 ? 'not_found'
+      : response.status === 422 ? 'invalid_request'
+      : response.status >= 500 ? 'github_unavailable'
+      : 'rejected';
+    throw new Error(`workflow_dispatch_${category}_${response.status}`);
+  }
+}
+
+function scanDispatchFailureMessage(code) {
+  if (code === 'workflow_dispatch_unauthorized_401') return 'GitHub rejected the configured Actions token (401). Replace the Cloudflare Preview secret AEGIS_GITHUB_ACTIONS_TOKEN with a valid token that can access this repository.';
+  if (code === 'workflow_dispatch_forbidden_403') return 'GitHub denied workflow dispatch (403). The token needs Actions: write permission for this repository, and Actions must be enabled in the repository.';
+  if (code === 'workflow_dispatch_not_found_404') return 'GitHub could not find the scan workflow or repository (404). Verify the workflow exists on the default branch and the token can access this repository.';
+  if (code === 'workflow_dispatch_invalid_request_422') return 'GitHub rejected the workflow ref or dispatch request (422). Verify AEGIS_SCAN_WORKFLOW_REF names an existing branch and the workflow accepts job_id.';
+  if (code === 'workflow_dispatch_github_unavailable_5xx') return 'GitHub Actions is temporarily unavailable. No scan was run; try again later.';
+  if (code === 'workflow_dispatch_network_error') return 'The worker could not reach GitHub Actions. No scan was run; check connectivity and retry later.';
+  return 'GitHub rejected the workflow dispatch. No scan was run; check the configured repository, workflow ref, and Actions token permissions.';
 }
 
 async function createScanJob(request, env, session) {
@@ -945,15 +963,20 @@ async function createScanJob(request, env, session) {
   if (created[0].job_id !== jobId || !created[0].expires_at) {
     return json({ error: 'Canonical scan requests are temporarily unavailable.', code: 'scan_job_unavailable' }, 503, { 'Cache-Control': 'no-store' });
   }
+  let dispatchErrorCode = 'workflow_dispatch_failed';
   try {
     await dispatchScanWorkflow(env, jobId);
-  } catch {
+  } catch (error) {
+    const message = typeof error?.message === 'string' ? error.message : '';
+    dispatchErrorCode = /^workflow_dispatch_(?:unauthorized_401|forbidden_403|not_found_404|invalid_request_422|github_unavailable_5xx)$/.test(message)
+      ? message
+      : 'workflow_dispatch_network_error';
     const query = new URLSearchParams({ id: `eq.${jobId}`, session_id_hash: `eq.${session.sessionIdHash}` });
     await supabaseRequest(env, `/rest/v1/aegis_scan_jobs?${query}`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json', Prefer: 'return=minimal' },
-      body: JSON.stringify({ status: 'failed', error_code: 'workflow_dispatch_failed', updated_at: new Date().toISOString() })
+      body: JSON.stringify({ status: 'failed', error_code: dispatchErrorCode, updated_at: new Date().toISOString() })
     }).catch(() => {});
-    return json({ error: 'The canonical scan runner could not be started. No scan was run.', code: 'scan_dispatch_failed' }, 503, { 'Cache-Control': 'no-store' });
+    return json({ error: scanDispatchFailureMessage(dispatchErrorCode), code: dispatchErrorCode }, 503, { 'Cache-Control': 'no-store' });
   }
   return json({ job_id: jobId, status: 'queued', expires_at: created[0].expires_at }, 202, { 'Cache-Control': 'no-store' });
 }
