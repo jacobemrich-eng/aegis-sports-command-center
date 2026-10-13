@@ -889,12 +889,34 @@ async function dispatchScanWorkflow(env, jobId) {
   const token = envText(env, 'AEGIS_GITHUB_ACTIONS_TOKEN');
   const ref = envText(env, 'AEGIS_SCAN_WORKFLOW_REF', 'main');
   if (!/^[A-Za-z0-9._/-]{1,120}$/.test(ref) || ref.includes('..')) throw new Error('invalid_workflow_ref');
-  const response = await fetch('https://api.github.com/repos/jacobemrich-eng/aegis-sports-command-center/actions/workflows/aegis-scan-job.yml/dispatches', {
-    method: 'POST',
-    headers: {
+  const headers = {
       Authorization: `Bearer ${token}`,
       Accept: 'application/vnd.github+json',
       'X-GitHub-Api-Version': '2022-11-28',
+  };
+  // Prove the configured Preview secret is the intended account before any
+  // workflow request can start compute. This GET is read-only and consumes no
+  // sportsbook data or credits.
+  const identityResponse = await fetch('https://api.github.com/user', {
+    headers,
+    signal: AbortSignal.timeout(8000)
+  });
+  if (identityResponse.status !== 200) {
+    const category = identityResponse.status === 401 ? 'unauthorized'
+      : identityResponse.status === 403 ? 'forbidden'
+      : identityResponse.status >= 500 ? 'github_unavailable'
+      : 'rejected';
+    const suffix = category === 'github_unavailable' ? 'github_unavailable_5xx' : `${category}_${identityResponse.status}`;
+    throw new Error(`workflow_token_identity_${suffix}`);
+  }
+  const identity = await identityResponse.json().catch(() => null);
+  if (String(identity?.login || '').toLowerCase() !== 'jacobemrich-eng') {
+    throw new Error('workflow_token_identity_wrong_account');
+  }
+  const response = await fetch('https://api.github.com/repos/jacobemrich-eng/aegis-sports-command-center/actions/workflows/aegis-scan-job.yml/dispatches', {
+    method: 'POST',
+    headers: {
+      ...headers,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({ ref, inputs: { job_id: jobId } }),
@@ -914,6 +936,7 @@ async function dispatchScanWorkflow(env, jobId) {
     if (response.status === 403) {
       if (/rate limit|secondary rate limit/.test(upstreamMessage)) detail = '_rate_limited';
       else if (/resource not accessible by personal access token|must have.*actions.*write|fine.grained.*token/.test(upstreamMessage)) detail = '_token_access';
+      else if (/resource not accessible by integration/.test(upstreamMessage)) detail = '_integration_access';
       else if (/actions.*disabled|disabled.*actions|workflow.*disabled/.test(upstreamMessage)) detail = '_actions_disabled';
       else if (/organization.*policy|policy.*organization|approved.*organization/.test(upstreamMessage)) detail = '_organization_policy';
       else detail = '_access_policy';
@@ -924,17 +947,23 @@ async function dispatchScanWorkflow(env, jobId) {
       : response.status === 422 ? 'invalid_request'
       : response.status >= 500 ? 'github_unavailable'
       : 'rejected';
-    throw new Error(`workflow_dispatch_${category}${detail}_${response.status}`);
+    const suffix = category === 'github_unavailable' ? 'github_unavailable_5xx' : `${category}${detail}_${response.status}`;
+    throw new Error(`workflow_dispatch_${suffix}`);
   }
 }
 
 function scanDispatchFailureMessage(code) {
+  if (code === 'workflow_token_identity_unauthorized_401') return 'The Preview secret AEGIS_GITHUB_ACTIONS_TOKEN is not accepted by GitHub. No scan was run; replace it with a valid fine-grained token for jacobemrich-eng.';
+  if (code === 'workflow_token_identity_forbidden_403') return 'GitHub recognized the configured token but blocked the identity check. No scan was run; check whether this token is active and authorized for jacobemrich-eng.';
+  if (code === 'workflow_token_identity_wrong_account') return 'The Preview secret AEGIS_GITHUB_ACTIONS_TOKEN belongs to a different GitHub account. No scan was run; it must authenticate as jacobemrich-eng.';
+  if (code === 'workflow_token_identity_github_unavailable_5xx') return 'GitHub is temporarily unavailable for the safe token check. No scan was run; try again later.';
+  if (code === 'workflow_dispatch_forbidden_integration_access_403') return 'GitHub received this request as an integration credential and denied it. The Preview secret must be a fine-grained PAT for jacobemrich-eng with Actions: write, not an Actions run token.';
   if (code === 'workflow_dispatch_unauthorized_401') return 'GitHub rejected the configured Actions token (401). Replace the Cloudflare Preview secret AEGIS_GITHUB_ACTIONS_TOKEN with a valid token that can access this repository.';
   if (code === 'workflow_dispatch_forbidden_token_access_403') return 'GitHub says this token cannot access the workflow. Check that the saved Cloudflare Preview token is the same token you updated and that it is authorized for jacobemrich-eng/aegis-sports-command-center.';
   if (code === 'workflow_dispatch_forbidden_actions_disabled_403') return 'GitHub says Actions or this workflow is disabled. Enable Actions for the repository and enable the aegis-scan-job workflow.';
-  if (code === 'workflow_dispatch_forbidden_organization_policy_403') return 'GitHub organization policy is blocking this token. The organization owner must approve or allow this fine-grained token.';
+  if (code === 'workflow_dispatch_forbidden_organization_policy_403') return 'GitHub organization policy is blocking this token. No scan was run; an organization owner must approve or allow the token.';
   if (code === 'workflow_dispatch_forbidden_rate_limited_403') return 'GitHub rate-limited the workflow request. No scan ran; wait and try later.';
-  if (code === 'workflow_dispatch_forbidden_access_policy_403' || code === 'workflow_dispatch_forbidden_403') return 'GitHub denied workflow dispatch (403). The token must be authorized for this repository with Actions: write, and GitHub organization policy must permit it.';
+  if (code === 'workflow_dispatch_forbidden_access_policy_403' || code === 'workflow_dispatch_forbidden_403') return 'GitHub authenticated the configured account but still denied workflow dispatch (403). The token and repository access look correct; a GitHub-side restriction is blocking dispatch. No scan was run.';
   if (code === 'workflow_dispatch_not_found_404') return 'GitHub could not find the scan workflow or repository (404). Verify the workflow exists on the default branch and the token can access this repository.';
   if (code === 'workflow_dispatch_invalid_request_422') return 'GitHub rejected the workflow ref or dispatch request (422). Verify AEGIS_SCAN_WORKFLOW_REF names an existing branch and the workflow accepts job_id.';
   if (code === 'workflow_dispatch_github_unavailable_5xx') return 'GitHub Actions is temporarily unavailable. No scan was run; try again later.';
@@ -989,7 +1018,7 @@ async function createScanJob(request, env, session) {
     await dispatchScanWorkflow(env, jobId);
   } catch (error) {
     const message = typeof error?.message === 'string' ? error.message : '';
-    dispatchErrorCode = /^workflow_dispatch_(?:unauthorized_401|forbidden_(?:token_access|actions_disabled|organization_policy|rate_limited|access_policy)_403|forbidden_403|not_found_404|invalid_request_422|github_unavailable_5xx)$/.test(message)
+    dispatchErrorCode = /^workflow_(?:token_identity_(?:unauthorized_401|forbidden_403|github_unavailable_5xx|wrong_account)|dispatch_(?:unauthorized_401|forbidden_(?:token_access|integration_access|actions_disabled|organization_policy|rate_limited|access_policy)_403|forbidden_403|not_found_404|invalid_request_422|github_unavailable_5xx))$/.test(message)
       ? message
       : 'workflow_dispatch_network_error';
     const query = new URLSearchParams({ id: `eq.${jobId}`, session_id_hash: `eq.${session.sessionIdHash}` });

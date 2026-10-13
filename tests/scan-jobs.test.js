@@ -90,6 +90,7 @@ test('confirmed scan stores only bounded intent and dispatches a fixed workflow 
       const job = JSON.parse(options.body);
       return new Response(JSON.stringify([{ job_id: job.p_id, expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString() }]), { status: 200 });
     }
+    if (address === 'https://api.github.com/user') return new Response(JSON.stringify({ login: 'jacobemrich-eng' }), { status: 200 });
     if (address.includes('/actions/workflows/aegis-scan-job.yml/dispatches')) return new Response(null, { status: 204 });
     throw new Error(`unexpected fetch ${address}`);
   }, () => module.default.fetch(request('/api/scan', { method: 'POST', body: { sport: 'baseball_mlb', markets: 'h2h,spreads,totals' }, csrfHeader: true }), environment()));
@@ -107,6 +108,8 @@ test('confirmed scan stores only bounded intent and dispatches a fixed workflow 
   assert.match(dispatch.address, /jacobemrich-eng\/aegis-sports-command-center\/actions\/workflows\/aegis-scan-job\.yml\/dispatches$/);
   assert.deepEqual(JSON.parse(dispatch.options.body), { ref: 'review/v9-6-scan-desk', inputs: { job_id: payload.job_id } });
   assert.equal(dispatch.options.headers.Authorization, 'Bearer never-real-test-token');
+  const identity = calls.find(call => call.address === 'https://api.github.com/user');
+  assert.equal(identity.options.headers.Authorization, 'Bearer never-real-test-token');
 });
 
 test('scan queue rejects injected analysis data, rate limits, and reports safe GitHub dispatch diagnostics', { concurrency: false }, async () => {
@@ -124,12 +127,30 @@ test('scan queue rejects injected analysis data, rate limits, and reports safe G
   assert.equal(limited.status, 429);
   assert.equal((await limited.json()).code, 'scan_rate_limited');
 
+  let dispatchCalls = 0;
+  const wrongAccount = await withFetch(async (url, options = {}) => {
+    const address = String(url);
+    if (address.includes('/aegis_admin_sessions?')) return supabaseSessionResponse();
+    if (address.includes('/rpc/aegis_create_scan_job')) {
+      return new Response(JSON.stringify([{ job_id: JSON.parse(options.body).p_id, expires_at: new Date(Date.now() + 10000).toISOString() }]), { status: 200 });
+    }
+    if (address === 'https://api.github.com/user') return new Response(JSON.stringify({ login: 'some-other-account' }), { status: 200 });
+    if (address.includes('/actions/workflows/')) dispatchCalls++;
+    return new Response(null, { status: 204 });
+  }, () => module.default.fetch(request('/api/scan', { method: 'POST', body: { sport: 'baseball_mlb', markets: 'h2h' }, csrfHeader: true }), environment()));
+  const wrongAccountBody = await wrongAccount.json();
+  assert.equal(wrongAccount.status, 503);
+  assert.equal(wrongAccountBody.code, 'workflow_token_identity_wrong_account');
+  assert.match(wrongAccountBody.error, /different GitHub account/);
+  assert.equal(dispatchCalls, 0);
+
   const dispatchFailure = await withFetch(async (url, options = {}) => {
     const address = String(url);
     if (address.includes('/aegis_admin_sessions?')) return supabaseSessionResponse();
     if (address.includes('/rpc/aegis_create_scan_job')) {
       return new Response(JSON.stringify([{ job_id: JSON.parse(options.body).p_id, expires_at: new Date(Date.now() + 10000).toISOString() }]), { status: 200 });
     }
+    if (address === 'https://api.github.com/user') return new Response(JSON.stringify({ login: 'jacobemrich-eng' }), { status: 200 });
     if (address.includes('/actions/workflows/')) return new Response(JSON.stringify({ message: 'Resource not accessible by personal access token', debug: 'private token leaked upstream' }), { status: 403 });
     return new Response(null, { status: 204 });
   }, () => module.default.fetch(request('/api/scan', { method: 'POST', body: { sport: 'baseball_mlb', markets: 'h2h' }, csrfHeader: true }), environment()));
