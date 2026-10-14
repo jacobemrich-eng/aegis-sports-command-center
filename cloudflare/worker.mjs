@@ -902,8 +902,20 @@ async function dispatchScanWorkflow(env, jobId) {
     signal: AbortSignal.timeout(8000)
   });
   if (identityResponse.status !== 200) {
+    const identityBody = await identityResponse.text().catch(() => '');
+    const identityMessage = (() => {
+      try { return String(JSON.parse(identityBody)?.message || '').toLowerCase(); }
+      catch { return ''; }
+    })();
     const category = identityResponse.status === 401 ? 'unauthorized'
-      : identityResponse.status === 403 ? 'forbidden'
+      : identityResponse.status === 403
+        ? identityResponse.headers.get('X-GitHub-SSO')?.toLowerCase().includes('required') ? 'sso_required'
+          : /rate limit|secondary rate limit|abuse detection|abuse-detection/.test(identityMessage)
+            || Number(identityResponse.headers.get('X-RateLimit-Remaining')) === 0
+            || Boolean(identityResponse.headers.get('Retry-After')) ? 'rate_limited'
+            : /resource not accessible by integration/.test(identityMessage) ? 'integration_access'
+              : /bad credentials|token.*(?:revoked|expired|invalid)|credentials.*invalid/.test(identityMessage) ? 'token_rejected'
+                : 'forbidden'
       : identityResponse.status >= 500 ? 'github_unavailable'
       : 'rejected';
     const suffix = category === 'github_unavailable' ? 'github_unavailable_5xx' : `${category}_${identityResponse.status}`;
@@ -954,7 +966,11 @@ async function dispatchScanWorkflow(env, jobId) {
 
 function scanDispatchFailureMessage(code) {
   if (code === 'workflow_token_identity_unauthorized_401') return 'The Preview secret AEGIS_GITHUB_ACTIONS_TOKEN is not accepted by GitHub. No scan was run; replace it with a valid fine-grained token for jacobemrich-eng.';
-  if (code === 'workflow_token_identity_forbidden_403') return 'GitHub recognized the configured token but blocked the identity check. No scan was run; check whether this token is active and authorized for jacobemrich-eng.';
+  if (code === 'workflow_token_identity_sso_required_403') return 'GitHub requires this token to be authorized for single sign-on. No scan was run; authorize the token for the account’s SSO session, then retry.';
+  if (code === 'workflow_token_identity_rate_limited_403') return 'GitHub temporarily rate-limited the token identity check. No scan was run; stop retrying and wait before trying again.';
+  if (code === 'workflow_token_identity_integration_access_403') return 'The Preview secret is being treated as a GitHub App integration credential, not the fine-grained personal token shown in settings. No scan was run; check the saved Preview secret value.';
+  if (code === 'workflow_token_identity_token_rejected_403') return 'GitHub rejected the configured token as inactive or invalid. No scan was run; replace the Preview secret with an active fine-grained token for jacobemrich-eng.';
+  if (code === 'workflow_token_identity_forbidden_403') return 'GitHub returned 403 for the read-only identity check. No scan was run; the saved token may be blocked by an account restriction. Check the token in GitHub and the secret in the Preview environment.';
   if (code === 'workflow_token_identity_wrong_account') return 'The Preview secret AEGIS_GITHUB_ACTIONS_TOKEN belongs to a different GitHub account. No scan was run; it must authenticate as jacobemrich-eng.';
   if (code === 'workflow_token_identity_github_unavailable_5xx') return 'GitHub is temporarily unavailable for the safe token check. No scan was run; try again later.';
   if (code === 'workflow_dispatch_forbidden_integration_access_403') return 'GitHub received this request as an integration credential and denied it. The Preview secret must be a fine-grained PAT for jacobemrich-eng with Actions: write, not an Actions run token.';
@@ -1018,7 +1034,7 @@ async function createScanJob(request, env, session) {
     await dispatchScanWorkflow(env, jobId);
   } catch (error) {
     const message = typeof error?.message === 'string' ? error.message : '';
-    dispatchErrorCode = /^workflow_(?:token_identity_(?:unauthorized_401|forbidden_403|github_unavailable_5xx|wrong_account)|dispatch_(?:unauthorized_401|forbidden_(?:token_access|integration_access|actions_disabled|organization_policy|rate_limited|access_policy)_403|forbidden_403|not_found_404|invalid_request_422|github_unavailable_5xx))$/.test(message)
+    dispatchErrorCode = /^workflow_(?:token_identity_(?:unauthorized_401|(?:sso_required|rate_limited|integration_access|token_rejected|forbidden)_403|github_unavailable_5xx|wrong_account)|dispatch_(?:unauthorized_401|forbidden_(?:token_access|integration_access|actions_disabled|organization_policy|rate_limited|access_policy)_403|forbidden_403|not_found_404|invalid_request_422|github_unavailable_5xx))$/.test(message)
       ? message
       : 'workflow_dispatch_network_error';
     const query = new URLSearchParams({ id: `eq.${jobId}`, session_id_hash: `eq.${session.sessionIdHash}` });

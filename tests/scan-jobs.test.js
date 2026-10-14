@@ -144,6 +144,24 @@ test('scan queue rejects injected analysis data, rate limits, and reports safe G
   assert.match(wrongAccountBody.error, /different GitHub account/);
   assert.equal(dispatchCalls, 0);
 
+  let rateLimitedDispatchCalls = 0;
+  const rateLimitedIdentity = await withFetch(async (url, options = {}) => {
+    const address = String(url);
+    if (address.includes('/aegis_admin_sessions?')) return supabaseSessionResponse();
+    if (address.includes('/rpc/aegis_create_scan_job')) {
+      return new Response(JSON.stringify([{ job_id: JSON.parse(options.body).p_id, expires_at: new Date(Date.now() + 10000).toISOString() }]), { status: 200 });
+    }
+    if (address === 'https://api.github.com/user') return new Response(JSON.stringify({ message: 'You have triggered an abuse detection mechanism. Do not share secrets.' }), { status: 403, headers: { 'Retry-After': '60' } });
+    if (address.includes('/actions/workflows/')) rateLimitedDispatchCalls++;
+    return new Response(null, { status: 204 });
+  }, () => module.default.fetch(request('/api/scan', { method: 'POST', body: { sport: 'baseball_mlb', markets: 'h2h' }, csrfHeader: true }), environment()));
+  const rateLimitedBody = await rateLimitedIdentity.json();
+  assert.equal(rateLimitedIdentity.status, 503);
+  assert.equal(rateLimitedBody.code, 'workflow_token_identity_rate_limited_403');
+  assert.match(rateLimitedBody.error, /temporarily rate-limited/);
+  assert.doesNotMatch(JSON.stringify(rateLimitedBody), /Do not share secrets/);
+  assert.equal(rateLimitedDispatchCalls, 0);
+
   const dispatchFailure = await withFetch(async (url, options = {}) => {
     const address = String(url);
     if (address.includes('/aegis_admin_sessions?')) return supabaseSessionResponse();
